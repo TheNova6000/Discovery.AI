@@ -18,7 +18,7 @@ services:
         sync: false
       - key: CEREBRAS_API_KEY
         sync: false
-      - key: SUPABASE_JWT_SECRET
+      - key: SUPABASE_URL
         sync: false
       - key: CORS_ORIGINS
         sync: false

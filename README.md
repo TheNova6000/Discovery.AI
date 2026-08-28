@@ -26,7 +26,7 @@ Stack: **Vercel** (static frontend) + **Render** (FastAPI backend) +
 **Supabase Auth** (Google sign-in) + **Neo4j Aura** (managed graph DB, since
 Render doesn't host Neo4j itself).
 
-All of this is additive — `SUPABASE_JWT_SECRET` unset means the backend skips
+All of this is additive — `SUPABASE_URL` unset means the backend skips
 auth entirely (`backend/api/auth.py`), and a blank `CONFIG` block in
 `frontend/index.html` means the frontend skips the login gate entirely. You're
 turning features on, not migrating off anything.
@@ -80,7 +80,7 @@ guessing required.
    | `NEO4J_USER` | `neo4j` |
    | `NEO4J_PASSWORD` | the Aura password from step 1 |
    | `GEMINI_API_KEY` / `GROQ_API_KEY` / `CEREBRAS_API_KEY` | your existing keys |
-   | `SUPABASE_JWT_SECRET` | the JWT Secret from step 3.4 |
+   | `SUPABASE_URL` | the Project URL from step 3.4 |
    | `CORS_ORIGINS` | leave blank for now — set after step 5 gives you the Vercel URL |
 3. Deploy. Note the resulting URL (`https://discovery-ai-backend-xxxx.onrender.com`).
 
