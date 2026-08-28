@@ -314,10 +314,33 @@ QUESTION (context, not a graph node — see below)
 - **Render rule (presentation, not data):** the model supports a relation-node being drawn as a compact labeled edge *or* an expandable node with its own substructure — nothing yet decides which, when. Same category of deferred decision as 0.7's tile-boundary rule; needs a real rendered example to design against, not an abstract rule now.
 - **`kind` tag consistency (a real, precedented risk, not hypothetical):** `kind` is open-ended by design (new tags like `event`/`state` can appear without a schema change), which is also exactly the shape of failure this project has already hit twice — `discovered_entity_name` and `working_framing` both required fixing prompt-level self-report inconsistency after the fact (docs/Memory.md). No mitigation designed yet; flagged now specifically so it isn't rediscovered as a surprise the way those two were.
 
-**Next session starts here, superseding 0.7's list only in step 1's framing:**
-1. Design `Node`'s (the single primitive's) minimal field set directly — no separate `Relation` schema needed per this section's finding — informed by, not designed before, one real worked example.
-2. Turn on `gather_evidence=True` and confirm `Claim`/`Source` attach cleanly using the smartphone-photo pipeline as that worked example — it's the case that broke `decomposes_into` in the first place and has now survived three independent design passes without needing a rewrite.
-3. Only then: the render rule (compact edge vs. expandable node) and the tile/zoom-boundary rule, both against a Model Graph that actually exists.
+**Superseded by 0.9 below, same day** — 0.8's next-steps list is correct in ordering; 0.9 answers step 1 directly.
+
+### 0.9 Node's minimal semantic contract (2026-08-29)
+
+**[THEORY], answering 0.8's open question directly — meaning before fields, per this session's own instruction, and grounded against real code, not designed in the abstract.**
+
+**1. What makes something a Node — the invariant.** Not "whatever the LLM decides is important." §0.1's **near-decomposability criterion** (Simon, 1962 — `[VERIFIED]` for entity discovery: a component earns its own structure when interactions *within* it are much stronger than interactions *between* it and its siblings) was scoped to entity discovery, but nothing about the criterion is entity-specific — it transfers directly to the unified `Node` primitive. Consequence, sharper than either 0.7 or 0.8 stated: **Node-hood itself is question-relative, not just a node's relations or kind.** `R = f(A, B, Q)` extends one level further than previously pushed — not only "what relationship holds between two things" but "does this even deserve to be a thing" is a function of the asking question.
+
+**2. What `kind` means.** Not intrinsic (§0.8's Payment case already ruled that out) and not merely cosmetic either, since it should shape expected edge patterns (`process`-kind nodes lean `then`/`feeds`; `entity`-kind nodes lean `contains`/`part_of`) — real enough to matter, not real enough to be permanent. Resolution: **`kind` is an annotation on the (Node, Question) pairing, not a property of the canonical Node record.** The same canonical node can be `process` under one question's Model View and `concept` under another without contradiction, because the annotation was never attached to the node itself.
+
+**3. What identifies a Node — a real, verified-against-code finding, not a hypothetical.** Checked directly: `find_or_create_entity` (`backend/graph/interface.py:117`) resolves identity by **exact case/whitespace-insensitive name match, globally, with zero context** (`MATCH (n:Node) WHERE toLower(trim(n.name)) = toLower(trim($name))`). This means the "Transmission (electric grid) vs. Transmission (telecom)" collision this session used as a thought experiment is **already the live system's actual behavior today** — not a future risk, a present, checkable gap. Two rejected fixes and the one that survives:
+   - *Scope identity globally by bare name (current behavior)* — rejected, demonstrably wrong (the homonym collision above).
+   - *Scope identity per-question* — rejected: recreates exactly the "per-viewer dynamic copy" anti-pattern §0's original research already ruled out via Palantir Ontology's precedent, and would stop the graph from ever accumulating cross-question knowledge about the same real thing — defeating the entire point of a canonical graph.
+   - **Scope identity by (name, nearest discovery-time abstraction ancestor)** — narrower than global, broader than per-question. The graph already has abstraction nodes structurally; this makes an existing lookup context-aware instead of context-blind, rather than inventing a new mechanism. This is standard **entity linking / word-sense disambiguation** territory in knowledge-graph construction — real, well-studied precedent to read closely if this becomes load-bearing, not adopted wholesale now.
+
+**4. What a Node conceptually holds — categories, not a field list:**
+   - A **canonical referent identity**, scoped per (3).
+   - Zero or more **per-question interpretive annotations** (`kind` included) — and this is not a new mechanism: `Question.dimension_name` / `GroundDecision.working_framing` (`backend/questions/models.py`) are an **already-`[VERIFIED]`** version of exactly this pattern (question-scoped interpretive metadata), currently attached only to Questions. Extending it to Nodes reuses a proven mechanism rather than inventing a parallel one.
+   - An **investigation-status marker** (0.7's `explored`/`partially_explored`/`unexplored`) — a property of the canonical node itself, not question-scoped, since "how much is known about this" accumulates across every question that has ever touched it.
+   - Its **participating edges** — always structural (real graph relationships), never a field stored on the node.
+
+**Named, not solved, per this section's own discipline:** the entity-linking scope rule in (3) is a direction, not an algorithm — "nearest discovery-time abstraction ancestor" needs a real multi-question worked example (not yet run) to confirm it actually disambiguates correctly rather than just plausibly. 0.8's two open items (render rule, `kind`-drift risk) are unaffected by this section and remain open.
+
+**Next session starts here:**
+1. Run one real worked example where the *same* canonical node is legitimately discovered under two different abstraction ancestors with the same name (a constructed "Transmission" test, mirroring the thought experiment that motivated (3)) — confirm the scoped-identity rule actually separates them before trusting it further.
+2. Turn on `gather_evidence=True`, confirm `Claim`/`Source` attach cleanly to a `Node`, using the smartphone-photo pipeline — still the standing next code-adjacent step, unchanged since 0.7.
+3. Only then: schema.
 
 ## 1. Consolidated stack
 
