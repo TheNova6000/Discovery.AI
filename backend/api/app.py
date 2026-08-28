@@ -63,7 +63,13 @@ async def _sync_decomposition(session: SessionState, entity_name: str) -> None:
 
 
 async def _run_investigation(session: SessionState, question: Question) -> str:
-    agent = GroundAgent(question, persist_to_graph=True, max_depth=DEMO_MAX_DEPTH, max_sequential_steps=DEMO_MAX_STEPS)
+    agent = GroundAgent(
+        question,
+        persist_to_graph=True,
+        gather_evidence=True,
+        max_depth=DEMO_MAX_DEPTH,
+        max_sequential_steps=DEMO_MAX_STEPS,
+    )
     result = await agent.run()
     await _sync_decomposition(session, question.entity_name)
     session.current_entity = question.entity_name

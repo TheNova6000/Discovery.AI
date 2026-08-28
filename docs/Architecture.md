@@ -370,10 +370,20 @@ QUESTION (context, not a graph node — see below)
 **Net verdict: the evidence chain passes.** Two of its three hard parts are already solved by existing, verified code (provenance tooling; generic node-question-claim attachment); the third (direct vs. structural attachment) resolves by *not* building what was originally sketched. Per the user's own framing: this doesn't mean the architecture is finished — the §0.10 top-level-collision gap and the scope-hint requirement are still open — it means the specific thing being tested is no longer a blocker, and what's left are two named, scoped tasks rather than open questions.
 
 **Next session starts here, now genuinely schema-adjacent:**
-1. Turn on `gather_evidence=True` in `app.py`'s `_run_investigation` and confirm a real `Claim`/`Source` attaches to a real `Node` end-to-end (the smartphone-photo pipeline) — the one item on this list that's pure wiring of already-verified pieces, no new design.
-2. Re-point `trace_claim`/`audit_synthesis` at Neo4j `Node`/`Claim` structure instead of `AgentState` — an adaptation of proven tooling, scoped by (3) above.
+1. ~~Turn on `gather_evidence=True`...~~ **[DONE — see 0.12.]**
+2. Re-point `trace_claim`/`audit_synthesis` at Neo4j `Node`/`Claim` structure instead of `AgentState` — an adaptation of proven tooling.
 3. Design the scope-hint mechanism from §0.10 criterion 4 (an addition to `Intent` in `backend/questions/intent.py`).
-4. Only then: the actual `Node` schema — by this point informed by five real, evidence-grounded design passes (0.6-0.11) rather than designed from a standing start.
+4. Only then: the actual `Node` schema — by this point informed by six real, evidence-grounded design passes (0.6-0.12) rather than designed from a standing start.
+
+### 0.12 Punch-list Pass 1 — evidence wiring, verified end-to-end (2026-08-29)
+
+**[VERIFIED].** `gather_evidence=True` added to `app.py`'s `_run_investigation` (already had `persist_to_graph=True`) — the entire attachment mechanism (`GroundAgent._finish`, `backend/agents/ground_agent.py:346-364`) was already built and required zero other changes, confirming 0.6's original finding that this was wiring, not design.
+
+**Real run** (smartphone-photo pipeline + earlier PayPal-session content already in the shared VM graph), verified by querying Neo4j directly, not by trusting the chat reply: **84 real `Claim` nodes**, reachable via the already-existing `Node -[HAS_QUESTION]-> Question -[ANSWERED_BY]-> Claim` path (§0.11's finding holding up under a real run, not just a trace), each carrying a genuine `source_url` (arXiv papers, Wikipedia articles) — the full `Question → Node → Claim → Source` chain is real and queryable today, not hypothetical.
+
+**A genuine quality finding, not a wiring failure:** for a business/technical question ("PayPal's payment authorization microservices"), arXiv's keyword search returned top hits about CMS/LHCb particle decay and the ATLAS detector — completely irrelevant. But checking `Claim.confidence` directly showed **the synthesis step already catches this correctly**: those irrelevant claims scored `confidence: 0.0` (evidence text honestly states "the provided resource does not contain any information about..."), while genuinely relevant sources retrieved for payment-adjacent questions scored `0.8`-`0.85` ("Smart Contracts, Smarter Payments," "Cross-border Exchange of CBDCs using Layer-2 Blockchain," "SoK: Stablecoins in Retail Payments"). **The confidence signal is trustworthy; nothing currently acts on it** — every claim gets attached regardless of score. This is a small, precisely-scoped follow-up (filter or threshold at attach-time or at render-time), not evidence the evidence system doesn't work.
+
+**Not yet done, deliberately out of scope for Pass 1 per the punch-list's own "don't combine passes" instruction:** no UI renders any of this yet (sources aren't visible anywhere in `frontend/app.html`); no confidence filtering; `trace_claim`/`audit_synthesis` still read `AgentState`, not this new Neo4j structure (Pass 2).
 
 ## 1. Consolidated stack
 
