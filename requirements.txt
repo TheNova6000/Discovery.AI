@@ -12,8 +12,19 @@ aiosqlite>=0.20,<0.22
 # 3.9-compatible release, 0.6.x, instead. Verified compatible: StateGraph/START/
 # END/add_node/add_edge/compile/ainvoke and AsyncSqliteSaver's import path are the
 # same across both — see docs/Memory.md.
-langgraph>=0.6,<2
-langgraph-checkpoint-sqlite>=1.0,<4
+# Pinned EXACTLY (not a range) — these two version numbers are what's actually
+# verified working end-to-end with GroundAgent's StateGraph/checkpointer usage.
+# The old ">=0.6,<2" / ">=1.0,<4" ranges relied on an accident: the VM's Python
+# 3.9 forces pip to resolve langgraph down into the 0.6.x line on its own
+# (langgraph>=1.0 requires Python>=3.10), so the range never actually got
+# exercised above 0.6.x there. Deploying to a host running a newer Python (e.g.
+# Render defaulting to the latest available) let that same range resolve to
+# langgraph 1.2.x instead — a major version with a different internal API —
+# which is what broke /chat in production while /graph and /sessions (no
+# LangGraph involved) kept working fine. Exact pins make this Python-version-
+# independent instead of relying on that coincidence again.
+langgraph==0.6.11
+langgraph-checkpoint-sqlite==2.0.11
 instructor>=1.7,<2
 # instructor's Gemini structured-output path (instructor/v2/providers/gemini/utils.py)
 # imports jsonref directly and raises ConfigurationError without it — a real, silent
