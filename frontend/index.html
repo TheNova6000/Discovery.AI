@@ -493,9 +493,9 @@
 // have a Supabase project and a deployed backend — see README.md for the
 // full runbook.
 const CONFIG = {
-  SUPABASE_URL: '',       // e.g. 'https://xxxxxxxx.supabase.co'
-  SUPABASE_ANON_KEY: '',  // Supabase project -> Settings -> API -> anon public key
-  BACKEND_URL: '',        // e.g. 'https://discovery-ai.onrender.com' (leave blank if same-origin)
+  SUPABASE_URL: 'https://etamqvymleodnacznmnj.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0YW1xdnltbGVvZG5hY3pubW5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4OTQyMzQsImV4cCI6MjEwMzQ3MDIzNH0.WA0IH9Ug5QP4ZzrJ0-Xe5jvqRS2bp16cTmrNvRrTG3M',
+  BACKEND_URL: 'https://discovery-ai-bosm.onrender.com',
 };
 const AUTH_ENABLED = !!(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY);
 const supabaseClient = AUTH_ENABLED ? window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY) : null;
