@@ -5,7 +5,7 @@ import pathlib
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.agents import GroundAgent
 from backend.graph import explain_entity, find_or_create_entity, get_decomposition
@@ -217,11 +217,6 @@ _HANDLERS = {
 }
 
 
-@app.get("/")
-async def index() -> FileResponse:
-    return FileResponse(FRONTEND_DIR / "index.html")
-
-
 @app.get("/graph")
 async def get_graph(user_id: str = Depends(get_current_user_id)) -> dict:
     return get_store(user_id).current().to_payload()
@@ -282,3 +277,13 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)) ->
             reply = f"Something went wrong investigating that: {exc}"
     session.add_message("agent", reply, intent_action=intent.action)
     return ChatResponse(reply=reply, intent_action=intent.action, graph=session.to_payload())
+
+
+# Serves the whole frontend/ directory (index.html landing page, app.html the
+# actual tool) — html=True makes "/" resolve to index.html the same way static
+# hosts like Vercel do. Registered LAST and deliberately: a mount at "/" would
+# otherwise match every path as a prefix and swallow the API routes above it
+# if it were registered first, since Starlette checks routes in registration
+# order. This replaces the old single hardcoded FileResponse("/") route now
+# that there's more than one page to serve.
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

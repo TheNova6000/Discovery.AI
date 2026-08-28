@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <title>discovery.Ai — construct a model of anything</title>
+<meta name="description" content="Ask a question. Watch the system recursively investigate it and build a live graph of what it explored — not a finished answer, a trace of real reasoning." />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -18,16 +19,15 @@
     --font-mono: "JetBrains Mono", ui-monospace, Menlo, "Courier New", monospace;
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
+  html { scroll-behavior: smooth; }
+  html, body { margin: 0; }
   ::selection { background: #fff; color: #000; }
   body {
     font-family: var(--font-mono);
     background: var(--bg);
     color: var(--text);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
     position: relative;
+    overflow-x: hidden;
   }
 
   /* ---------- ambient background: monochrome drifting glow + fine grid ---------- */
@@ -48,13 +48,7 @@
     background-size: 42px 42px;
     mask-image: radial-gradient(ellipse 90% 70% at 50% 20%, black 40%, transparent 100%);
   }
-  .blob {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(100px);
-    background: #ffffff;
-    will-change: transform;
-  }
+  .blob { position: absolute; border-radius: 50%; filter: blur(100px); background: #fff; will-change: transform; }
   .blob.b1 { width: 520px; height: 520px; top: -200px; left: -140px; opacity: 0.06; animation: drift1 26s ease-in-out infinite; }
   .blob.b2 { width: 460px; height: 460px; bottom: -220px; right: -120px; opacity: 0.05; animation: drift2 32s ease-in-out infinite; }
   .blob.b3 { width: 320px; height: 320px; top: 40%; left: 45%; opacity: 0.035; animation: drift3 38s ease-in-out infinite; }
@@ -63,12 +57,11 @@
   @keyframes drift3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-40px, 30px) scale(1.15); } }
 
   /* ---------- HUD corner-bracket motif (monochrome) ---------- */
-  .corner { position: absolute; width: 16px; height: 16px; pointer-events: none; z-index: 5; }
+  .corner { position: absolute; width: 16px; height: 16px; pointer-events: none; }
   .corner.tl { top: 0; left: 0; border-top: 2px solid var(--border-strong); border-left: 2px solid var(--border-strong); }
   .corner.tr { top: 0; right: 0; border-top: 2px solid var(--border-strong); border-right: 2px solid var(--border-strong); }
   .corner.bl { bottom: 0; left: 0; border-bottom: 2px solid var(--border-strong); border-left: 2px solid var(--border-strong); }
   .corner.br { bottom: 0; right: 0; border-bottom: 2px solid var(--border-strong); border-right: 2px solid var(--border-strong); }
-  .corner.sm { width: 10px; height: 10px; }
   .page-corner { position: fixed; width: 34px; height: 34px; pointer-events: none; z-index: 40; opacity: 0.3; }
   .page-corner.tl { top: 0; left: 0; border-top: 2px solid #fff; border-left: 2px solid #fff; }
   .page-corner.tr { top: 0; right: 0; border-top: 2px solid #fff; border-right: 2px solid #fff; }
@@ -79,30 +72,36 @@
   .section-label {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.14em;
+    font-size: 11px;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--muted);
-    opacity: 0.8;
-    white-space: nowrap;
+    opacity: 0.85;
   }
-  .section-label::before { content: "//"; color: rgba(255,255,255,0.8); }
   .section-label .line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--border-strong), transparent); }
+  .section-label.center { justify-content: center; }
+  .section-label.center .line { max-width: 70px; }
+  .section-label.center .line.left { background: linear-gradient(270deg, var(--border-strong), transparent); }
 
   header, main, footer { position: relative; z-index: 1; }
 
+  /* ---------- nav ---------- */
   header {
-    padding: 14px 22px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: 16px 28px;
     border-bottom: 1px solid var(--border);
     display: flex;
-    align-items: baseline;
-    gap: 14px;
-    background: rgba(255,255,255,0.01);
+    align-items: center;
+    gap: 28px;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(10px);
   }
   header h1 {
-    font-size: 17px;
+    font-size: 18px;
     margin: 0;
     font-weight: 700;
     font-style: italic;
@@ -111,274 +110,171 @@
     display: inline-block;
     color: #fff;
   }
-  header .tag {
-    font-family: var(--font-mono);
-    font-size: 10px;
+  header a.logo-link { text-decoration: none; }
+  nav.main-nav { display: flex; gap: 26px; margin-left: 8px; }
+  nav.main-nav a {
     color: var(--muted);
-    letter-spacing: 0.1em;
-    padding-left: 14px;
-    border-left: 1px solid var(--border);
-  }
-  header .sub { color: var(--muted); font-size: 12.5px; font-family: var(--font-mono); }
-  header .status {
-    margin-left: auto;
+    text-decoration: none;
     font-size: 11.5px;
-    color: var(--muted);
-    font-family: var(--font-mono);
-    display: flex;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    transition: color 0.15s ease;
+  }
+  nav.main-nav a:hover { color: #fff; }
+  .nav-cta {
+    margin-left: auto;
+    display: inline-flex;
     align-items: center;
-    gap: 7px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-  .status-dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: #fff;
-    animation: pulse-idle 2.4s ease-in-out infinite;
-  }
-  .status-dot.busy { animation: pulse-busy 0.8s ease-in-out infinite; }
-  @keyframes pulse-idle { 0%,100% { opacity: 0.35; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
-  @keyframes pulse-busy { 0%,100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.3); } }
-
-  main {
-    flex: 1;
-    display: grid;
-    grid-template-columns: 200px minmax(340px, 440px) 1fr;
-    min-height: 0;
-  }
-
-  /* ---------- session rail ---------- */
-  #session-rail {
-    display: flex;
-    flex-direction: column;
-    border-right: 1px solid var(--border);
-    min-height: 0;
-    padding: 14px 10px;
-  }
-  #new-chat-btn {
-    position: relative;
-    background: transparent;
-    border: 1px solid #fff;
-    color: #fff;
-    padding: 9px 11px;
-    border-radius: 0;
-    font-size: 12px;
-    font-family: var(--font-mono);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    cursor: pointer;
-    text-align: left;
-    margin-bottom: 12px;
-    transition: background 0.15s ease, color 0.15s ease;
-  }
-  #new-chat-btn:hover { background: #fff; color: #000; }
-  .btn-corner { position: absolute; width: 7px; height: 7px; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; }
-  .btn-corner.tl { top: -4px; left: -4px; border-top: 2px solid #fff; border-left: 2px solid #fff; }
-  .btn-corner.br { bottom: -4px; right: -4px; border-bottom: 2px solid #fff; border-right: 2px solid #fff; }
-  #new-chat-btn:hover .btn-corner, #composer button:hover:not(:disabled) .btn-corner { opacity: 1; }
-  #session-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
-  .session-item {
-    padding: 8px 9px;
-    border-radius: 0;
-    font-size: 12px;
-    color: var(--muted);
-    cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    border: 1px solid transparent;
-    border-left: 2px solid transparent;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-  }
-  .session-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
-  .session-item.current {
-    background: rgba(255,255,255,0.08);
-    color: #fff;
-    border-left-color: #fff;
-  }
-
-  /* ---------- chat panel ---------- */
-  #chat-panel {
-    display: flex;
-    flex-direction: column;
-    border-right: 1px solid var(--border);
-    min-height: 0;
-  }
-  #messages {
-    flex: 1;
-    overflow-y: auto;
-    padding: 18px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 11px;
-  }
-  #messages::-webkit-scrollbar, #session-list::-webkit-scrollbar { width: 8px; }
-  #messages::-webkit-scrollbar-thumb, #session-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); }
-
-  .msg {
-    max-width: 92%;
-    padding: 11px 14px;
-    border-radius: 0;
-    font-size: 13px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    animation: msg-in 0.32s cubic-bezier(0.2, 0.7, 0.3, 1) both;
-  }
-  @keyframes msg-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-  .msg.user {
-    align-self: flex-end;
+    gap: 8px;
     background: #fff;
     color: #000;
-    font-weight: 500;
-    border: none;
-  }
-  .msg.agent {
-    align-self: flex-start;
-    background: #000;
-    border: 1px solid var(--border);
-    color: #fff;
-  }
-  .msg.intent-tag {
-    font-size: 10px;
-    color: var(--muted);
-    margin-bottom: 5px;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-family: var(--font-mono);
-    font-weight: 600;
-  }
-  .msg.user .intent-tag { color: rgba(0,0,0,0.55); }
-  .msg.typing {
-    align-self: flex-start;
-    background: #000;
-    border: 1px solid var(--border);
-    padding: 13px 16px;
-    font-family: var(--font-mono);
+    text-decoration: none;
+    padding: 9px 18px;
     font-size: 11.5px;
+    font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--muted);
+    border: 1px solid #fff;
+    transition: background 0.15s ease, color 0.15s ease;
   }
-  .cursor-blink { display: inline-block; margin-left: 2px; color: #fff; animation: cursor-blink 0.9s steps(1) infinite; }
-  @keyframes cursor-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+  .nav-cta:hover { background: #000; color: #fff; }
 
-  #composer { display: flex; gap: 9px; padding: 15px; border-top: 1px solid var(--border); }
-  #composer input {
-    flex: 1;
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 11px 13px;
-    border-radius: 0;
-    font-size: 13px;
+  /* ---------- hero ---------- */
+  .hero {
+    position: relative;
+    min-height: calc(100vh - 65px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 40px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .hero .eyebrow { display: flex; align-items: center; gap: 10px; margin-bottom: 26px; opacity: 0.7; }
+  .hero .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: #fff; box-shadow: 0 0 8px #fff; animation: pulse-idle 2.4s ease-in-out infinite; }
+  .hero .eyebrow span { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+  @keyframes pulse-idle { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+  .hero h2 {
+    font-size: clamp(34px, 6vw, 68px);
+    line-height: 1.08;
+    margin: 0 0 22px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    max-width: 900px;
+  }
+  .hero h2 em { font-style: italic; }
+  .hero p.lede {
+    max-width: 560px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.7;
+    margin: 0 0 36px;
+  }
+  .hero .cta-row { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+  .btn-primary, .btn-secondary {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 13px 26px;
     font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .btn-primary { background: #fff; color: #000; border: 1px solid #fff; }
+  .btn-primary:hover { background: #000; color: #fff; }
+  .btn-secondary { background: transparent; color: var(--muted); border: 1px solid var(--border-strong); }
+  .btn-secondary:hover { color: #fff; border-color: #fff; }
+  .hero .scroll-hint {
+    position: absolute;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    animation: bob 2s ease-in-out infinite;
+  }
+  @keyframes bob { 0%,100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 6px); } }
+
+  /* ---------- shared section chrome ---------- */
+  section.block { position: relative; padding: 90px 28px; border-bottom: 1px solid var(--border); }
+  section.block .inner { max-width: 1080px; margin: 0 auto; }
+  section.block h3.title { font-size: clamp(24px, 3.4vw, 36px); letter-spacing: 0.02em; margin: 18px 0 20px; font-weight: 700; }
+  section.block .center-title { text-align: center; margin-bottom: 56px; }
+
+  /* ---------- about ---------- */
+  #about .about-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 56px; align-items: start; }
+  #about .about-grid > div { min-width: 0; }
+  #about p { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 0 18px; }
+  #about .stat-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 32px; }
+  #about .stat { border-left: 1px solid var(--border-strong); padding-left: 16px; }
+  #about .stat .num { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+  #about .stat .label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted-2); }
+  #about .diagram {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(255,255,255,0.05), transparent 70%);
+  }
+  #about .diagram .ring { position: absolute; border: 1px solid var(--border-strong); border-radius: 50%; }
+  #about .diagram .ring.r1 { width: 55%; height: 55%; animation: spin1 40s linear infinite; }
+  #about .diagram .ring.r2 { width: 78%; height: 78%; border-style: dashed; opacity: 0.5; animation: spin2 60s linear infinite reverse; }
+  #about .diagram .core { width: 34%; height: 34%; border: 2px solid #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; letter-spacing: 0.08em; text-align: center; padding: 10px; background: #000; z-index: 2; }
+  #about .diagram .node { position: absolute; width: 8px; height: 8px; background: #fff; border-radius: 50%; box-shadow: 0 0 8px #fff; }
+  @keyframes spin1 { to { transform: rotate(360deg); } }
+  @keyframes spin2 { to { transform: rotate(360deg); } }
+
+  /* ---------- features ---------- */
+  #features { background: rgba(255,255,255,0.015); }
+  .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .feature-card {
+    position: relative;
+    min-width: 0;
+    background: #000;
+    border: 1px solid var(--border);
+    padding: 28px 24px;
     transition: border-color 0.2s ease;
   }
-  #composer input:focus { outline: none; border-color: #fff; }
-  #composer input::placeholder { color: var(--muted-2); }
-  #composer button {
-    position: relative;
-    background: #fff;
-    color: #000;
-    border: 1px solid #fff;
-    padding: 11px 20px;
-    border-radius: 0;
-    font-weight: 700;
-    cursor: pointer;
-    font-size: 12px;
-    font-family: var(--font-mono);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    transition: background 0.15s ease, color 0.15s ease;
-  }
-  #composer button:hover:not(:disabled) { background: #000; color: #fff; }
-  #composer button .btn-corner.tl, #composer button .btn-corner.br { border-color: #fff; }
-  #composer button:disabled { opacity: 0.35; cursor: default; }
+  .feature-card:hover { border-color: var(--border-strong); }
+  .feature-card .tag { font-size: 10px; color: var(--muted-2); letter-spacing: 0.08em; margin-bottom: 14px; }
+  .feature-card h4 { font-size: 15px; margin: 0 0 10px; letter-spacing: 0.04em; }
+  .feature-card p { font-size: 12.5px; color: var(--muted); line-height: 1.65; margin: 0; }
 
-  /* ---------- graph playground ---------- */
-  #graph-panel { position: relative; min-height: 0; background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,255,255,0.035), transparent 60%); }
-  #cy {
-    width: 100%;
-    height: 100%;
-    background-image: radial-gradient(rgba(255,255,255,0.1) 1px, transparent 1px);
-    background-size: 26px 26px;
-    background-position: -13px -13px;
-  }
-  #graph-meta {
-    position: absolute;
-    top: 14px;
-    left: 14px;
-    background: rgba(0,0,0,0.85);
-    border: 1px solid var(--border);
-    border-radius: 0;
-    padding: 12px 15px;
-    font-size: 12px;
-    color: var(--muted);
-    max-width: 320px;
-  }
-  #graph-meta b { color: #fff; font-weight: 600; }
-  .graph-meta-title {
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    color: #fff;
-    margin-bottom: 3px;
-    font-family: var(--font-mono);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .graph-meta-title::before {
-    content: "";
-    display: inline-block;
-    width: 6px; height: 6px;
-    background: #fff;
-    border-radius: 50%;
-  }
-  .graph-meta-title::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(255,255,255,0.35), transparent); }
-  .graph-meta-caption { font-size: 11px; color: var(--muted); margin-bottom: 9px; font-style: italic; opacity: 0.85; }
-  #graph-meta .meta-row { margin-top: 3px; font-family: var(--font-mono); font-size: 11.5px; }
+  /* ---------- how it works ---------- */
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .step { min-width: 0; border-top: 1px solid var(--border-strong); padding-top: 16px; }
+  .step .n { font-size: 26px; font-weight: 700; opacity: 0.3; margin-bottom: 10px; }
+  .step h5 { font-size: 13px; margin: 0 0 8px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .step p { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 0; }
 
-  #graph-hint {
-    position: absolute;
-    bottom: 14px;
-    right: 16px;
-    font-size: 10.5px;
-    color: var(--muted-2);
-    font-family: var(--font-mono);
-    letter-spacing: 0.04em;
-    pointer-events: none;
-  }
+  /* ---------- final cta ---------- */
+  #cta { text-align: center; padding: 110px 28px; }
+  #cta h3 { font-size: clamp(28px, 5vw, 50px); margin: 0 0 16px; letter-spacing: 0.02em; }
+  #cta p { color: var(--muted); font-size: 13px; margin: 0 0 36px; }
 
-  .examples { padding: 0 16px 14px; font-family: var(--font-mono); }
-  .examples.hidden { display: none; }
-  .example-chips { display: flex; flex-wrap: wrap; gap: 7px; }
-  .example-chips span {
-    display: inline-block;
-    padding: 6px 10px;
-    font-size: 11px;
-    color: var(--muted);
-    border: 1px solid var(--border);
-    cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-  }
-  .example-chips span:hover { background: #fff; color: #000; border-color: #fff; }
-
-  /* ---------- footer status bar ---------- */
+  /* ---------- footer ---------- */
   footer {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 6px 18px;
-    border-top: 1px solid var(--border);
+    padding: 14px 28px;
     font-family: var(--font-mono);
     font-size: 9.5px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--muted);
     background: rgba(255,255,255,0.015);
-    flex-shrink: 0;
   }
   footer .dots { display: flex; gap: 4px; align-items: center; }
   footer .dots span { width: 4px; height: 4px; border-radius: 50%; background: #fff; opacity: 0.3; animation: footer-pulse 1.6s ease-in-out infinite; }
@@ -386,476 +282,153 @@
   footer .dots span:nth-child(3) { animation-delay: 0.4s; }
   @keyframes footer-pulse { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
 
-  /* ---------- auth gate (only shown when CONFIG.SUPABASE_URL is set) ---------- */
-  #auth-gate {
-    position: fixed;
-    inset: 0;
-    z-index: 100;
-    background: #000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  @media (max-width: 860px) {
+    nav.main-nav { display: none; }
+    #about .about-grid { grid-template-columns: 1fr; }
+    .feature-grid { grid-template-columns: 1fr; }
+    .steps { grid-template-columns: 1fr 1fr; }
   }
-  #auth-gate.hidden { display: none; }
-  #auth-gate-box { position: relative; border: 1px solid var(--border-strong); padding: 40px 44px; text-align: center; max-width: 360px; }
-  #auth-gate-box h2 { font-size: 15px; letter-spacing: 0.14em; margin: 0 0 8px; font-style: italic; transform: skewX(-8deg); }
-  #auth-gate-box p { font-size: 11.5px; color: var(--muted); margin: 0 0 24px; line-height: 1.6; }
-  #google-signin-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    background: #fff;
-    color: #000;
-    border: 1px solid #fff;
-    padding: 11px 22px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
-  }
-  #google-signin-btn:hover { background: #000; color: #fff; box-shadow: inset 0 0 0 1px #fff; }
-  header .user-box { display: flex; align-items: center; gap: 10px; margin-left: 16px; padding-left: 16px; border-left: 1px solid var(--border); }
-  header .user-email { font-size: 11px; color: var(--muted); }
-  header .signout-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 8px; cursor: pointer; transition: border-color 0.15s ease, color 0.15s ease; }
-  header .signout-btn:hover { border-color: #fff; color: #fff; }
 </style>
 </head>
 <body>
 <div class="bg-layer"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
 <div class="page-corner tl"></div><div class="page-corner tr"></div><div class="page-corner bl"></div><div class="page-corner br"></div>
+
 <header>
-  <h1>discovery.Ai</h1>
-  <span class="tag">EST. 2026</span>
-  <div class="sub">construct a model of what you're trying to understand — through conversation</div>
-  <div class="status"><span class="status-dot" id="status-dot"></span><span id="status">ready</span></div>
-  <div class="user-box" id="user-box" style="display:none">
-    <span class="user-email" id="user-email"></span>
-    <button class="signout-btn" id="signout-btn">Sign out</button>
-  </div>
+  <a class="logo-link" href="index.html"><h1>discovery.Ai</h1></a>
+  <nav class="main-nav">
+    <a href="#about">About</a>
+    <a href="#features">Features</a>
+    <a href="#how">How it works</a>
+  </nav>
+  <a class="nav-cta" href="app.html">Launch App →</a>
 </header>
-<div id="auth-gate" class="hidden">
-  <div id="auth-gate-box">
-    <div class="corner tl sm"></div><div class="corner tr sm"></div><div class="corner bl sm"></div><div class="corner br sm"></div>
-    <h2>AUTHENTICATION REQUIRED</h2>
-    <p>Sign in to start building your own investigation graphs.</p>
-    <button id="google-signin-btn">Sign in with Google</button>
-  </div>
-</div>
+
 <main>
-  <div id="session-rail">
-    <button id="new-chat-btn" onclick="newChat()">+ New chat<span class="btn-corner tl"></span><span class="btn-corner br"></span></button>
-    <div id="session-list"></div>
-  </div>
-  <div id="chat-panel">
-    <div id="messages"></div>
-    <div class="examples" id="examples">
-      <div class="section-label" style="margin-bottom:8px"><span>try</span><span class="line"></span></div>
-      <div class="example-chips">
-        <span onclick="sendExample('How does payment work?')">How does payment work?</span>
-        <span onclick="sendExample('Go deeper into PayPal')">Go deeper into PayPal</span>
-        <span onclick="sendExample('Compare PayPal and Mastercard')">Compare PayPal and Mastercard</span>
-        <span onclick="sendExample('Look at this economically')">Look at this economically</span>
+  <section class="hero">
+    <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+    <div class="eyebrow"><span class="dot"></span><span>Recursive investigation, live</span></div>
+    <h2>Construct a model of<br><em>anything</em> — through conversation.</h2>
+    <p class="lede">Ask a question. The system recursively decomposes it, investigates each
+      piece with real reasoning, and builds a live graph of what it explored —
+      not a finished answer handed to you, a trace of how it actually got there.</p>
+    <div class="cta-row">
+      <a class="btn-primary" href="app.html">Launch App →</a>
+      <a class="btn-secondary" href="#about">See how it works</a>
+    </div>
+    <div class="scroll-hint">scroll ↓</div>
+  </section>
+
+  <section class="block" id="about">
+    <div class="inner">
+      <div class="section-label"><span>01 // about</span><span class="line"></span></div>
+      <div class="about-grid">
+        <div>
+          <h3 class="title">An investigation graph, not a knowledge base</h3>
+          <p>Most tools that answer questions give you a paragraph and hide the
+            work. Discovery.Ai does the opposite: every question gets recursively
+            broken into sub-questions, each one investigated on its own, and the
+            whole process is rendered as a graph you can navigate.</p>
+          <p>Zoom into any node to see what's actually known about it. Go deeper
+            to trigger a fresh investigation. Switch lenses — economic,
+            technical, historical — and watch the same entity get re-explored
+            through a different frame entirely.</p>
+          <p>It's deliberately honest about what it is: a trace of how the
+            system explored a subject, not a claim that the subject is now
+            fully modeled. The graph grows exactly as far as you push it.</p>
+          <div class="stat-row">
+            <div class="stat"><div class="num">Recursive</div><div class="label">Question decomposition</div></div>
+            <div class="stat"><div class="num">Live</div><div class="label">Graph playground</div></div>
+          </div>
+        </div>
+        <div class="diagram">
+          <div class="ring r2"></div>
+          <div class="ring r1"></div>
+          <div class="node" style="top: 8%; left: 50%;"></div>
+          <div class="node" style="top: 50%; left: 92%;"></div>
+          <div class="node" style="top: 88%; left: 30%;"></div>
+          <div class="node" style="top: 30%; left: 6%;"></div>
+          <div class="core">INVESTIGATION<br>TRACE</div>
+        </div>
       </div>
     </div>
-    <div id="composer">
-      <input id="input" type="text" placeholder="What do you want to understand?" autocomplete="off" />
-      <button id="send">Ask<span class="btn-corner tl"></span><span class="btn-corner br"></span></button>
+  </section>
+
+  <section class="block" id="features">
+    <div class="inner">
+      <div class="section-label center"><span class="line left"></span><span>02 // capabilities</span><span class="line"></span></div>
+      <h3 class="title center-title" style="text-align:center">What the system actually does</h3>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="corner tl"></div><div class="corner br"></div>
+          <div class="tag">[ 01 ]</div>
+          <h4>Recursive investigation</h4>
+          <p>Every question decomposes into sub-questions, answered independently
+            and synthesized back up — not a single flat LLM call.</p>
+        </div>
+        <div class="feature-card">
+          <div class="corner tl"></div><div class="corner br"></div>
+          <div class="tag">[ 02 ]</div>
+          <h4>Live graph playground</h4>
+          <p>Watch the graph build in real time. Focus, siblings, and parents
+            are all visually distinct — you always know what you're looking at.</p>
+        </div>
+        <div class="feature-card">
+          <div class="corner tl"></div><div class="corner br"></div>
+          <div class="tag">[ 03 ]</div>
+          <h4>Switchable lenses</h4>
+          <p>Re-investigate the same entity through an economic, technical, or
+            any other named dimension — the system re-frames, not just re-reads.</p>
+        </div>
+        <div class="feature-card">
+          <div class="corner tl"></div><div class="corner br"></div>
+          <div class="tag">[ 04 ]</div>
+          <h4>Session history</h4>
+          <p>Every conversation is kept, switchable from the side rail — nothing
+            is silently overwritten when you start something new.</p>
+        </div>
+        <div class="feature-card">
+          <div class="corner tl"></div><div class="corner br"></div>
+          <div class="tag">[ 05 ]</div>
+          <h4>Google sign-in</h4>
+          <p>Your investigations are yours — sign in with Google and every
+            graph and session is scoped privately to your account.</p>
+        </div>
+        <div class="feature-card">
+          <div class="corner tl"></div><div class="corner br"></div>
+          <div class="tag">[ 06 ]</div>
+          <h4>Honest provenance</h4>
+          <p>Ask "why is this here" on any entity and see exactly which
+            question surfaced it — the graph never hides its own reasoning.</p>
+        </div>
+      </div>
     </div>
-  </div>
-  <div id="graph-panel">
-    <div id="cy"></div>
-    <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
-    <div id="graph-meta">
-      <div class="corner tl sm"></div><div class="corner tr sm"></div><div class="corner bl sm"></div><div class="corner br sm"></div>
-      <div class="graph-meta-title">INVESTIGATION TRACE</div>
-      <div class="graph-meta-caption">how the system explored this — not a finished model of the subject</div>
-      <div class="meta-row"><b>Focus:</b> <span id="meta-entity">—</span></div>
-      <div class="meta-row"><b>Abstraction:</b> <span id="meta-abstraction">—</span></div>
-      <div class="meta-row"><b>Lens:</b> <span id="meta-dimension">none (default framing)</span></div>
+  </section>
+
+  <section class="block" id="how">
+    <div class="inner">
+      <div class="section-label"><span>03 // how it works</span><span class="line"></span></div>
+      <h3 class="title">From question to graph</h3>
+      <div class="steps">
+        <div class="step"><div class="n">01</div><h5>Ask</h5><p>Type any question — as broad or specific as you like.</p></div>
+        <div class="step"><div class="n">02</div><h5>Decompose</h5><p>The system breaks it into independently investigable pieces.</p></div>
+        <div class="step"><div class="n">03</div><h5>Investigate</h5><p>Each piece gets its own reasoning pass and, where useful, its own graph node.</p></div>
+        <div class="step"><div class="n">04</div><h5>Navigate</h5><p>Zoom, go deeper, switch lenses, or compare — the graph is yours to explore.</p></div>
+      </div>
     </div>
-    <div id="graph-hint">scroll to zoom · drag to pan · click a node to focus</div>
-  </div>
+  </section>
+
+  <section id="cta">
+    <div class="section-label center" style="margin-bottom:24px"><span class="line left"></span><span>ready</span><span class="line"></span></div>
+    <h3>Start investigating.</h3>
+    <p>Sign in with Google and ask your first question.</p>
+    <a class="btn-primary" href="app.html">Launch App →</a>
+  </section>
 </main>
+
 <footer>
   <div class="dots"><span></span><span></span><span></span></div>
-  <div>DISCOVERY.AI · SESSION ACTIVE</div>
+  <div>DISCOVERY.AI · WEBSITE</div>
 </footer>
-
-<script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>
-// ---------- deployment config ----------
-// Leave every field blank to run exactly as before: no login, frontend and
-// backend on the same origin (the local/VM demo). Fill these in only once you
-// have a Supabase project and a deployed backend — see README.md for the
-// full runbook.
-const CONFIG = {
-  SUPABASE_URL: 'https://etamqvymleodnacznmnj.supabase.co',
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0YW1xdnltbGVvZG5hY3pubW5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4OTQyMzQsImV4cCI6MjEwMzQ3MDIzNH0.WA0IH9Ug5QP4ZzrJ0-Xe5jvqRS2bp16cTmrNvRrTG3M',
-  BACKEND_URL: 'https://discovery-ai-bosm.onrender.com',
-};
-const AUTH_ENABLED = !!(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY);
-const supabaseClient = AUTH_ENABLED ? window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY) : null;
-let authSession = null;
-
-function apiUrl(path) { return CONFIG.BACKEND_URL + path; }
-function authHeaders() {
-  return authSession ? { 'Authorization': 'Bearer ' + authSession.access_token } : {};
-}
-
-const authGateEl = document.getElementById('auth-gate');
-const userBoxEl = document.getElementById('user-box');
-const userEmailEl = document.getElementById('user-email');
-
-function applyAuthState(session) {
-  authSession = session;
-  if (!AUTH_ENABLED) return; // gate stays hidden, user-box stays hidden — today's behavior
-  const signedIn = !!session;
-  authGateEl.classList.toggle('hidden', signedIn);
-  userBoxEl.style.display = signedIn ? 'flex' : 'none';
-  if (signedIn) {
-    userEmailEl.textContent = session.user.email || '';
-    bootApp();
-  }
-}
-
-if (AUTH_ENABLED) {
-  document.getElementById('google-signin-btn').addEventListener('click', () => {
-    supabaseClient.auth.signInWithOAuth({ provider: 'google' });
-  });
-  document.getElementById('signout-btn').addEventListener('click', async () => {
-    await supabaseClient.auth.signOut();
-    applyAuthState(null);
-    authGateEl.classList.remove('hidden');
-  });
-  supabaseClient.auth.onAuthStateChange((_event, session) => applyAuthState(session));
-  supabaseClient.auth.getSession().then(({ data }) => applyAuthState(data.session));
-}
-
-const messagesEl = document.getElementById('messages');
-const inputEl = document.getElementById('input');
-const sendBtn = document.getElementById('send');
-const statusEl = document.getElementById('status');
-const statusDotEl = document.getElementById('status-dot');
-
-function setBusy(isBusy, label) {
-  statusEl.textContent = label || (isBusy ? 'investigating…' : 'ready');
-  statusDotEl.classList.toggle('busy', !!isBusy);
-}
-
-const cy = cytoscape({
-  container: document.getElementById('cy'),
-  wheelSensitivity: 0.25,
-  style: [
-    { selector: 'node', style: {
-        'label': 'data(label)',
-        'color': '#ffffff',
-        'font-size': 11,
-        'font-family': 'JetBrains Mono, monospace',
-        'text-valign': 'center',
-        'text-halign': 'center',
-        'width': 'label',
-        'height': 30,
-        'padding': '11px',
-        'shape': 'round-rectangle',
-        'background-color': '#000000',
-        'background-opacity': 1,
-        'border-width': 1.5,
-        'border-color': '#ffffff',
-        'border-opacity': 0.3,
-        'text-wrap': 'wrap',
-        'text-max-width': '100px',
-        'transition-property': 'background-color, border-color, opacity, border-width, color',
-        'transition-duration': 260,
-    }},
-    { selector: 'node[kind = "abstraction"]', style: {
-        'shape': 'round-hexagon',
-        'background-color': '#000000',
-        'border-color': '#ffffff',
-        'border-opacity': 0.6,
-        'border-width': 2,
-        'font-weight': 'bold',
-    }},
-    { selector: 'node.focus', style: {
-        'background-color': '#ffffff',
-        'background-opacity': 1,
-        'border-color': '#000000',
-        'border-opacity': 1,
-        'border-width': 3,
-        'color': '#000000',
-        'font-weight': 'bold',
-    }},
-    { selector: 'node.context', style: {
-        'opacity': 0.45,
-        'border-style': 'dashed',
-    }},
-    { selector: 'edge', style: {
-        'width': 1.4,
-        'line-color': '#ffffff',
-        'line-opacity': 0.25,
-        'target-arrow-color': '#ffffff',
-        'target-arrow-shape': 'triangle',
-        'arrow-scale': 0.85,
-        'curve-style': 'bezier',
-        'label': 'data(label)',
-        'font-size': 9,
-        'font-family': 'JetBrains Mono, monospace',
-        'color': 'rgba(255,255,255,0.5)',
-        'text-background-color': '#000000',
-        'text-background-opacity': 0.85,
-        'text-background-padding': 2,
-        'line-style': 'dashed',
-        'line-dash-pattern': [6, 4],
-        'transition-property': 'line-color, target-arrow-color, width, opacity',
-        'transition-duration': 260,
-    }},
-    { selector: 'edge[label = "compares"]', style: {
-        'width': 2,
-        'line-style': 'solid',
-        'line-opacity': 0.55,
-    }},
-  ],
-  layout: { name: 'breadthfirst', directed: true, padding: 30, spacingFactor: 1.3 },
-});
-
-// Subtle "data flow" effect along edges — purely visual, no relation to data.
-let dashOffset = 0;
-setInterval(() => {
-  dashOffset -= 1;
-  cy.edges().style('line-dash-offset', dashOffset);
-}, 55);
-
-// Focus node gets a one-shot border "pop" when it becomes the focus — a single
-// animate() on a valid, well-supported property (border-width), not an infinite
-// recursive loop. Simple and robust beats a fancy animation that silently breaks.
-function popFocus() {
-  const focusNode = cy.$('.focus');
-  if (focusNode.length === 0) return;
-  focusNode.animate(
-    { style: { 'border-width': 6 } },
-    { duration: 260, easing: 'ease-out-cubic', complete: () => {
-        focusNode.animate({ style: { 'border-width': 3 } }, { duration: 260, easing: 'ease-in-cubic' });
-    }}
-  );
-}
-
-function addMessage(text, who, tag) {
-  const wrap = document.createElement('div');
-  wrap.className = 'msg ' + who;
-  if (tag) {
-    const t = document.createElement('div');
-    t.className = 'intent-tag';
-    t.textContent = tag;
-    wrap.appendChild(t);
-  }
-  const body = document.createElement('div');
-  body.textContent = text;
-  wrap.appendChild(body);
-  messagesEl.appendChild(wrap);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-  return wrap;
-}
-
-let typingEl = null;
-function showTyping() {
-  hideTyping();
-  typingEl = document.createElement('div');
-  typingEl.className = 'msg typing';
-  typingEl.innerHTML = 'INVESTIGATING<span class="cursor-blink">█</span>';
-  messagesEl.appendChild(typingEl);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-}
-function hideTyping() {
-  if (typingEl) { typingEl.remove(); typingEl = null; }
-}
-
-const examplesEl = document.getElementById('examples');
-function updateExamplesVisibility() {
-  const hasMessages = messagesEl.querySelector('.msg:not(.typing)') !== null;
-  examplesEl.classList.toggle('hidden', hasMessages);
-}
-
-function renderMessages(messages) {
-  messagesEl.innerHTML = '';
-  for (const m of (messages || [])) {
-    addMessage(m.text, m.role, m.intent_action);
-  }
-  updateExamplesVisibility();
-}
-
-async function loadSessionList() {
-  const res = await fetch(apiUrl('/sessions'), { headers: authHeaders() });
-  const sessions = await res.json();
-  const listEl = document.getElementById('session-list');
-  listEl.innerHTML = '';
-  for (const s of sessions) {
-    const item = document.createElement('div');
-    item.className = 'session-item' + (s.is_current ? ' current' : '');
-    item.textContent = s.title;
-    item.title = s.title;
-    item.onclick = () => switchSession(s.session_id);
-    listEl.appendChild(item);
-  }
-}
-
-async function newChat() {
-  setBusy(true, 'starting new chat…');
-  const res = await fetch(apiUrl('/sessions/new'), { method: 'POST', headers: authHeaders() });
-  const data = await res.json();
-  renderMessages(data.messages);
-  renderGraph(data);
-  await loadSessionList();
-  setBusy(false);
-  inputEl.focus();
-}
-
-async function switchSession(sessionId) {
-  setBusy(true, 'loading session…');
-  const res = await fetch(apiUrl('/sessions/switch'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ session_id: sessionId }),
-  });
-  const data = await res.json();
-  renderMessages(data.messages);
-  renderGraph(data);
-  await loadSessionList();
-  setBusy(false);
-}
-
-// The full session graph (graph.nodes/edges) accumulates everything ever
-// discovered in this conversation — that's correct, it's the persistent model.
-// But rendering ALL of it every time conflates "the knowledge that exists"
-// with "what the user is currently looking at": zooming into an entity then
-// showed its entire ancestor chain as if it were part of the entity's own
-// decomposition, which isn't what "zoom" means (see docs/Memory.md). This
-// computes a 1-hop viewport around the current focus instead — the underlying
-// graph.nodes/edges passed in is never mutated, so nothing is lost, duplicated,
-// or destroyed by focusing; only what gets DRAWN changes.
-function computeViewport(graph) {
-  const focusId = graph.current_entity;
-  if (!focusId) return { nodes: graph.nodes, edges: graph.edges };
-
-  const children = graph.edges.filter(e => e.source === focusId);
-  const parentEdges = graph.edges.filter(e => e.target === focusId && e.source !== focusId);
-  const parentIds = parentEdges.map(e => e.source);
-
-  // Siblings: other children of the same parent(s) as focus, shown as context
-  // (same tier as the parent, not as focus's own children) so the user can see
-  // "Transmission has siblings Generation/Distribution under Electric Grid"
-  // without those siblings being mistaken for Transmission's own structure.
-  const siblingEdges = graph.edges.filter(e => parentIds.includes(e.source) && e.target !== focusId);
-
-  const contextIds = new Set([...parentIds, ...siblingEdges.map(e => e.target)]);
-  const visibleIds = new Set([focusId, ...children.map(e => e.target), ...contextIds]);
-
-  return {
-    nodes: graph.nodes.filter(n => visibleIds.has(n.id)),
-    edges: [...children, ...parentEdges, ...siblingEdges],
-    focusId,
-    contextIds,
-    parentIds,
-  };
-}
-
-function renderGraph(graph) {
-  cy.elements().remove();
-  const view = computeViewport(graph);
-  const eles = [];
-  for (const n of view.nodes) {
-    const isFocus = n.id === view.focusId;
-    const isContext = view.contextIds && view.contextIds.has(n.id);
-    eles.push({ data: { id: n.id, label: n.label, kind: n.kind }, classes: isFocus ? 'focus' : (isContext ? 'context' : '') });
-  }
-  for (const e of view.edges) {
-    eles.push({ data: { id: e.source + '->' + e.target + ':' + e.label, source: e.source, target: e.target, label: e.label } });
-  }
-  cy.add(eles);
-  // Cytoscape's own layout animation (well-tested, not custom code) glides
-  // nodes into their breadthfirst positions instead of popping in instantly.
-  //
-  // Rooting matters: parentEdges/siblingEdges point OUT of the parent (parent ->
-  // focus, parent -> sibling), not out of focus. Rooting a directed breadthfirst
-  // layout at focus itself left the parent/siblings unreachable by forward
-  // traversal, so cytoscape treated them as a separate disconnected component and
-  // stacked it — that's what looked like "nodes overlapping, not centered". Root
-  // at the parent(s) instead so every visible node is forward-reachable from a
-  // single root and lands in one properly spaced tree; fall back to focus itself
-  // when there's no parent (the very first investigation, nothing zoomed into yet).
-  const rootIds = (view.parentIds && view.parentIds.length) ? view.parentIds : (view.focusId ? [view.focusId] : undefined);
-  cy.layout({
-    name: 'breadthfirst',
-    directed: true,
-    roots: rootIds,
-    padding: 30,
-    spacingFactor: 1.5,
-    avoidOverlap: true,
-    nodeDimensionsIncludeLabels: true,
-    animate: true,
-    animationDuration: 450,
-    animationEasing: 'ease-out-cubic',
-  }).run();
-  cy.one('layoutstop', () => popFocus());
-
-  document.getElementById('meta-entity').textContent = graph.current_entity || '—';
-  document.getElementById('meta-abstraction').textContent = graph.current_abstraction || '—';
-  document.getElementById('meta-dimension').textContent = graph.current_dimension || 'none (default framing)';
-}
-
-async function send(message) {
-  if (!message.trim()) return;
-  addMessage(message, 'user');
-  updateExamplesVisibility();
-  inputEl.value = '';
-  sendBtn.disabled = true;
-  setBusy(true, 'investigating…');
-  showTyping();
-  try {
-    const res = await fetch(apiUrl('/chat'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ message }),
-    });
-    const data = await res.json();
-    hideTyping();
-    addMessage(data.reply, 'agent', data.intent_action);
-    renderGraph(data.graph);
-    loadSessionList();
-  } catch (err) {
-    hideTyping();
-    addMessage('Request failed: ' + err, 'agent', 'error');
-  } finally {
-    sendBtn.disabled = false;
-    setBusy(false);
-    inputEl.focus();
-  }
-}
-
-function sendExample(text) { send(text); }
-
-sendBtn.addEventListener('click', () => send(inputEl.value));
-inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(inputEl.value); });
-
-// Load whatever graph/chat state already exists (e.g. after a page refresh),
-// plus the session history list for the left rail. Runs once — either
-// immediately (no-auth local/VM mode) or right after a successful sign-in
-// (applyAuthState calls this); onAuthStateChange can fire again later for
-// token refreshes, so this guards against re-fetching everything each time.
-let appBooted = false;
-function bootApp() {
-  if (appBooted) return;
-  appBooted = true;
-  fetch(apiUrl('/graph'), { headers: authHeaders() }).then(r => r.json()).then((data) => {
-    renderMessages(data.messages);
-    renderGraph(data);
-  }).catch(() => {});
-  loadSessionList();
-}
-
-if (!AUTH_ENABLED) bootApp();
-</script>
 </body>
 </html>
