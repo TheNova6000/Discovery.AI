@@ -208,6 +208,63 @@ Relationship: alternative_explanation [VERIFIED, n=1] elicited successfully once
                                      primary cause; did not appear under two broader framings of the same pair
 ```
 
+### 0.6 Post-hackathon research pass: the graph/UI gap, audited before redesigning (2026-08-28)
+
+**Trigger.** After the hackathon demo shipped (Vercel + Render + Supabase deployment, docs/Memory.md), live use surfaced a specific, repeated frustration: the graph "is just working but nowhere near what we want" — zooming re-triggers investigation instead of navigating, the visible graph is only ever the path the user happened to click through, and there is no way to see *why* an answer is true beyond the text itself. The instinct was "the graph system is totally broken, rebuild from scratch." **This section's job was to check that instinct against what actually exists before agreeing with it** — per this doc's own traceability discipline (§0.1), a rebuild decision needs the same evidence bar as any other architectural claim here.
+
+**Finding, stated plainly: this is not mostly a wrong-decision problem. It's a dormant-feature problem.** Re-reading PRD.md/§4a, §5, §8 and Architecture.md §2 against the actual code shows most of what was just asked for was already designed — in some cases already built and verified — before the hackathon, and simply never turned on in the demo path:
+
+| What was asked for (verbatim, 2026-08-28) | Where it already exists | Status |
+|---|---|---|
+| "the real problem statement was that our system was there for research of sources... answer a roadmap or a system and then down we get resources or sources" | PRD.md §3 ("Learn" operation), §4a ("The Roadmap — a distinct output, not just free browsing"), §8 success criterion 7 | **[VISION]**, unchanged — PRD.md already specifies this exact shape (roadmap on top, resources underneath) and already schedules it for "Phase 6." It was never built, but it was never forgotten by the design either — it fell off during the pivot to shipping a live demo fast. |
+| "we get resources or sources in different font" | `backend/evidence/models.py` — `Claim{evidence, reasoning, confidence, source: RetrievedResource{title, url, snippet, source_type, published}}`, `RetrievedResource` from real Tavily/Semantic Scholar/arXiv/Open Library/YouTube retrievers | **[VERIFIED]** (PRD.md §5 req. 5, §8 criterion 3 — Wikipedia/arXiv/Semantic Scholar/Open Library confirmed working keyless under real use). The data already exists in exactly the shape needed to render "sources, visually distinct from the answer." |
+| Sources never appear anywhere in the live app | `GroundAgent.__init__`'s `gather_evidence: bool = False` (`backend/agents/ground_agent.py:75`) — a real, wired, opt-in parameter; `gather_evidence()` (`backend/evidence/engine.py`) is fully implemented and calls it | **Root cause, not a design flaw:** `app.py`'s `_run_investigation` constructs every `GroundAgent` with `persist_to_graph=True` but never passes `gather_evidence=True`. **One flag was left off** when the demo was wired up under time pressure — not an architectural gap. Turning it on is necessary but not sufficient (see below — nothing downstream renders a `Claim` yet even once gathered). |
+| "we cannot zoom in without again getting into loop" / "one abstraction level" | §0.5's already-named, already-unresolved gap: **Investigation Graph vs. question-scoped Model Graph** conflated into one `decomposes_into` edge type | **[THEORY]/[VISION]**, unchanged since hackathon night — this is the one item on the list that really is a genuine, not-yet-solved architecture gap, not a dormant feature. See below. |
+| "the system must completely develop the whole graph not only a part" | §0's own established principle: **lazy generation, validated against LazyGraphRAG's ~0.1%-of-cost precedent over eager GraphRAG precomputation** | **Real tension, not a bug** — this instinct runs directly against a decision this project already made deliberately, with cited precedent, for cost reasons. Worth re-opening, but not by just reversing it uncritically (below). |
+
+**What this means for scope:** restoring "answer → roadmap → sources" is mostly **wiring and a rendering layer** on top of code that already works, not a rebuild. The **map-style zoom** and **full answer↔graph↔source traceability** asks are the genuinely new architecture work — the rest of this section focuses there.
+
+#### 0.6.1 The real gap: Investigation Graph vs. Model Graph, now forced by actual use
+
+§0.5 named this in the abstract on hackathon night and explicitly deferred it. Live use now supplies the concrete symptom: `zoom_in` (pure navigation) and `investigate_deeper` (fresh investigation) were split into two intents specifically to stop zoom from silently re-triggering work — but the underlying graph both intents read from is still **one thing**, `decomposes_into`, which is simultaneously "how the agent explored" and "what's shown as the model of the subject." A map metaphor doesn't work on top of that single structure, because a map has two things this graph doesn't cleanly separate yet:
+1. **Territory** — the actual, comprehensive structure of what's known (a model graph).
+2. **A viewport into it at a chosen resolution** — what's rendered right now (the investigation/navigation trace).
+
+Right now the "viewport" (`computeViewport()`, frontend/app.html) is doing the job of both, which is why it feels like there's only one abstraction level: there's only one graph to have a level *of*.
+
+#### 0.6.2 The map metaphor, checked against real precedent — not just an analogy
+
+Real map systems don't lazily compute infinite detail per pixel, and they don't precompute the whole planet at maximum detail either. They precompute a **small, fixed number of discrete zoom levels** ("tiles"), each independently cacheable, and *which features render* changes per level by a style rule, not by re-deriving the territory. This is directly useful here because it resolves the lazy-vs-eager tension in §0.6 above without picking either extreme:
+
+- **Not fully eager**: don't precompute infinite depth under every entity the moment it's created (this is exactly what LazyGraphRAG's precedent already warned against, §0).
+- **Not fully lazy either** (the current bug): don't generate *only* the single path a user happened to click, discarding siblings/context as an afterthought (`computeViewport`'s parent/sibling patch was a workaround for this, not a fix to the underlying generation strategy).
+- **The map's actual answer**: generate a **bounded local neighborhood** around any node that's been investigated at all — its children, its siblings, its parent, maybe one ring further — eagerly, as a fixed-cost side effect of investigating that node once. That neighborhood is the "tile." Zooming within it is free navigation (no LLM call). Crossing its edge is what triggers new investigation (a new tile).
+
+**Real prior art for the harder version of this, surveyed not adopted (same discipline as Graphiti/LightRAG in §0):**
+- **Zoomable Multilevel Trees** (Kachkaev et al., [arXiv:1906.05996](https://arxiv.org/abs/1906.05996)) — a graph-drawing algorithm that maintains an explicit abstract tree *and* an embedded tree per zoom level, guaranteeing no label overlap/edge crossings at any level. Directly relevant to the frontend layout problem (breadthfirst re-layout on every focus change is already fragile, docs/Memory.md) if multiple named zoom levels become real.
+- **Semantic Level of Detail for Knowledge Graphs** (2026, [arXiv:2603.08965](https://arxiv.org/html/2603.08965)) — uses heat-kernel diffusion on a graph Laplacian (built over Poincaré-ball embeddings) to *automatically* discover where a meaningful abstraction boundary sits, rather than a hand-tuned threshold — "continuous zoom" instead of a fixed number of discrete levels, validated on WordNet's taxonomy (τ=0.79 against real hierarchical depth). This is the closest existing formalization of "zoom in until a limit, then the abstraction level itself changes" — precisely the mechanism named this session. **Deliberately not adopted now**: it needs a graph embedding pipeline this project doesn't have, and would be premature to build before the simpler discrete-tile version has even been tried once. Worth a close read if the hand-tuned-threshold version (below) turns out to feel wrong in practice.
+- **Pragmatic v1, if this moves to implementation** (not decided, not scheduled): a **hand-picked, small number of named abstraction tiers** per subject (e.g. System → Subsystem → Mechanism — not user-configurable at first), each tier's "tile" being the bounded neighborhood described above, with the zoom threshold being a simple, honestly-arbitrary rule (e.g. "more than N nodes already in view at this tier → the next zoom crosses a tier") rather than SLoD's spectral one. Closer to Google/Apple Maps' actual discrete-tile behavior than to the continuous-zoom paper — earns its way to the harder version only if the simple one is tried and found wanting, matching how every other mechanism in this project (provenance, claim relationships) was built minimally first and only extended after a real gap was observed.
+
+#### 0.6.3 Full traceability: answer ↔ graph ↔ source, as one chain, not three separate ideas
+
+The request "every answer must be equivalent to graph and source... graph can trace back to sources" is the Evidence Engine (0.6, table above), structural provenance (§0.3, already [VERIFIED]), and the model-graph split (0.6.1) **read together as one requirement**, not three. Concretely, once `gather_evidence=True` is turned on and its `Claim`s are attached to graph nodes (`attach_claim` already exists, Architecture.md §2's Graph Interface list — this part needs no new code, just calling it), the traceability chain becomes:
+
+```
+Answer text  <-- (already built, §0.3/§0.4)  -->  which claim(s) it was synthesized from
+Claim        <-- (already built, evidence/models.py)  -->  its RetrievedResource (title/url/snippet)
+Claim        <-- (0.6.1, not yet built)  -->  which Model Graph node it's evidence *for*
+Model Graph node <-- (0.6.1, not yet built) --> which Investigation Graph trace produced it
+```
+
+The first two links already exist and are individually verified; the last two are exactly the model-graph split named in §0.5 and sharpened in 0.6.1. This reframes 0.6.1 from "a nice-to-have UX improvement" to "the missing middle link in a traceability chain the project already committed to" (Rules.md rule 4, PRD.md §5 req. 7) — raising its priority relative to how it read on hackathon night.
+
+**What this section deliberately does not do:** decide a Neo4j schema for the Model Graph, decide the exact tile-boundary rule, or write any code. Consistent with every other design pass in this document (§0.2, §0.5), the next step earns the right to a schema by testing the cheapest version of the idea first.
+
+**Next session starts here, in order, not in parallel:**
+1. Turn on `gather_evidence=True` in `app.py`'s `_run_investigation` and render `Claim.source` in the UI (distinct visual treatment, per the original ask) — cheapest possible slice, uses only already-[VERIFIED] code, and produces a real test case for everything below it.
+2. Define the Model Graph's minimal shape (which of §0.5's open questions — subject/object/context/type/reasoning/provenance — are load-bearing vs. nice-to-have) against that real test case, not in the abstract.
+3. Only then design the tile/zoom-boundary rule (0.6.2's pragmatic v1) against a Model Graph that actually exists — designing the map before there's a territory to have levels of would repeat the exact ordering mistake §0.2 already named and avoided once.
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |
