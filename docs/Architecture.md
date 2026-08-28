@@ -385,6 +385,27 @@ QUESTION (context, not a graph node — see below)
 
 **Not yet done, deliberately out of scope for Pass 1 per the punch-list's own "don't combine passes" instruction:** no UI renders any of this yet (sources aren't visible anywhere in `frontend/app.html`); no confidence filtering; `trace_claim`/`audit_synthesis` still read `AgentState`, not this new Neo4j structure (Pass 2).
 
+### 0.13 Punch-list Pass 2 — provenance re-pointed onto Neo4j, verified end-to-end (2026-08-29)
+
+**[VERIFIED].** A key finding shaped this pass before any code was written: `trace_claim`'s direct/derived/synthesized classification is a statement about *how the agent investigated* (child count) — which, by this project's own SQLite-vs-Neo4j split (SQLite = what the investigator did, Neo4j = what knowledge it produced), correctly belongs on the investigation-trace side. So Pass 2 is **not** a reimplementation of that classification in Neo4j terms — it's a **bridge**: start from a Neo4j entity, find your way to the SQLite investigation that produced it, and run the existing, completely unchanged `trace_claim` on it.
+
+**The bridge is free — no schema change, because the connective tissue already existed:** `Question.id` (`backend/questions/models.py`, a uuid set once at construction) is the literal same Python object flowing into both `AgentState.question` (SQLite) and `attach_question`'s `question_id` argument (Neo4j) — verified by reading both call sites, not assumed. `find_agent_id_by_question_id` (new, `backend/agents/provenance.py`) does a linear scan of SQLite for a matching `question.id`; `trace_claim_from_entity` (new, same file) calls `get_questions_for_entity` (already existed, `backend/graph/interface.py:574`) and bridges each result through to `trace_claim` unchanged.
+
+**All 6 acceptance criteria verified against real, live data (the smartphone-photo investigation from 0.12, same VM, same run):**
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | `trace_claim` traces starting from a Neo4j Node | **Passes** — `trace_claim_from_entity('smartphone photo transmission')` and `('Image compression')` both ran live. |
+| 2 | Distinguishes direct/derived/synthesized | **Passes** — real output showed `[synthesized]` (3 children) for the top-level question and `[direct]` (0 children) for its leaves, correctly. |
+| 3 | `audit_synthesis` works with Neo4j-backed `known` | **Passes** — `known` built from `trace_claim_from_entity`'s bridged children or nodes without touching `audit_synthesis` itself, since it was already structure-agnostic (`answer: str`, `known: list[str]`) — no code changes to it were needed at all. Real run: 49 atomic claims extracted, 49 investigated / 0 uninvestigated — correctly recognizing clean synthesis with no coverage gap, the same signature §0.4's Session-1/3 negative controls showed. |
+| 4 | No regression | **Passes** — `trace_claim` and `audit_synthesis` internals are byte-for-byte unchanged; only new, additive entry points were written. |
+| 5 | No Neo4j schema expansion | **Passes** — zero new node labels, relationship types, or properties; only existing `get_questions_for_entity`/`find_or_create_entity` were used. |
+| 6 | SQLite remains (not deleted, not migrated) | **Passes** — `trace_claim` still reads `AgentState` exactly as before; the bridge only adds a lookup in front of it. |
+
+**One unrelated, real finding surfaced along the way (not a Pass 2 defect):** `audit_synthesis`'s first provider attempt (`groq/openai/gpt-oss-120b`) returned atomic claims with wrong field names (`claim`/`status` instead of the schema's `text`/`origin`) — a schema-compliance failure on Groq's side, not a data or Neo4j issue. The existing fallback chain caught it and Gemini succeeded cleanly. Flagged here so it isn't mistaken for a regression if seen again; not fixed (out of scope, pre-existing, orthogonal to this pass).
+
+**Punch list status: Pass 1 and 2 done and verified. Pass 3 (scope-hint channel, §0.10) is next, then schema.**
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |

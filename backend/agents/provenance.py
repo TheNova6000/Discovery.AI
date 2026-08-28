@@ -87,6 +87,55 @@ async def trace_claim(agent_id: str, *, db_path: str = DEFAULT_DB_PATH) -> Claim
     )
 
 
+async def find_agent_id_by_question_id(question_id: str, *, db_path: str = DEFAULT_DB_PATH) -> Optional[str]:
+    """Bridge from a Neo4j Question's id to the SQLite AgentState that resolved
+    it (docs/Architecture.md §0.12+, "Pass 2" — re-pointing provenance onto the
+    Model Graph without rewriting it). `Question.id` (backend/questions/models.py,
+    a uuid set once at construction) is the SAME value in both stores — it's the
+    identical Python object flowing into `AgentState.question` (SQLite) and
+    `attach_question`'s `question_id` argument (Neo4j) — so no new id or schema
+    is needed to connect them, just a lookup. Linear scan, not an indexed query:
+    same pattern `find_root_agent_id` below already uses, fine for the small
+    per-session databases this project has.
+    """
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT agent_id, state_json FROM agent_state") as cursor:
+            rows = await cursor.fetchall()
+    for agent_id, state_json in rows:
+        if AgentState.model_validate_json(state_json).question.id == question_id:
+            return agent_id
+    return None
+
+
+async def trace_claim_from_entity(entity_name: str, *, db_path: str = DEFAULT_DB_PATH) -> list[ClaimProvenance]:
+    """Start a provenance trace from a Neo4j entity instead of an already-known
+    agent_id — the actual capability Pass 2 needed. Deliberately NOT a rewrite
+    of `trace_claim`'s direct/derived/synthesized classification in Neo4j
+    terms: that classification is a statement about how the agent investigated
+    (child count), which by this project's own SQLite-vs-Neo4j split belongs on
+    the investigation-trace side, not the world-model side. This is the bridge,
+    not a reimplementation: find every Question Neo4j has attached to the
+    entity, resolve each back to the SQLite investigation that produced it, and
+    run the existing, completely unchanged `trace_claim` on each. No Neo4j
+    schema change, no new relationship type, no new AgentState field.
+    """
+    from backend.graph import find_or_create_entity, get_questions_for_entity
+
+    entity = await find_or_create_entity(entity_name)
+    questions = await get_questions_for_entity(entity.id)
+
+    traces: list[ClaimProvenance] = []
+    for q in questions:
+        agent_id = await find_agent_id_by_question_id(q.id, db_path=db_path)
+        if agent_id is None:
+            # Neo4j knows this question but this db_path's SQLite doesn't have
+            # its investigation state — a different session/process/db_path
+            # produced it. Not an error: skip, don't fabricate a trace.
+            continue
+        traces.append(await trace_claim(agent_id, db_path=db_path))
+    return traces
+
+
 async def find_root_agent_id(db_path: str) -> str:
     """Convenience for exploration/replay: the one AgentState in `db_path` with no
     parent. Every real session so far has exactly one true root; raises rather
