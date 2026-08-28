@@ -296,10 +296,28 @@ QUESTION (context, not a graph node — see below)
 
 **Still, deliberately, not decided: `ModelElement`'s (i.e. `Node`'s and `Relation`'s shared) exact field set.** Both this section's two-primitive collapse and its Claim/Relation reification calls are recommendations for the next session to react to, not a schema. No Neo4j change, no code, per this document's standing discipline (§0.1) and this section's own explicit instruction not to design storage before the semantics are agreed.
 
-**Next session starts here, superseding 0.6's list:**
-1. Agree or contest `Node`/`Relation` as the full primitive set, and Relation-reification, before anything else — this is the actual foundation everything below depends on.
-2. Only then: turn on `gather_evidence=True` (0.6's cheap first slice is still correct as an early move, just no longer the *first* one) and confirm `Claim`/`Source` attach cleanly to the agreed primitives using one real worked example (the smartphone-photo pipeline is already a good candidate — it's the case that broke `decomposes_into` in the first place).
-3. Only then design the tile/zoom-boundary rule and the network-layout renderer replacement — both need a real Model Graph to be designed against, not an empty schema.
+**Superseded in its "two primitives" framing by 0.8 below, same day** — 0.7's ordering still holds; its primitive count gets sharpened to one.
+
+### 0.8 Stress test: Node/Relation against smartphone, grid, PayPal, and one hard edge case (2026-08-29)
+
+**Method, stated up front:** 0.7 proposed two primitives (`Node`, reified `Relation`) as a recommendation, explicitly not yet earned. This section stress-tests it against three worked examples plus one deliberately adversarial case, per this document's standing rule that a design earns its schema by surviving a real test, not by sounding right.
+
+**Smartphone pipeline, electric grid, PayPal — all three survive cleanly**, each for the same reason: what looked at first like it needed a third primitive (process stages, feedback/market loops, role-in-a-system-vs-decomposition) turned out to be expressible as `Node{kind: ...}` connected by typed `Relation`s, with `kind` (`entity`/`process`/`abstraction`) carrying the distinction as metadata rather than as separate graph object types — consistent with §0's original "keep the graph mechanically dumb" rule holding up under real pressure, not just in the abstract.
+
+**The adversarial case — "Payment," simultaneously process, event, and relation depending on framing — also survives, and sharpens the design rather than breaking it.** The resolution: because a `Relation` is already reified as a node (0.7), "Relation" was never a separate primitive from "Node" in the first place — it's a **role** a graph object plays (having `FROM`/`TO`-style connecting edges to other elements, under a given question) that a node can occupy *while simultaneously* having further edges of its own. "Payment" doesn't have to choose an identity: it can be the connector between Account A and Account B for one question ("how does value move") while also carrying `evaluated_by → Risk Engine` / `recorded_in → Ledger Entry` for a deeper one — accumulating structure as more gets investigated, never forced to pre-commit to being "really" an entity or "really" a relation.
+
+**This is real prior art, not an invented workaround** — the same shape as Wikidata's statement-node design (already cited in this doc for statement ranks) and the classic **N-ary relation pattern** from ontology engineering, which exists specifically to handle "this connector needs its own properties/relations." It also resolves an n-ary case for free: a relation needing more than two participants (a fee depending on amount *and* currency *and* country) is just a relation-node with more than one outgoing edge — no third primitive required there either.
+
+**Revised verdict: one primitive, not two.** `Node`/`Relation` was directionally correct but over-counted — a `Relation` is a `Node` occupying a connecting role for a given question, not a distinct type. §0.7's schema-design deferral is unaffected by this — if anything it's now simpler than 0.7 assumed: one field set to design, not two.
+
+**Two things this does NOT resolve, named rather than glossed over:**
+- **Render rule (presentation, not data):** the model supports a relation-node being drawn as a compact labeled edge *or* an expandable node with its own substructure — nothing yet decides which, when. Same category of deferred decision as 0.7's tile-boundary rule; needs a real rendered example to design against, not an abstract rule now.
+- **`kind` tag consistency (a real, precedented risk, not hypothetical):** `kind` is open-ended by design (new tags like `event`/`state` can appear without a schema change), which is also exactly the shape of failure this project has already hit twice — `discovered_entity_name` and `working_framing` both required fixing prompt-level self-report inconsistency after the fact (docs/Memory.md). No mitigation designed yet; flagged now specifically so it isn't rediscovered as a surprise the way those two were.
+
+**Next session starts here, superseding 0.7's list only in step 1's framing:**
+1. Design `Node`'s (the single primitive's) minimal field set directly — no separate `Relation` schema needed per this section's finding — informed by, not designed before, one real worked example.
+2. Turn on `gather_evidence=True` and confirm `Claim`/`Source` attach cleanly using the smartphone-photo pipeline as that worked example — it's the case that broke `decomposes_into` in the first place and has now survived three independent design passes without needing a rewrite.
+3. Only then: the render rule (compact edge vs. expandable node) and the tile/zoom-boundary rule, both against a Model Graph that actually exists.
 
 ## 1. Consolidated stack
 
