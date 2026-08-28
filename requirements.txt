@@ -1,0 +1,44 @@
+neo4j>=5.24,<6
+pydantic>=2.7,<3
+python-dotenv>=1.0,<2
+# aiosqlite>=0.22 removed Connection.is_alive() (no longer subclasses
+# threading.Thread), which the langgraph-checkpoint-sqlite version compatible with
+# Python 3.9 (2.0.11, pulled in by the langgraph<1.0 pin below) still calls
+# internally -> AttributeError at first checkpoint write. Capped below 0.22 so this
+# works on both this project's Python versions; see docs/Memory.md.
+aiosqlite>=0.20,<0.22
+# langgraph>=1.0 requires Python >=3.10 — the VM's Python 3.9.25 (EOL-track, same
+# constraint that forced eval_type_backport in Phase 2) resolves this to the last
+# 3.9-compatible release, 0.6.x, instead. Verified compatible: StateGraph/START/
+# END/add_node/add_edge/compile/ainvoke and AsyncSqliteSaver's import path are the
+# same across both — see docs/Memory.md.
+langgraph>=0.6,<2
+langgraph-checkpoint-sqlite>=1.0,<4
+instructor>=1.7,<2
+# instructor's Gemini structured-output path (instructor/v2/providers/gemini/utils.py)
+# imports jsonref directly and raises ConfigurationError without it — a real, silent
+# gap discovered in Phase 5: the google/... entry has apparently been failing on
+# EVERY call since Phase 2, invisibly masked because GROUND_MODEL_CHAIN's fallback
+# to groq/... (or cerebras/...) quietly succeeded every time. See docs/Memory.md.
+jsonref>=1.1,<2
+httpx>=0.27,<1
+tavily-python>=0.5,<1
+# WikipediaRetriever only: httpx gets a bare 403 from Wikipedia's edge WAF
+# (TLS/JA3 fingerprinting, not a header/rate-limit check — verified directly, see
+# backend/evidence/retrievers/wikipedia_retriever.py's docstring). curl_cffi
+# presents a normal browser-shaped TLS handshake (like curl itself, which already
+# worked) while still sending our real, identifying User-Agent.
+curl_cffi>=0.7,<1
+google-genai>=1.0,<2
+groq>=0.11,<1
+cerebras_cloud_sdk>=1.0,<2
+# instructor's internals use PEP 604 `X | Y` union syntax evaluated at runtime by
+# pydantic's type-hint resolution — Python 3.9 (Oracle Linux 9's default python3)
+# can't evaluate that natively; this backport shim makes it work on 3.9.
+eval_type_backport>=0.2,<1
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+# Verifies Supabase-issued Google-login JWTs on protected routes (backend/api/auth.py).
+# Bypassed entirely when SUPABASE_JWT_SECRET is unset, so the existing no-auth
+# local/VM demo is unaffected — only a real Render+Supabase deployment sets it.
+pyjwt>=2.8,<3

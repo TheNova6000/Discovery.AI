@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+from typing import Optional
+
+from pydantic import BaseModel, Field
+
+
+class GraphNode(BaseModel):
+    id: str
+    name: str
+    type: str  # "domain" | "entity"
+    description: Optional[str] = None
+    merged_from: list[str] = Field(default_factory=list)
+    created_at: str
+    updated_at: str
+
+
+class Abstraction(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class Relationship(BaseModel):
+    source_id: str
+    target_id: str
+    relationship_type: str
+    properties: dict = Field(default_factory=dict)
+
+
+class Subgraph(BaseModel):
+    abstraction: Abstraction
+    nodes: list[GraphNode]
+    relationships: list[Relationship]
+
+
+class QuestionNode(BaseModel):
+    """The persisted graph-side view of a backend.questions.Question. Deliberately
+    a separate, plain model (not a re-export of Question) — backend/graph must not
+    import from backend/questions (docs/Rules.md rule 1's layering: Graph Interface
+    is the lowest layer, nothing above it should be imported into it)."""
+
+    id: str
+    text: str
+    dimension_id: str
+    level: str
+    rationale: str
+    created_at: str
+
+
+class ClaimNode(BaseModel):
+    """The persisted graph-side view of a backend.evidence.Claim — same reasoning
+    as QuestionNode above for why this isn't a re-export."""
+
+    id: str
+    evidence: str
+    reasoning: str
+    confidence: float
+    source_title: str
+    source_url: str
+    source_type: str
+    valid_from: str
+    superseded_by: Optional[str] = None
+
+
+class QuestionProvenance(BaseModel):
+    """One question attached to an entity, plus its parent question's TEXT if it
+    was itself a discovered sub-question — read off the existing `rationale`
+    string (`"Sub-question of: <parent text>"`, written by `attach_question`),
+    not a new graph property. There is no persisted Question->Question edge yet
+    (docs/Phases.md Phase 6's deferred Question Graph mirror), so this is a
+    best-effort text parse, not a graph traversal — `parent_question_text` is the
+    parent's TEXT, not a queryable id/node."""
+
+    question_id: str
+    question_text: str
+    rationale: str
+    parent_question_text: Optional[str] = None
+
+
+class EntityExplanation(BaseModel):
+    """The read-only answer to "why does this entity exist in the graph" — every
+    question currently attached to it, each with what (if anything) it was a
+    sub-question of. An entity with zero attached questions still returns an
+    `EntityExplanation` with an empty list — that's a real, distinct state from
+    the entity not existing at all (which raises `GraphInterfaceError` instead)."""
+
+    entity: GraphNode
+    discovered_by: list[QuestionProvenance] = Field(default_factory=list)

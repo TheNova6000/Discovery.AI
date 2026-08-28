@@ -1,0 +1,76 @@
+"""Graph Interface layer (Phase 1).
+
+The only module allowed to talk to Neo4j directly — see docs/Rules.md rule 1. Everything
+above this layer (agents, Question Engine, Evidence Engine) must import from here, never
+touch the Neo4j driver directly.
+"""
+
+from .driver import close_driver, ensure_constraints, get_driver
+from .exceptions import GraphInterfaceError
+from .interface import (
+    attach_claim,
+    attach_entity,
+    attach_question,
+    contract_abstraction,
+    create_abstraction,
+    create_node,
+    create_relationship,
+    explain_entity,
+    expand_abstraction,
+    find_or_create_entity,
+    get_abstractions_for_node,
+    get_claims_for_question,
+    get_decomposition,
+    get_neighbors,
+    get_node,
+    get_questions_for_entity,
+    get_subgraph,
+    merge_entity,
+    supersede_claim,
+    zoom_in,
+)
+from .models import (
+    Abstraction,
+    ClaimNode,
+    EntityExplanation,
+    GraphNode,
+    QuestionNode,
+    QuestionProvenance,
+    Relationship,
+    Subgraph,
+)
+
+__all__ = [
+    "GraphInterfaceError",
+    "get_driver",
+    "close_driver",
+    "ensure_constraints",
+    "create_node",
+    "get_node",
+    "create_relationship",
+    "get_neighbors",
+    "create_abstraction",
+    "attach_entity",
+    "find_or_create_entity",
+    "expand_abstraction",
+    "contract_abstraction",
+    "get_subgraph",
+    "get_abstractions_for_node",
+    "merge_entity",
+    "attach_question",
+    "attach_claim",
+    "get_claims_for_question",
+    "get_questions_for_entity",
+    "supersede_claim",
+    "get_decomposition",
+    "zoom_in",
+    "explain_entity",
+    "GraphNode",
+    "Abstraction",
+    "Relationship",
+    "Subgraph",
+    "QuestionNode",
+    "ClaimNode",
+    "QuestionProvenance",
+    "EntityExplanation",
+]

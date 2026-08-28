@@ -1,0 +1,23 @@
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: rkg-neo4j
+    restart: unless-stopped
+    mem_limit: 384m
+    ports:
+      - "7474:7474"   # browser UI
+      - "7687:7687"   # bolt protocol
+    environment:
+      - NEO4J_AUTH=neo4j/changeme-local-dev
+      - NEO4J_PLUGINS=["apoc"]
+      # Tuned down for a ~500MB-usable-RAM host (Oracle Cloud Always Free micro shape) — see Implimentation-Research/.
+      - NEO4J_server_memory_heap_initial__size=192m
+      - NEO4J_server_memory_heap_max__size=192m
+      - NEO4J_server_memory_pagecache_size=96m
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
