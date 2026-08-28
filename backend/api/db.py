@@ -1,0 +1,98 @@
+from __future__ import annotations
+
+import os
+from typing import Optional
+
+import asyncpg
+
+# Postgres connection string (Supabase's own database — Project Settings ->
+# Database -> Connection string). Unset means every session lives only in this
+# process's memory, exactly as before (backend/api/session.py's original
+# scope) — so local/VM dev needs nothing extra. Set on a real deployment so
+# sessions survive Render's free-tier spin-down and ordinary redeploys, which
+# otherwise wipe the in-memory store on every cold start.
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+_pool: Optional[asyncpg.Pool] = None
+
+_SCHEMA = """
+create table if not exists sessions (
+    session_id text primary key,
+    user_id text not null,
+    title text not null default 'New session',
+    created_at timestamptz not null default now(),
+    current_entity text,
+    current_abstraction text,
+    current_dimension_name text,
+    current_dimension_description text,
+    known_entities jsonb not null default '[]'::jsonb,
+    nodes jsonb not null default '[]'::jsonb,
+    edges jsonb not null default '[]'::jsonb,
+    messages jsonb not null default '[]'::jsonb
+);
+create index if not exists idx_sessions_user on sessions (user_id, created_at desc);
+"""
+
+
+async def init_pool() -> None:
+    """Called once on FastAPI startup. A no-op when DATABASE_URL isn't set."""
+    global _pool
+    if not DATABASE_URL or _pool is not None:
+        return
+    _pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+    async with _pool.acquire() as conn:
+        await conn.execute(_SCHEMA)
+
+
+def enabled() -> bool:
+    return _pool is not None
+
+
+async def upsert_session(row: dict) -> None:
+    """Row keys match the `sessions` table columns exactly — see
+    SessionState.to_row() in session.py, the only caller that builds one.
+    """
+    if _pool is None:
+        return
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            """
+            insert into sessions (
+                session_id, user_id, title, current_entity, current_abstraction,
+                current_dimension_name, current_dimension_description,
+                known_entities, nodes, edges, messages
+            ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            on conflict (session_id) do update set
+                title = excluded.title,
+                current_entity = excluded.current_entity,
+                current_abstraction = excluded.current_abstraction,
+                current_dimension_name = excluded.current_dimension_name,
+                current_dimension_description = excluded.current_dimension_description,
+                known_entities = excluded.known_entities,
+                nodes = excluded.nodes,
+                edges = excluded.edges,
+                messages = excluded.messages
+            """,
+            row["session_id"],
+            row["user_id"],
+            row["title"],
+            row["current_entity"],
+            row["current_abstraction"],
+            row["current_dimension_name"],
+            row["current_dimension_description"],
+            row["known_entities"],
+            row["nodes"],
+            row["edges"],
+            row["messages"],
+        )
+
+
+async def fetch_sessions(user_id: str) -> list[dict]:
+    """Most-recent-first, matching SessionStore.order's convention."""
+    if _pool is None:
+        return []
+    async with _pool.acquire() as conn:
+        rows = await conn.fetch(
+            "select * from sessions where user_id = $1 order by created_at desc", user_id
+        )
+    return [dict(r) for r in rows]

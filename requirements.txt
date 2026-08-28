@@ -49,6 +49,11 @@ cerebras_cloud_sdk>=1.0,<2
 eval_type_backport>=0.2,<1
 fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1
+# Session persistence (backend/api/db.py) — a Postgres connection pool used
+# only when DATABASE_URL is set (a real deployment, pointed at Supabase's own
+# database). Unset means sessions stay process-memory-only, unchanged from
+# before, for local/VM dev.
+asyncpg>=0.29,<0.31
 # Verifies Supabase-issued Google-login JWTs on protected routes (backend/api/auth.py)
 # via Supabase's JWKS endpoint (works whether the project signs with ES256, RS256,
 # etc. — no shared secret to keep in sync). [crypto] extra pulls in `cryptography`,

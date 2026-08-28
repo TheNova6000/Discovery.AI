@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+from . import db
 
 
 class GraphNodeOut(BaseModel):
@@ -79,6 +82,42 @@ class SessionState:
             "messages": [m.model_dump() for m in self.messages],
         }
 
+    def to_row(self, user_id: str) -> dict:
+        """Maps onto the `sessions` table's columns exactly (see db.py) — the
+        JSONB columns need pre-serialized JSON text, not raw Python objects,
+        since no jsonb type codec is registered on the asyncpg pool.
+        """
+        return {
+            "session_id": self.session_id,
+            "user_id": user_id,
+            "title": self.title,
+            "current_entity": self.current_entity,
+            "current_abstraction": self.current_abstraction,
+            "current_dimension_name": self.current_dimension_name,
+            "current_dimension_description": self.current_dimension_description,
+            "known_entities": json.dumps(self.known_entities),
+            "nodes": json.dumps([n.model_dump() for n in self._nodes.values()]),
+            "edges": json.dumps([{"source": s, "target": t, "label": l} for s, t, l in self._edges]),
+            "messages": json.dumps([m.model_dump() for m in self.messages]),
+        }
+
+    @classmethod
+    def from_row(cls, row: dict) -> "SessionState":
+        state = cls()
+        state.session_id = row["session_id"]
+        state.title = row["title"]
+        state.created_at = row["created_at"].isoformat()
+        state.current_entity = row["current_entity"]
+        state.current_abstraction = row["current_abstraction"]
+        state.current_dimension_name = row["current_dimension_name"]
+        state.current_dimension_description = row["current_dimension_description"]
+        state.known_entities = json.loads(row["known_entities"])
+        for n in json.loads(row["nodes"]):
+            state._nodes[n["id"]] = GraphNodeOut(**n)
+        state._edges = [(e["source"], e["target"], e["label"]) for e in json.loads(row["edges"])]
+        state.messages = [ChatMessage(**m) for m in json.loads(row["messages"])]
+        return state
+
 
 class SessionStore:
     """All sessions one user has seen, in-memory (no persistence across restarts —
@@ -127,15 +166,38 @@ class SessionStore:
 # One store per authenticated user (LOCAL_DEV_USER_ID for the no-auth local/VM
 # demo — see backend/api/auth.py), so a real multi-user deployment can't have
 # one signed-in Google account's investigation graph show up for another's.
-# Still process-memory-only: restarting the server loses history for everyone,
-# same tradeoff as before, just no longer shared across users.
+# In-memory dict doubles as a per-process cache in front of Postgres (db.py) —
+# fast for every request after the first, and the only thing at all when
+# DATABASE_URL isn't set (unchanged from before: process-memory-only, lost on
+# restart). When it IS set, a cache miss (first time this process sees this
+# user — e.g. right after Render's free tier spins back up) rehydrates from
+# the database instead of starting that user over from nothing.
 _STORES: dict[str, SessionStore] = {}
 
 
-def get_store(user_id: str) -> SessionStore:
-    if user_id not in _STORES:
-        _STORES[user_id] = SessionStore()
-    return _STORES[user_id]
+async def get_store(user_id: str) -> SessionStore:
+    if user_id in _STORES:
+        return _STORES[user_id]
+
+    store = SessionStore()
+    if db.enabled():
+        rows = await db.fetch_sessions(user_id)
+        if rows:
+            loaded = [SessionState.from_row(r) for r in rows]
+            store.sessions = {s.session_id: s for s in loaded}
+            store.order = [s.session_id for s in loaded]  # fetch_sessions is already most-recent-first
+            store.current_id = store.order[0]
+        else:
+            # Brand new user: the SessionStore constructor already created one
+            # blank session — persist it now so it isn't silently lost if this
+            # process gets recycled before the user's first message does.
+            await persist(user_id, store.current())
+    _STORES[user_id] = store
+    return store
+
+
+async def persist(user_id: str, session: SessionState) -> None:
+    await db.upsert_session(session.to_row(user_id))
 
 
 class ChatRequest(BaseModel):

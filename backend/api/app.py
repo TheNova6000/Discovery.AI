@@ -11,10 +11,16 @@ from backend.agents import GroundAgent
 from backend.graph import explain_entity, find_or_create_entity, get_decomposition
 from backend.questions import Intent, Question, QuestionLevel, SessionContext, parse_intent
 
+from . import db
 from .auth import get_current_user_id
-from .session import ChatRequest, ChatResponse, SessionState, SwitchSessionRequest, get_store
+from .session import ChatRequest, ChatResponse, SessionState, SwitchSessionRequest, get_store, persist
 
 app = FastAPI(title="Recursive Knowledge Graph — Demo")
+
+
+@app.on_event("startup")
+async def _startup() -> None:
+    await db.init_pool()
 
 # CORS_ORIGINS is a comma-separated allowlist (e.g. the Vercel frontend's URL)
 # for the deployed split-origin setup; unset defaults to "*", matching the
@@ -219,7 +225,8 @@ _HANDLERS = {
 
 @app.get("/graph")
 async def get_graph(user_id: str = Depends(get_current_user_id)) -> dict:
-    return get_store(user_id).current().to_payload()
+    store = await get_store(user_id)
+    return store.current().to_payload()
 
 
 @app.post("/reset")
@@ -227,16 +234,18 @@ async def reset(user_id: str = Depends(get_current_user_id)) -> dict:
     """Wipe the CURRENT session's graph/chat in place (same id, no new history
     entry) — for quick iteration/rehearsal, distinct from "New chat" below.
     """
-    store = get_store(user_id)
+    store = await get_store(user_id)
     new_state = SessionState()
     new_state.session_id = store.current_id  # keep its place in history
     store.sessions[store.current_id] = new_state
+    await persist(user_id, new_state)
     return new_state.to_payload()
 
 
 @app.get("/sessions")
 async def list_sessions(user_id: str = Depends(get_current_user_id)) -> list[dict]:
-    return get_store(user_id).list_sessions()
+    store = await get_store(user_id)
+    return store.list_sessions()
 
 
 @app.post("/sessions/new")
@@ -244,14 +253,17 @@ async def new_session(user_id: str = Depends(get_current_user_id)) -> dict:
     """The actual feature requested: reset the live graph for a new chat, while
     keeping every previous session in history rather than discarding it.
     """
-    state = get_store(user_id).new_session()
+    store = await get_store(user_id)
+    state = store.new_session()
+    await persist(user_id, state)
     return state.to_payload()
 
 
 @app.post("/sessions/switch")
 async def switch_session(req: SwitchSessionRequest, user_id: str = Depends(get_current_user_id)) -> dict:
+    store = await get_store(user_id)
     try:
-        state = get_store(user_id).switch(req.session_id)
+        state = store.switch(req.session_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"No session with id {req.session_id!r}")
     return state.to_payload()
@@ -259,7 +271,8 @@ async def switch_session(req: SwitchSessionRequest, user_id: str = Depends(get_c
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)) -> ChatResponse:
-    session = get_store(user_id).current()
+    store = await get_store(user_id)
+    session = store.current()
     session.add_message("user", req.message)
     context = SessionContext(
         current_entity=session.current_entity,
@@ -276,6 +289,7 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)) ->
         except Exception as exc:  # noqa: BLE001 - surface to the demo UI instead of a 500
             reply = f"Something went wrong investigating that: {exc}"
     session.add_message("agent", reply, intent_action=intent.action)
+    await persist(user_id, session)
     return ChatResponse(reply=reply, intent_action=intent.action, graph=session.to_payload())
 
 
