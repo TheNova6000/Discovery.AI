@@ -81,6 +81,7 @@ guessing required.
    | `NEO4J_PASSWORD` | the Aura password from step 1 |
    | `GEMINI_API_KEY` / `GROQ_API_KEY` / `CEREBRAS_API_KEY` | your existing keys |
    | `SUPABASE_URL` | the Project URL from step 3.4 |
+   | `DATABASE_URL` | Supabase project -> Settings -> Database -> Connection string (URI format) |
    | `CORS_ORIGINS` | leave blank for now — set after step 5 gives you the Vercel URL |
 3. Deploy. Note the resulting URL (`https://discovery-ai-backend-xxxx.onrender.com`).
 
