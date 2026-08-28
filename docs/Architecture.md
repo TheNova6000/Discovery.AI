@@ -337,8 +337,26 @@ QUESTION (context, not a graph node — see below)
 
 **Named, not solved, per this section's own discipline:** the entity-linking scope rule in (3) is a direction, not an algorithm — "nearest discovery-time abstraction ancestor" needs a real multi-question worked example (not yet run) to confirm it actually disambiguates correctly rather than just plausibly. 0.8's two open items (render rule, `kind`-drift risk) are unaffected by this section and remain open.
 
+**Superseded/completed by 0.10 below, same day** — the constructed test this section called for was run as a traced-through thought experiment (no code yet, per this section's own instruction) rather than left as a to-do.
+
+### 0.10 Identity-rule test: traced against three constructed questions (2026-08-29)
+
+**[THEORY], a worked trace, not a code run** — five acceptance criteria, checked against `(name, nearest discovery-time abstraction ancestor)` from §0.9(3), using: Question A ("how does an electric grid transmit electricity") discovering `Node(name="transmission")` under ancestor `Electric Grid` (→ **T₁**); Question B ("how does a cellular network transmit information") discovering the same-named node under ancestor `Telecommunications Network` (→ **T₂**); Question C ("compare transmission in electric grids and telecom networks").
+
+| # | Criterion | Result | Why |
+|---|---|---|---|
+| 1 | No false merge (T₁ ≠ T₂) | **Passes** | `(transmission, Electric Grid) ≠ (transmission, Telecommunications Network)` as tuples. But this bottoms out in a dependency worth naming honestly: it only holds because the two *ancestors* don't themselves collide — the rule pushes the homonym problem up one level, it doesn't eliminate it. A later scenario with colliding ancestor names would face the identical original problem one level up (see the root-case note below). |
+| 2 | No unnecessary duplication | **Passes** | A second question still under `Electric Grid` resolves to the same `(transmission, Electric Grid)` tuple → reuses T₁. |
+| 3 | Cross-question accumulation | **Passes**, same mechanism as (2) | Identity is anchored to the persistent abstraction ancestor, not to question text — exactly why per-question scoping was rejected in §0.9. |
+| 4 | Comparison stays possible (Question C) | **Passes, but only with a newly-identified dependency** | Question C has no single ancestor of its own — it's *about* two scoped nodes at once. Retrieving T₁ and T₂ specifically (not an unscoped third node, not an accidental single match) requires **intent parsing to extract a disambiguating scope hint from the question's own phrasing** ("...in electric grids" → `Electric Grid`; "...in telecom networks" → `Telecommunications Network`) and pass it into the lookup. The identity rule *supports* this (nothing prevents deliberately fetching two scoped nodes) but does not *provide* it — scope-hint extraction doesn't exist anywhere in the current intent layer (`backend/questions/intent.py`) and is a real, separate piece of design/implementation work this test surfaced, not something the identity rule delivers for free. |
+| 5 | Recursive structure survives | **Passes, contingent on (1)** | Once T₁/T₂ are genuinely separate nodes, anything decomposed from either attaches to the correct one automatically — no special-casing needed. |
+
+**Net verdict: the identity rule survives 4 of 5 criteria outright and the 5th conditionally — good enough to proceed, not good enough to call fully closed.** Per this session's own rule ("if it fails any of those, we don't patch around it, we revise the identity semantics") — this is not a failure, so no revision is triggered. But criterion 4's dependency is a genuine, previously-unnamed requirement, not a footnote: **comparison-scoped lookups need a scope-hint channel**, and that's now a tracked open item, not an assumption.
+
+**One honest edge case surfaced, not solved:** the ancestor-scoping rule has a base case — top-level abstractions (`Electric Grid`, `Telecommunications Network` themselves) have no ancestor to scope *by*, so identity resolution for them still falls back to global name matching, inheriting the original collision risk one level up. Less likely to trigger in practice (top-level abstraction names are coarser-grained, less homonym-prone than mid-graph entity names like "Transmission"), but not impossible, and not fixed by anything designed so far — named here so it isn't mistaken for a solved problem.
+
 **Next session starts here:**
-1. Run one real worked example where the *same* canonical node is legitimately discovered under two different abstraction ancestors with the same name (a constructed "Transmission" test, mirroring the thought experiment that motivated (3)) — confirm the scoped-identity rule actually separates them before trusting it further.
+1. Design the scope-hint mechanism criterion 4 requires (likely an addition to `Intent` in `backend/questions/intent.py` — an optional disambiguating-context field, populated when a question's own phrasing names one) — small, but real, and now a prerequisite for compare-style questions under the new identity rule, not optional polish.
 2. Turn on `gather_evidence=True`, confirm `Claim`/`Source` attach cleanly to a `Node`, using the smartphone-photo pipeline — still the standing next code-adjacent step, unchanged since 0.7.
 3. Only then: schema.
 
