@@ -355,10 +355,25 @@ QUESTION (context, not a graph node — see below)
 
 **One honest edge case surfaced, not solved:** the ancestor-scoping rule has a base case — top-level abstractions (`Electric Grid`, `Telecommunications Network` themselves) have no ancestor to scope *by*, so identity resolution for them still falls back to global name matching, inheriting the original collision risk one level up. Less likely to trigger in practice (top-level abstraction names are coarser-grained, less homonym-prone than mid-graph entity names like "Transmission"), but not impossible, and not fixed by anything designed so far — named here so it isn't mistaken for a solved problem.
 
-**Next session starts here:**
-1. Design the scope-hint mechanism criterion 4 requires (likely an addition to `Intent` in `backend/questions/intent.py` — an optional disambiguating-context field, populated when a question's own phrasing names one) — small, but real, and now a prerequisite for compare-style questions under the new identity rule, not optional polish.
-2. Turn on `gather_evidence=True`, confirm `Claim`/`Source` attach cleanly to a `Node`, using the smartphone-photo pipeline — still the standing next code-adjacent step, unchanged since 0.7.
-3. Only then: schema.
+**Superseded/completed by 0.11 below, same day** — the Node→Claim→Source trace this section called for was run against the actual graph interface code, not left as a to-do.
+
+### 0.11 Evidence-chain test: traced against real graph-interface code (2026-08-29)
+
+**[THEORY]/[BUILT], a worked trace against real code, not a code run** — three properties, checked against `backend/graph/interface.py`'s actual `attach_question`/`attach_claim` and §0.3/§0.4's already-`[VERIFIED]` provenance tooling.
+
+**1. Does a Claim belong to the Node (not float near a Question)?** Checked directly, not assumed. The real chain today is **`Node -[HAS_QUESTION]-> Question -[ANSWERED_BY]-> Claim`** (`attach_question`/`attach_claim`, `backend/graph/interface.py:429,474`) — a two-hop path that already exists, not the direct `Node -[has_claim]-> Claim` edge either the diagram in this arc or the original sketch proposed. **Recommendation: keep it two-hop, don't add a direct edge** — a direct edge would duplicate a fact the two-hop path already encodes (which node a claim is about, derivable via which question it answers), risking the copies drifting apart. Passes, via structure that already exists.
+
+**2. Does a Relation (Node-role) support Claims without a second epistemic architecture?** Checked whether `attach_question`'s node-matching is entity-specific: it isn't — `NODE_LABEL` is one generic label for every canonical node, entity or otherwise. A Relation-as-Node (e.g. `captures` in `Camera -[captures]-> Raw Image`) attaches to a `Question` and receives `Claim`s through the *identical* two-hop path, with zero special-casing required. **This is direct evidence the §0.8 collapse to one primitive was the right call, not merely an elegant one** — the fact that this works with no new mechanism is the actual payoff, not a coincidence.
+
+**3. Does claim provenance survive synthesis (which underlying pieces a synthesized claim actually traces back to)?** Better news than a fresh design problem: **this is already built and `[VERIFIED]`**, not newly needed. `trace_claim` (§0.3 — structural: direct/derived/synthesized/unresolved by child count) and `audit_synthesis` (§0.4 — content: atomic-proposition-level investigated/uninvestigated classification, tested clean across 3 real sessions including 2 negative controls) already answer exactly this question. **The catch, precisely stated:** both currently read the SQLite `AgentState` tree (`GroundResult.child_results`), not Neo4j `Node`/`Claim` structure. The real next task is **re-pointing already-proven tooling at the new structure**, not inventing synthesis-provenance from scratch — a smaller, better-understood job than either of us was treating it as.
+
+**Net verdict: the evidence chain passes.** Two of its three hard parts are already solved by existing, verified code (provenance tooling; generic node-question-claim attachment); the third (direct vs. structural attachment) resolves by *not* building what was originally sketched. Per the user's own framing: this doesn't mean the architecture is finished — the §0.10 top-level-collision gap and the scope-hint requirement are still open — it means the specific thing being tested is no longer a blocker, and what's left are two named, scoped tasks rather than open questions.
+
+**Next session starts here, now genuinely schema-adjacent:**
+1. Turn on `gather_evidence=True` in `app.py`'s `_run_investigation` and confirm a real `Claim`/`Source` attaches to a real `Node` end-to-end (the smartphone-photo pipeline) — the one item on this list that's pure wiring of already-verified pieces, no new design.
+2. Re-point `trace_claim`/`audit_synthesis` at Neo4j `Node`/`Claim` structure instead of `AgentState` — an adaptation of proven tooling, scoped by (3) above.
+3. Design the scope-hint mechanism from §0.10 criterion 4 (an addition to `Intent` in `backend/questions/intent.py`).
+4. Only then: the actual `Node` schema — by this point informed by five real, evidence-grounded design passes (0.6-0.11) rather than designed from a standing start.
 
 ## 1. Consolidated stack
 
