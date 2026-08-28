@@ -260,10 +260,46 @@ The first two links already exist and are individually verified; the last two ar
 
 **What this section deliberately does not do:** decide a Neo4j schema for the Model Graph, decide the exact tile-boundary rule, or write any code. Consistent with every other design pass in this document (§0.2, §0.5), the next step earns the right to a schema by testing the cheapest version of the idea first.
 
-**Next session starts here, in order, not in parallel:**
-1. Turn on `gather_evidence=True` in `app.py`'s `_run_investigation` and render `Claim.source` in the UI (distinct visual treatment, per the original ask) — cheapest possible slice, uses only already-[VERIFIED] code, and produces a real test case for everything below it.
-2. Define the Model Graph's minimal shape (which of §0.5's open questions — subject/object/context/type/reasoning/provenance — are load-bearing vs. nice-to-have) against that real test case, not in the abstract.
-3. Only then design the tile/zoom-boundary rule (0.6.2's pragmatic v1) against a Model Graph that actually exists — designing the map before there's a territory to have levels of would repeat the exact ordering mistake §0.2 already named and avoided once.
+**Superseded by 0.7 below, same day** — the "next session starts here" list above was written before a second, independent pass at this same question sharpened the conclusion. Left in place for the record (§0.1's traceability discipline: don't retroactively tidy a design's own history), but 0.7's ordering is the one to actually follow.
+
+### 0.7 Model Graph: From Investigation Trace to Navigable World Model (2026-08-29)
+
+**The correction 0.6 didn't go far enough on.** 0.6.1 named the Investigation-Graph-vs-Model-Graph split as *a* gap. This pass reframes it as *the* gap — not one item on a list alongside the evidence flag and the zoom UX, but the thing that makes the other two items make sense at all: **the graph should not be a record of the agent's own investigation. It should be a navigable model of the subject, which the investigation happens to be the method of constructing.** `decomposes_into` fails as a model relation for reasons sharper than "zoom feels wrong" — a real worked example makes this concrete: "how does a smartphone turn a photo into something sendable" decomposes, under investigation, into Capture/Processing/Encoding/Network/Server/Recipient — but those aren't a hierarchical decomposition of one thing into its parts, they're **stages of a process**, related by sequence and data-flow, not containment. No amount of zoom-UX polish fixes a graph whose edges are the wrong semantic type to begin with.
+
+**Four layers, not one graph:**
+
+```
+QUESTION (context, not a graph node — see below)
+   │
+   ├──> MODEL GRAPH        "what's actually true about the subject" — navigable, the map itself
+   │        │
+   │        └──> attached to: CLAIMS   "why we believe this element/relation exists"
+   │                  │
+   │                  └──> SOURCES     real RetrievedResource citations
+   │
+   └──> INVESTIGATION TRACE   "how the agent constructed the above" — provenance, not the map
+```
+
+**Question is context, not a root node.** The same subject answers differently depending on what's asked (already [VERIFIED] for claim relationships, §0.1's `R = f(A, B, Q)` finding) — putting Question *inside* the navigable graph would make every model a permanent commitment to one framing. It stamps what it produces; it isn't itself part of what gets zoomed around in.
+
+**Two primitives, not five — `ModelElement` collapses further than it first looked like it would:**
+- **`Node`** — the single "thing" kind. `entity` / `process` / `abstraction` are a `kind` tag on this one primitive, not separate classes: a camera sensor and an abstraction like "Payment System" are structurally identical (relations + investigation status + resolution level), differing only in what they represent — exactly the distinction §0's original research already ruled belongs in the reasoning layer, not the storage schema ("keep the graph mechanically dumb; no hierarchy/zoom logic in Neo4j"). A `process`-kind node's relations are predominantly sequential (`then`/`feeds`) rather than structural (`contains`) — that's a property of which edges point at it, not a reason to give it its own node class.
+- **`Relation`** — reified as its own node (not a plain Neo4j edge with properties) from the start, not as a later special case. §0.5 already left open "is a relationship itself a claim?" — if a relation can have multiple independent sources, get contradicted, or be superseded the way any other claim can, it needs edges of its own (`EVIDENCED_BY` → `Claim`), which a plain edge-with-properties can't cleanly support in a property graph. Reifying every `Relation` uniformly avoids a schema migration the first time a contested edge shows up.
+
+**`Claim` is explicitly not a `ModelElement`.** It's the attachment between a `Node`/`Relation` and its `Sources` — one layer down, not a peer category inside the model graph (a correction to this section's own earlier diagram, which had drawn claims as one of the model graph's internal boxes alongside entities/relations/abstractions). This matches the UI shape the model already wants: Model Map → Claims/Explanation → Sources, as three visually distinct strata, not one.
+
+**The model is a network, not a tree — a real, deferred UI consequence, not just a data-model one.** The electric-grid example makes this concrete: Generation/Transmission/Distribution aren't siblings under one parent, they interact directly, and a shared Control/Markets layer cuts across all three. Once the Model Graph is genuinely this shape, `frontend/app.html`'s breadthfirst tree layout is the *structurally wrong* renderer, not a mistuned one — flagged here so it's expected at implementation time, not discovered as a surprise; not solved now.
+
+**Where this leaves the lazy/eager tension (0.6.2):** unchanged in substance, restated more precisely — "lazy" wasn't the wrong call, "path-only" was too lazy a version of it. The evolution is full-eager (rejected, cost) → current path-only-lazy (rejected, this section's actual complaint) → **bounded model expansion**: investigating any `Node` at all eagerly populates its immediate neighborhood (the "tile"), and every `Node` honestly carries its own investigation status (`explored` / `partially_explored` / `unexplored`) rather than the graph pretending un-investigated territory doesn't exist. This is the same conclusion 0.6.2 reached, now derived from the four-layer split instead of the map analogy alone — two independent routes landing on the same answer is a good sign, not a coincidence to paper over.
+
+**Research consulted, same discipline as always (survey real precedent, adopt nothing wholesale):** Zoomable Multilevel Trees ([arXiv:1906.05996](https://arxiv.org/abs/1906.05996), explicit abstract+embedded tree per zoom level — relevant once the network-not-tree layout problem above is actually tackled); provenance-for-KGs work arguing traceability must be attached to graph content rather than assumed from structure ([Amaral, Rodrigues, Simperl, *ProVe*, 2024](https://journals.sagepub.com/doi/10.3233/SW-233467); [Sarazin et al., *Full Traceability and Provenance for Knowledge Graphs*, 2024](https://journals.sagepub.com/doi/10.3233/FAIA241309)) — directly supports treating Claim/Source as first-class attached structure rather than a UI afterthought; **Context Graphs** ([arXiv:2406.11160](https://arxiv.org/abs/2406.11160)), arguing plain triples lose exactly the contextual metadata (time, provenance, and — most relevant here — the asking-context) that this project's own `R = f(A,B,Q)` finding already demands a bare edge can't hold alone.
+
+**Still, deliberately, not decided: `ModelElement`'s (i.e. `Node`'s and `Relation`'s shared) exact field set.** Both this section's two-primitive collapse and its Claim/Relation reification calls are recommendations for the next session to react to, not a schema. No Neo4j change, no code, per this document's standing discipline (§0.1) and this section's own explicit instruction not to design storage before the semantics are agreed.
+
+**Next session starts here, superseding 0.6's list:**
+1. Agree or contest `Node`/`Relation` as the full primitive set, and Relation-reification, before anything else — this is the actual foundation everything below depends on.
+2. Only then: turn on `gather_evidence=True` (0.6's cheap first slice is still correct as an early move, just no longer the *first* one) and confirm `Claim`/`Source` attach cleanly to the agreed primitives using one real worked example (the smartphone-photo pipeline is already a good candidate — it's the case that broke `decomposes_into` in the first place).
+3. Only then design the tile/zoom-boundary rule and the network-layout renderer replacement — both need a real Model Graph to be designed against, not an empty schema.
 
 ## 1. Consolidated stack
 
