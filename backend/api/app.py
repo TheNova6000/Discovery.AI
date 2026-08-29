@@ -5,6 +5,7 @@ import pathlib
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.agents import GroundAgent
@@ -317,11 +318,34 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)) ->
     return ChatResponse(reply=reply, intent_action=intent.action, graph=session.to_payload())
 
 
-# Serves the whole frontend/ directory (index.html landing page, app.html the
+# Clean-URL routes for the two real pages. StaticFiles(html=True) below only
+# auto-resolves "index.html" for a directory-style path ("/" -> index.html) —
+# it does NOT append ".html" to arbitrary extension-less paths the way
+# Vercel's cleanUrls does (verified directly: /chat 404'd against the mount
+# alone). Registered as explicit GET routes, ahead of the mount, so /chat
+# (a page) and the existing POST /chat (the API endpoint) coexist without
+# conflict — FastAPI routes on method, not path alone.
+@app.get("/chat")
+async def chat_page() -> FileResponse:
+    return FileResponse(FRONTEND_DIR / "chat.html")
+
+
+@app.get("/home")
+async def home_page() -> FileResponse:
+    return FileResponse(FRONTEND_DIR / "index.html")
+
+
+@app.get("/app.html")
+async def legacy_app_html_redirect() -> RedirectResponse:
+    """The tool's page used to live at /app.html before the /chat rename —
+    redirect old links/bookmarks instead of 404ing them."""
+    return RedirectResponse(url="/chat")
+
+
+# Serves the whole frontend/ directory (index.html landing page, chat.html the
 # actual tool) — html=True makes "/" resolve to index.html the same way static
 # hosts like Vercel do. Registered LAST and deliberately: a mount at "/" would
 # otherwise match every path as a prefix and swallow the API routes above it
 # if it were registered first, since Starlette checks routes in registration
-# order. This replaces the old single hardcoded FileResponse("/") route now
-# that there's more than one page to serve.
+# order.
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

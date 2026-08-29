@@ -427,7 +427,7 @@
 <div class="bg-layer"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
 <div class="page-corner tl"></div><div class="page-corner tr"></div><div class="page-corner bl"></div><div class="page-corner br"></div>
 <header>
-  <a href="index.html" style="text-decoration:none"><h1>discovery.Ai</h1></a>
+  <a href="/" style="text-decoration:none"><h1>discovery.Ai</h1></a>
   <span class="tag">EST. 2026</span>
   <div class="sub">construct a model of what you're trying to understand — through conversation</div>
   <div class="status"><span class="status-dot" id="status-dot"></span><span id="status">ready</span></div>
@@ -529,11 +529,11 @@ if (AUTH_ENABLED) {
     // clicked from. index.html has no Supabase client at all (it's the
     // static marketing page), so the access token landing there in the URL
     // fragment was silently dropped — by the time the user navigated to
-    // app.html, there was no session anywhere, producing an infinite-looking
+    // /chat, there was no session anywhere, producing an infinite-looking
     // login loop. Pinning the redirect to this exact page fixes it.
     supabaseClient.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin + '/app.html' },
+      options: { redirectTo: window.location.origin + '/chat' },
     });
   });
   document.getElementById('signout-btn').addEventListener('click', async () => {
