@@ -7,7 +7,7 @@ from typing import TypeVar
 import instructor
 from pydantic import BaseModel
 
-from .llm_config import PROVIDER_ENV_VAR, PROVIDER_KEY_POOLS
+from .llm_config import _SERVER_DEFAULT_ENV, PROVIDER_ENV_VAR, PROVIDER_KEY_POOLS, get_current_user_key
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -63,10 +63,23 @@ async def structured_call(
         for model in model_chain:
             provider = model.split("/", 1)[0]
             env_var = PROVIDER_ENV_VAR.get(provider)
-            key_pool = PROVIDER_KEY_POOLS.get(provider) or []
-            # No configured pool -> single attempt using whatever's already in the
-            # env (e.g. a provider this project doesn't rotate keys for yet).
-            attempts: list[str | None] = list(key_pool) if key_pool else [None]
+            user_key = get_current_user_key(provider)
+            if user_key:
+                # Bring-your-own-key (docs/Architecture.md): this call runs on
+                # THIS user's own quota for this provider, not the shared server
+                # pool -- a single attempt, no round-robin, since there's only
+                # one key to try.
+                attempts: list[str | None] = [user_key]
+            else:
+                key_pool = PROVIDER_KEY_POOLS.get(provider) or []
+                # No pool configured for this provider -> fall back to the
+                # server's OWN original key, explicitly (never "whatever's
+                # currently in the env var"). That distinction matters now: a
+                # prior request in this same process may have set this exact
+                # env var to a DIFFERENT user's personal key a moment ago: this
+                # is what stops that key from silently leaking into a later,
+                # keyless request instead of the server's shared credential.
+                attempts = list(key_pool) if key_pool else [_SERVER_DEFAULT_ENV.get(env_var) if env_var else None]
 
             for key_index, key in enumerate(attempts):
                 if key is not None and env_var is not None:

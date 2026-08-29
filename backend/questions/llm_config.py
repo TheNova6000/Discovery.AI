@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import os
 
 from dotenv import load_dotenv
@@ -107,3 +108,43 @@ PROVIDER_ENV_VAR: dict[str, str] = {
     "groq": "GROQ_API_KEY",
     "cerebras": "CEREBRAS_API_KEY",
 }
+
+# The server's own key for each provider, captured once at import time, before
+# anything ever mutates these env vars. Bring-your-own-key support (below)
+# needs this: after a request that supplied its own key finishes, the env var
+# must be explicitly reset to this known-good baseline, not just left as
+# "whatever's currently in it" — otherwise a later, keyless request could
+# silently inherit and use a PREVIOUS user's personal key. The existing
+# pool-rotation behavior above never needed this because every key in a pool
+# is equally "the server's own"; a personal key is not interchangeable with
+# those, so leaking it forward is a real cross-user credential leak, not a
+# harmless race.
+_SERVER_DEFAULT_ENV: dict[str, str | None] = {name: os.environ.get(name) for name in PROVIDER_ENV_VAR.values()}
+
+# Request-scoped, not process-global: a `ContextVar` is copied per-asyncio-Task
+# at creation, so two concurrent requests (two different FastAPI request
+# handlers, each its own Task) each see only their own value here, with zero
+# risk of one request's personal key becoming visible inside another's task
+# purely by virtue of being set. This solves "which key does THIS request want"
+# safely; it does NOT by itself make the underlying os.environ mutation in
+# llm_client.py safe -- that safety instead comes from there being no `await`
+# between setting the env var and constructing the SDK client that reads it
+# (see llm_client.py's structured_call), so no other task's code can run in
+# between and observe or clobber it.
+_current_user_keys: contextvars.ContextVar[dict[str, str]] = contextvars.ContextVar(
+    "current_user_keys", default={}
+)
+
+
+def set_current_user_keys(keys: dict[str, str]) -> None:
+    """Called once per request (app.py), before any LLM call happens for it.
+    `keys` maps provider name ("groq"/"google"/"cerebras") to that user's own
+    key for it -- only for providers they've actually saved one for. Missing
+    entries fall back to the shared server pool, unchanged from today's
+    behavior.
+    """
+    _current_user_keys.set(keys)
+
+
+def get_current_user_key(provider: str) -> str | None:
+    return _current_user_keys.get().get(provider)

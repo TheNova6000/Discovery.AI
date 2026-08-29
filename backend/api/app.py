@@ -19,6 +19,7 @@ from backend.graph import (
     get_questions_for_entity,
 )
 from backend.questions import Intent, Question, QuestionLevel, SessionContext, parse_intent
+from backend.questions.llm_config import set_current_user_keys
 
 from . import db
 from .auth import get_current_user_id
@@ -27,6 +28,7 @@ from .session import (
     ChatResponse,
     PendingAction,
     SessionState,
+    SettingsUpdateRequest,
     SwitchSessionRequest,
     get_store,
     persist,
@@ -62,6 +64,65 @@ app.add_middleware(
 )
 
 FRONTEND_DIR = pathlib.Path(__file__).resolve().parent.parent.parent / "frontend"
+
+# Bring-your-own-key settings: same in-memory-cache-in-front-of-Postgres shape
+# as SessionStore/get_store in session.py (fast after the first request per
+# process, correct fallback to Postgres on a cold start, correct fallback to
+# pure in-memory when DATABASE_URL isn't set at all -- the VM/local demo).
+_USER_KEYS_CACHE: dict[str, dict] = {}
+_SETTINGS_FIELDS = ("groq_api_key", "gemini_api_key", "cerebras_api_key", "cohere_api_key")
+
+
+async def _get_user_keys(user_id: str) -> dict:
+    if user_id in _USER_KEYS_CACHE:
+        return _USER_KEYS_CACHE[user_id]
+    keys = await db.fetch_user_keys(user_id) or {}
+    _USER_KEYS_CACHE[user_id] = keys
+    return keys
+
+
+async def _save_user_keys(user_id: str, updates: SettingsUpdateRequest) -> dict:
+    current = await _get_user_keys(user_id)
+    merged = dict(current)
+    for field in _SETTINGS_FIELDS:
+        value = getattr(updates, field)
+        if value is not None:
+            merged[field] = value or None  # explicit "" clears back to the shared server pool
+    _USER_KEYS_CACHE[user_id] = merged
+    await db.upsert_user_keys(user_id, merged)
+    return merged
+
+
+def _settings_status(keys: dict) -> dict:
+    return {f"{field}_set": bool(keys.get(field)) for field in _SETTINGS_FIELDS}
+
+
+def _resolve_provider_keys(stored: dict) -> dict[str, str]:
+    """Maps this project's settings field names onto the provider-prefix names
+    `structured_call` actually keys its lookups by (see llm_config.py) --
+    cohere_api_key is intentionally not mapped to anything: Cohere isn't in
+    either active model chain (dropped, docs/Memory.md), so a saved Cohere key
+    currently has no effect on any real call. Kept in settings anyway since
+    it's one of the four keys this project already asks users to manage.
+    """
+    resolved: dict[str, str] = {}
+    if stored.get("groq_api_key"):
+        resolved["groq"] = stored["groq_api_key"]
+    if stored.get("gemini_api_key"):
+        resolved["google"] = stored["gemini_api_key"]
+    if stored.get("cerebras_api_key"):
+        resolved["cerebras"] = stored["cerebras_api_key"]
+    return resolved
+
+
+@app.get("/settings")
+async def get_settings(user_id: str = Depends(get_current_user_id)) -> dict:
+    return _settings_status(await _get_user_keys(user_id))
+
+
+@app.post("/settings")
+async def update_settings(req: SettingsUpdateRequest, user_id: str = Depends(get_current_user_id)) -> dict:
+    return _settings_status(await _save_user_keys(user_id, req))
 
 # Raised back from depth=1/steps=1 (docs/Memory.md — the Amazon investigation
 # diagnosis): that cut was bundled with the real latency fix (routing
@@ -401,13 +462,19 @@ async def switch_session(req: SwitchSessionRequest, user_id: str = Depends(get_c
     return state.to_payload()
 
 
-async def _process_message(session: SessionState, message: str) -> tuple[str, str]:
+async def _process_message(session: SessionState, message: str, user_id: str) -> tuple[str, str]:
     """The actual "what should happen for this message" logic, shared between a
     normal /chat turn and /chat/regenerate -- pulled out so regenerating a
     reply re-runs EXACTLY the same dispatch a fresh message would, rather than
     a second, drifting copy of it. Does not touch session.messages itself;
     callers own when a user/agent message gets appended.
     """
+    # Bring-your-own-key: resolved once per request, right before any LLM call
+    # this turn could possibly make. set_current_user_keys is a ContextVar set
+    # (llm_config.py) -- scoped to this request's own asyncio Task, so a
+    # concurrent request from a different user can never see or clobber it.
+    set_current_user_keys(_resolve_provider_keys(await _get_user_keys(user_id)))
+
     # docs/Architecture.md §0.20: confirmation detection runs FIRST, every turn,
     # unconditionally -- before parse_intent ever sees the message. This is the
     # actual fix, not a special case for the word "yes": deterministic
@@ -455,7 +522,7 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)) ->
     store = await get_store(user_id)
     session = store.current()
     session.add_message("user", req.message)
-    reply, intent_action = await _process_message(session, req.message)
+    reply, intent_action = await _process_message(session, req.message, user_id)
     session.add_message("agent", reply, intent_action=intent_action, entity_name=session.current_entity)
     await persist(user_id, session)
     return ChatResponse(reply=reply, intent_action=intent_action, graph=session.to_payload())
@@ -477,7 +544,7 @@ async def regenerate(user_id: str = Depends(get_current_user_id)) -> ChatRespons
         raise HTTPException(status_code=400, detail="Nothing to regenerate — no prior agent reply to a user message.")
     last_user_text = session.messages[-2].text
     session.messages.pop()  # remove only the last agent reply, never anything earlier
-    reply, intent_action = await _process_message(session, last_user_text)
+    reply, intent_action = await _process_message(session, last_user_text, user_id)
     session.add_message("agent", reply, intent_action=intent_action, entity_name=session.current_entity)
     await persist(user_id, session)
     return ChatResponse(reply=reply, intent_action=intent_action, graph=session.to_payload())

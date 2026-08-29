@@ -246,3 +246,15 @@ class ChatResponse(BaseModel):
 
 class SwitchSessionRequest(BaseModel):
     session_id: str = Field(min_length=1)
+
+
+class SettingsUpdateRequest(BaseModel):
+    """A field left as None means "don't change this key"; an explicit empty
+    string clears it back to using the shared server pool. Never round-tripped
+    back to the client in plaintext -- GET /settings only ever returns whether
+    each is set, not the value."""
+
+    groq_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    cerebras_api_key: Optional[str] = None
+    cohere_api_key: Optional[str] = None

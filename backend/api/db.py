@@ -37,6 +37,20 @@ create index if not exists idx_sessions_user on sessions (user_id, created_at de
 -- has no effect on an already-existing table, so an already-provisioned
 -- deployment (e.g. Render) needs this to actually get the new column.
 alter table sessions add column if not exists pending_action jsonb;
+
+-- Per-user, bring-your-own LLM provider keys, so one user's investigations are
+-- never blocked by another user (or the shared server pool) hitting a rate
+-- limit or an invalid/rotated key -- exactly the failure just hit live on the
+-- server's own shared keys. Never returned to the client in plaintext after
+-- being saved (see GET /settings in app.py) -- only whether each is set.
+create table if not exists user_api_keys (
+    user_id text primary key,
+    groq_api_key text,
+    gemini_api_key text,
+    cerebras_api_key text,
+    cohere_api_key text,
+    updated_at timestamptz not null default now()
+);
 """
 
 
@@ -104,3 +118,43 @@ async def fetch_sessions(user_id: str) -> list[dict]:
             "select * from sessions where user_id = $1 order by created_at desc", user_id
         )
     return [dict(r) for r in rows]
+
+
+async def fetch_user_keys(user_id: str) -> Optional[dict]:
+    """None when DB is disabled OR the user has never saved any keys -- callers
+    must treat both the same way (fall back to the shared server pool)."""
+    if _pool is None:
+        return None
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow("select * from user_api_keys where user_id = $1", user_id)
+    return dict(row) if row is not None else None
+
+
+async def upsert_user_keys(user_id: str, keys: dict) -> None:
+    """`keys` values: a non-empty string sets/replaces that key, an empty
+    string clears it, a key genuinely absent from the dict leaves the
+    currently-stored value untouched (see PATCH /settings in app.py) --
+    achieved with `coalesce(excluded.x, user_api_keys.x)` only for the columns
+    the caller didn't include, which the caller handles by passing the
+    existing value through unchanged rather than this function guessing.
+    """
+    if _pool is None:
+        return
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            """
+            insert into user_api_keys (user_id, groq_api_key, gemini_api_key, cerebras_api_key, cohere_api_key, updated_at)
+            values ($1, $2, $3, $4, $5, now())
+            on conflict (user_id) do update set
+                groq_api_key = excluded.groq_api_key,
+                gemini_api_key = excluded.gemini_api_key,
+                cerebras_api_key = excluded.cerebras_api_key,
+                cohere_api_key = excluded.cohere_api_key,
+                updated_at = excluded.updated_at
+            """,
+            user_id,
+            keys.get("groq_api_key"),
+            keys.get("gemini_api_key"),
+            keys.get("cerebras_api_key"),
+            keys.get("cohere_api_key"),
+        )
