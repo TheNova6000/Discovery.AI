@@ -430,7 +430,90 @@ Not just "the hint gets dropped" — the compare case is a **worse failure mode 
 
 **Per this pass's own stopping rule** ("if the scope hint fails, we learn where the identity model actually breaks — that's it, no attempt to solve every ambiguity in natural language now"): this is exactly that outcome. The identity *model* (§0.9's design) is not what broke; the *extraction* implementation is, and it's a scoped, nameable problem (prompt/extraction reliability for compound noun phrases), not evidence the whole approach needs rethinking.
 
-**Not done, deliberately, per "keep it surgical":** no prompt-engineering attempt to fix extraction reliability yet; no fix for the decompose-branch gap; no renderer work; no schema freeze. The mechanism half of Pass 3 is done. The extraction half is a real, separate, next problem — not solved by more testing.
+**Not done, deliberately, per "keep it surgical":** no prompt-engineering attempt to fix extraction reliability yet; no renderer work; no schema freeze. The mechanism half of Pass 3 is done. The extraction half is a real, separate, next problem — not solved by more testing.
+
+**Update (2026-08-29, same day):** the decompose-branch gap named above **is now fixed** — `ground_agent.py`'s decompose branch passes `scope_hint=self.question.entity_scope_hint` to the parent-entity lookup, and `app.py`'s `_sync_decomposition`/`handle_zoom_in` were fixed the same way (both had the identical bug: correctly resolving a scoped entity once, then re-resolving it unscoped two lines later for the session's display mirror — which would have made the UI look wrong even when Neo4j was right). Not yet re-verified live end-to-end (blocked the same day by all three LLM providers — Groq TPD, Gemini free-tier daily quota, and Cerebras billing — being simultaneously exhausted mid-test). Since extraction, not the mechanism, is the open failure mode, a live re-run is expected to reproduce §0.14's own finding rather than reveal something new, unless/until extraction itself is fixed.
+
+### 0.15 View, Investigation, and World Model — a view is not knowledge (2026-08-29)
+
+**[THEORY], design only — explicitly not touching `handle_compare` or any other code this pass.** A second-order correction on top of 0.7-0.9: those sections established *what* the World Model is (`Node`/`Relation`, question-relative `kind`, scoped identity). This section names something they didn't: not every conversational action should be allowed to **write** to it.
+
+**Three things, not two, and they were being conflated:**
+
+```
+WORLD MODEL     persistent knowledge about the modeled domain — Nodes, Relations, Claims, Sources.
+                Updated ONLY by Investigation.
+
+INVESTIGATION   the process that discovers/updates the World Model —
+                Question -> decide -> investigate -> evidence -> claims -> update model.
+
+VIEW            a temporary arrangement of existing World Model content, produced for one
+                question — "compare A and B," "show the economic angle," "zoom into X."
+                Reads the World Model. Never writes to it.
+```
+
+**The rule, stated as plainly as this project's other load-bearing rules:** *a view is not knowledge.* Asking the system to compare two things, or look at something through a lens, is a request to *render* the existing World Model differently — it is not, itself, a discovery that should be persisted as new canonical structure. Confusing the two is what makes a comparison feel like it's "polluting" the graph — because today, it literally is.
+
+**The concrete example that motivated this, already true of live code, not hypothetical:**
+
+```
+World Model (already exists, from real investigations):
+  Generation   --produces--> Electricity
+  Transmission --moves-->    Electricity
+  Distribution --delivers--> Electricity
+
+User asks: "Compare Generation and Transmission."
+
+Current handle_compare (backend/api/app.py):
+  creates a NEW canonical entity "Generation vs Transmission"
+  creates "compares" edges to both sides
+  PERSISTS all of this to Neo4j
+  -> the World Model now permanently contains a node that isn't a thing in the
+     domain, it's a question someone happened to ask about the domain.
+
+Desired (View semantics):
+  resolve Generation (existing node)
+  resolve Transmission (existing node)
+  render an ephemeral comparison — ID'd to this session/request, never written
+  to Neo4j as new canonical structure
+  -> when the user moves on, the World Model is EXACTLY what it was before:
+     Generation --produces--> Electricity
+     Transmission --moves--> Electricity
+     Distribution --delivers--> Electricity
+     unchanged, because nothing was learned about the domain — only about how
+     two already-known things relate, from this one question's angle.
+```
+
+**Why this is worth naming before schema, not after:** §0.5's still-open question — "is a relationship itself a claim, and does a relationship need its own provenance" — has a cleaner answer once View exists as a distinct concept. A `compares` relationship invented to answer one comparison question is a **View-layer construct**: it doesn't need provenance the way a `Relation` in the persistent World Model does, because it was never a claim about the domain in the first place. Trying to give "Generation vs Transmission" the same epistemic weight as `Generation --produces--> Electricity` was always a category error — this section just makes the category explicit.
+
+**This also directly answers the original zoom frustration, restated precisely:** the complaint was never really "zoom doesn't work" — it was that the system had no way to show *a slice of the territory* without either (a) mistaking the slice for the whole world (early hackathon-era rendering bugs) or (b) mistaking a rendering choice for new territory (`handle_compare`'s persistence today). Once World Model / Investigation / View are three separate things, "zoom" is simply a View — reads the World Model at a chosen resolution (0.6.2's tile), writes nothing, costs nothing, and investigation only fires when the View hits the edge of what's known.
+
+**What this does NOT do, on explicit instruction:** fix `handle_compare`. It stays exactly as it is — persisting a comparison node — until this semantic rule is documented and agreed (this section), at which point fixing it becomes a small, well-scoped, low-risk change (stop calling `find_or_create_entity`/persisting a new node for the comparison; keep resolving the two real sides via the now-fixed scope-aware lookups from §0.14; build the comparison's answer/relationship as session-local View state, the same shape `SessionState`'s in-memory mirror already handles for everything else that isn't persisted to Neo4j). Not done now, on purpose — this section is the semantic rule the fix depends on, not the fix.
+
+**Revised punch-list ordering, superseding 0.6/0.7/0.11's lists — this is the one to follow:**
+```
+Scope hint (mechanism)   [DONE, §0.14]
+    v
+Node identity            [DONE, §0.9-0.10]
+    v
+Evidence                 [DONE, §0.12]
+    v
+Provenance               [DONE, §0.13]
+    v
+View / Playground semantics   <- this section
+    v
+Scope hint (extraction)  [OPEN — §0.14's real remaining gap]
+    v
+Node schema              [NOT STARTED]
+    v
+Model-graph implementation
+    v
+Network-aware renderer   [explicitly LAST — 0.7 already named the current
+                            breadthfirst tree layout as structurally wrong once
+                            the model is a real network; fixing it before the
+                            model and View semantics exist would be styling a
+                            renderer for data that doesn't exist yet]
+```
 
 ## 1. Consolidated stack
 
