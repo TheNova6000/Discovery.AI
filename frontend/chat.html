@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Discovery.Ai — construct a model of anything</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -115,15 +116,28 @@
     display: inline-block;
     color: #fff;
   }
-  header .tag {
-    font-family: var(--font-mono);
-    font-size: 10px;
+  /* Mobile drawer toggles -- exist in the DOM at every width, but only ever
+     visible under the narrow-screen media query below. Keeping them always
+     present (rather than injecting via JS at a breakpoint) means there's no
+     resize-triggered DOM churn, just a CSS display flip. */
+  #mobile-menu-btn, #mobile-graph-btn {
+    display: none;
+    background: transparent;
+    border: 1px solid var(--border);
     color: var(--muted);
-    letter-spacing: 0.1em;
-    padding-left: 14px;
-    border-left: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 6px 10px;
+    cursor: pointer;
   }
-  header .sub { color: var(--muted); font-size: 12.5px; font-family: var(--font-mono); }
+  #mobile-graph-btn { margin-left: auto; }
+  #mobile-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 55;
+  }
+  #mobile-backdrop.hidden { display: none; }
   header .status {
     margin-left: auto;
     font-size: 11.5px;
@@ -137,10 +151,11 @@
   }
   .status-dot {
     width: 6px; height: 6px; border-radius: 50%;
-    background: #fff;
+    background: #4ade80;
+    box-shadow: 0 0 5px 0 rgba(74, 222, 128, 0.7);
     animation: pulse-idle 2.4s ease-in-out infinite;
   }
-  .status-dot.busy { animation: pulse-busy 0.8s ease-in-out infinite; }
+  .status-dot.busy { background: #fff; box-shadow: none; animation: pulse-busy 0.8s ease-in-out infinite; }
   @keyframes pulse-idle { 0%,100% { opacity: 0.35; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
   @keyframes pulse-busy { 0%,100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.3); } }
 
@@ -707,15 +722,60 @@
   .node-claim-source:hover { color: var(--hud); }
   .node-panel-empty { font-size: 11.5px; color: var(--muted-2); font-style: italic; padding: 20px 0; }
   .node-panel-loading { font-size: 11.5px; color: var(--hud); letter-spacing: 0.06em; }
+
+  /* ---------- responsive layout: tablet/mobile ----------
+     Desktop is an unchanged 3-column grid (session rail / chat / graph) --
+     below this width there isn't room for all three side by side, so the
+     rail and graph become off-canvas drawers over a full-width chat panel
+     (the primary surface), opened via the header's hamburger/Graph buttons.
+     Anchored to `main`'s own box (not the viewport) so top:0/bottom:0 land
+     exactly between the header and footer with no height math needed. */
+  @media (max-width: 860px) {
+    header { flex-wrap: wrap; row-gap: 8px; }
+    #mobile-menu-btn, #mobile-graph-btn { display: inline-flex; align-items: center; justify-content: center; }
+    #mobile-backdrop:not(.hidden) { display: block; }
+
+    main { grid-template-columns: 1fr; position: relative; overflow: hidden; }
+
+    #session-rail, #graph-panel {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      z-index: 60;
+      background: #000;
+      transition: transform 0.28s cubic-bezier(.16,1,.3,1);
+    }
+    #session-rail {
+      left: 0;
+      width: min(82vw, 300px);
+      border-right: 1px solid var(--border-strong);
+      transform: translateX(-100%);
+    }
+    #session-rail.open { transform: translateX(0); }
+    #graph-panel {
+      left: 0;
+      right: 0;
+      transform: translateX(100%);
+    }
+    #graph-panel.open { transform: translateX(0); }
+    #chat-panel { border-right: none; }
+  }
+
+  @media (max-width: 480px) {
+    header h1 { font-size: 14px; letter-spacing: 0.11em; }
+    header { padding: 10px 14px; gap: 10px; }
+    .msg { max-width: 96%; }
+    #composer { padding: 10px; }
+    #settings-box, #onboarding-box { padding: 24px 20px; }
+  }
 </style>
 </head>
 <body>
 <div class="bg-layer"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
 <div class="page-corner tl"></div><div class="page-corner tr"></div><div class="page-corner bl"></div><div class="page-corner br"></div>
 <header>
+  <button id="mobile-menu-btn" aria-label="Chat history">☰</button>
   <a href="/" style="text-decoration:none"><h1>Discovery.Ai</h1></a>
-  <span class="tag">EST. 2026</span>
-  <div class="sub">construct a model of what you're trying to understand — through conversation</div>
   <div class="status"><span class="status-dot" id="status-dot"></span><span id="status">ready</span></div>
   <div id="pool-status-wrap">
     <button class="signout-btn" id="pool-status-btn" style="margin-left:16px">
@@ -728,7 +788,9 @@
     <span class="user-email" id="user-email"></span>
     <button class="signout-btn" id="signout-btn">Sign out</button>
   </div>
+  <button id="mobile-graph-btn" aria-label="Investigation graph">Graph</button>
 </header>
+<div id="mobile-backdrop" class="hidden"></div>
 <div id="settings-modal" class="hidden">
   <div id="settings-box">
     <div class="corner tl sm"></div><div class="corner tr sm"></div><div class="corner bl sm"></div><div class="corner br sm"></div>
@@ -1172,6 +1234,31 @@ document.getElementById('settings-save-btn').addEventListener('click', async () 
     saveStatusEl.textContent = 'Failed to save: ' + err;
   }
 });
+
+// ---------- mobile layout: session-rail / graph-panel as off-canvas drawers ----------
+// Only reachable at all below the 860px breakpoint (the toggle buttons and
+// backdrop are display:none above it) -- this is pure UI state, no different
+// data or behavior than desktop, just how much of it is on screen at once.
+const mobileSessionRailEl = document.getElementById('session-rail');
+const mobileGraphPanelEl = document.getElementById('graph-panel');
+const mobileBackdropEl = document.getElementById('mobile-backdrop');
+
+function closeMobilePanels() {
+  mobileSessionRailEl.classList.remove('open');
+  mobileGraphPanelEl.classList.remove('open');
+  mobileBackdropEl.classList.add('hidden');
+}
+function toggleMobilePanel(panelEl) {
+  const opening = !panelEl.classList.contains('open');
+  closeMobilePanels();
+  if (opening) {
+    panelEl.classList.add('open');
+    mobileBackdropEl.classList.remove('hidden');
+  }
+}
+document.getElementById('mobile-menu-btn').addEventListener('click', () => toggleMobilePanel(mobileSessionRailEl));
+document.getElementById('mobile-graph-btn').addEventListener('click', () => toggleMobilePanel(mobileGraphPanelEl));
+mobileBackdropEl.addEventListener('click', closeMobilePanels);
 
 const messagesEl = document.getElementById('messages');
 const inputEl = document.getElementById('input');
@@ -1633,6 +1720,7 @@ async function deleteSession(sessionId) {
   renderGraph(data);
   await loadSessionList();
   setBusy(false);
+  closeMobilePanels();
 }
 
 async function newChat() {
@@ -1644,6 +1732,7 @@ async function newChat() {
   await loadSessionList();
   setBusy(false);
   inputEl.focus();
+  closeMobilePanels(); // picking a chat should return to it, not leave the drawer open over it
 }
 
 async function switchSession(sessionId) {
@@ -1654,6 +1743,7 @@ async function switchSession(sessionId) {
     body: JSON.stringify({ session_id: sessionId }),
   });
   const data = await res.json();
+  closeMobilePanels();
   renderMessages(data.messages);
   renderGraph(data);
   await loadSessionList();
