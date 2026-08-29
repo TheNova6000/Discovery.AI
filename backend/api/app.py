@@ -187,18 +187,28 @@ async def _sync_decomposition(session: SessionState, entity_name: str, scope_hin
         session.add_edge(entity_name, child.name, "decomposes_into")
 
 
-async def _run_investigation(session: SessionState, question: Question) -> str:
+async def _run_investigation(session: SessionState, question: Question, *, persist_to_graph: bool = True) -> str:
+    """`persist_to_graph=False` (docs/Architecture.md §0.15/§0.21) is for a View —
+    an investigation whose subject isn't a real, canonical thing in the world
+    (e.g. `handle_compare`'s "A vs B" pseudo-entity) and must never be written to
+    Neo4j as new structure. The investigation still genuinely runs (real LLM
+    reasoning, real answer) — only the graph-persistence side effects are
+    skipped, including `_sync_decomposition`'s own read, which would otherwise
+    call `find_or_create_entity` and silently create the exact node this
+    parameter exists to avoid.
+    """
     agent = GroundAgent(
         question,
-        persist_to_graph=True,
+        persist_to_graph=persist_to_graph,
         gather_evidence=True,
         max_depth=DEMO_MAX_DEPTH,
         max_sequential_steps=DEMO_MAX_STEPS,
     )
     result = await agent.run()
-    await _sync_decomposition(session, question.entity_name, question.entity_scope_hint)
-    session.current_entity = question.entity_name
-    session.current_abstraction = question.abstraction_name
+    if persist_to_graph:
+        await _sync_decomposition(session, question.entity_name, question.entity_scope_hint)
+        session.current_entity = question.entity_name
+        session.current_abstraction = question.abstraction_name
     return result.answer or f"Investigated {question.entity_name}, but no answer was produced."
 
 
@@ -250,6 +260,18 @@ async def handle_zoom_in(session: SessionState, intent: Intent) -> str:
     await _sync_decomposition(session, entity_name, intent.scope_hint)
     session.current_entity = entity_name
     children = await get_decomposition(entity.id)
+
+    # docs/Architecture.md §0.21: say what KIND of boundary this is when the
+    # agent has actually made that judgment -- real information, not filler,
+    # since "zoom in" is exactly the moment a user is asking what this thing
+    # even is. Silently says nothing when no judgment has been recorded yet
+    # (most nodes, especially ground-level ones) rather than guessing.
+    boundary_phrase = ""
+    if entity.boundary_kind == "entity" and entity.solves_question:
+        boundary_phrase = f" — an entity that exists to solve: {entity.solves_question}"
+    elif entity.boundary_kind == "subject":
+        boundary_phrase = " — a subject: a boundary around a set of domains, not a single thing solving one problem"
+
     if not children:
         # docs/Architecture.md §0.20: same fix as handle_explain -- don't just
         # report the dead end and require the user to type the exact right
@@ -264,9 +286,9 @@ async def handle_zoom_in(session: SessionState, intent: Intent) -> str:
             scope_hint=intent.scope_hint,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
-        return f"Focused on {entity_name}. No further sub-components yet — want me to go deeper into it? (Or ask \"why is {entity_name} here\" to see what's already known about it.)"
+        return f"Focused on {entity_name}{boundary_phrase}. No further sub-components yet — want me to go deeper into it? (Or ask \"why is {entity_name} here\" to see what's already known about it.)"
     names = ", ".join(c.name for c in children)
-    return f"Focused on {entity_name}. Known components: {names}."
+    return f"Focused on {entity_name}{boundary_phrase}. Known components: {names}."
 
 
 async def handle_investigate_deeper(session: SessionState, intent: Intent) -> str:
@@ -385,9 +407,16 @@ async def handle_compare(session: SessionState, intent: Intent) -> str:
         entity_name=comparison_entity,
         abstraction_name=session.current_abstraction or "Comparison",
     )
-    # Same fix as handle_new_investigation above: don't draw the comparison
-    # edges until the investigation actually succeeds.
-    answer = await _run_investigation(session, question)
+    # docs/Architecture.md §0.15/§0.21: a comparison is a View, not new
+    # knowledge -- "A vs B" is a question about two already-real things, never
+    # itself a thing in the world. persist_to_graph=False means Neo4j ends the
+    # turn exactly as it started (still zero new nodes/edges/relations for the
+    # comparison itself); the two REAL sides were already resolved above,
+    # which is the part that's genuinely supposed to touch the canonical
+    # graph. The comparison still gets drawn into THIS session's own view
+    # (add_edge below) so the user sees it on screen -- that's what a View is:
+    # rendered, never written back as canonical structure.
+    answer = await _run_investigation(session, question, persist_to_graph=False)
     session.add_edge(comparison_entity, a, "compares")
     session.add_edge(comparison_entity, b, "compares")
     return answer
@@ -570,7 +599,18 @@ async def _process_message(session: SessionState, message: str, user_id: str) ->
         current_abstraction=session.current_abstraction,
         known_entities=session.known_entities,
     )
-    intent = await parse_intent(message, context)
+    # `parse_intent` itself is just as capable of hitting total provider
+    # exhaustion as any handler it dispatches to (confirmed live, 2026-08-30:
+    # every one of Groq/Gemini/Cerebras exhausted during intent classification
+    # specifically) -- it was never wrapped in the same try/except as the
+    # handler-dispatch branch below, so that failure mode crashed straight
+    # through to FastAPI's generic 500 instead of the same graceful chat error
+    # every other failure in this function already degrades to.
+    try:
+        intent = await parse_intent(message, context)
+    except Exception as exc:  # noqa: BLE001 - same boundary as the handler dispatch below
+        return f"Something went wrong investigating that: {exc}", "no_action"
+
     handler = _HANDLERS.get(intent.action)
     if handler is None:
         reply = f"I don't know how to handle intent: {intent.action}"
@@ -677,6 +717,8 @@ async def node_detail(entity_name: str, user_id: str = Depends(get_current_user_
         )
     return {
         "entity_name": entity.name,
+        "boundary_kind": entity.boundary_kind,
+        "solves_question": entity.solves_question,
         "questions": questions,
         "leads_to": [c.name for c in children],
     }

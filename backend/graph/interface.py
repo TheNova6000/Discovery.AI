@@ -48,6 +48,10 @@ def _record_to_node(node) -> GraphNode:
         merged_from=list(node.get("merged_from") or []),
         created_at=node["created_at"],
         updated_at=node["updated_at"],
+        # .get(), not [] -- both are absent on every node created before §0.21,
+        # and that's a real, distinct "no judgment made yet" state, not missing data.
+        boundary_kind=node.get("boundary_kind"),
+        solves_question=node.get("solves_question"),
     )
 
 
@@ -125,6 +129,43 @@ async def create_node(
             return _record_to_node(record["n"])
     except Neo4jError as exc:
         raise GraphInterfaceError(f"create_node failed: {exc}") from exc
+
+
+async def set_boundary_kind(
+    entity_id: str, *, boundary_kind: str, solves_question: Optional[str] = None
+) -> GraphNode:
+    """docs/Architecture.md §0.21 -- records the agent's own explicit judgment
+    that this node deserves to be understood as a named boundary (a "subject"
+    or "entity", SystemDesign.md §4-6), separate from and in addition to
+    whatever `decompose`/`answer` decision produced it. A plain `SET`, not a
+    `MERGE` — the node must already exist (created via `find_or_create_entity`
+    elsewhere in the same turn); this only ever updates an existing record.
+    Idempotent: calling it again with the same values is a no-op in effect,
+    matching every other write in this module.
+    """
+    if boundary_kind not in ("subject", "entity"):
+        raise GraphInterfaceError(f"invalid boundary_kind: {boundary_kind!r} (expected 'subject' or 'entity')")
+    query = (
+        f"MATCH (n:{NODE_LABEL} {{id: $entity_id}}) "
+        "SET n.boundary_kind = $boundary_kind, n.solves_question = $solves_question, n.updated_at = $now "
+        "RETURN n"
+    )
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            result = await session.run(
+                query,
+                entity_id=entity_id,
+                boundary_kind=boundary_kind,
+                solves_question=solves_question,
+                now=_now(),
+            )
+            record = await result.single()
+            if record is None:
+                raise GraphInterfaceError(f"set_boundary_kind: no node with id {entity_id!r}")
+            return _record_to_node(record["n"])
+    except Neo4jError as exc:
+        raise GraphInterfaceError(f"set_boundary_kind failed: {exc}") from exc
 
 
 async def find_or_create_entity(

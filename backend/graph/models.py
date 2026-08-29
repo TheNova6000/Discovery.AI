@@ -22,6 +22,22 @@ class GraphNode(BaseModel):
     merged_from: list[str] = Field(default_factory=list)
     created_at: str
     updated_at: str
+    boundary_kind: Optional[Literal["subject", "entity"]] = None
+    """docs/Architecture.md §0.21 -- the agent's own judgment, made explicitly
+    (not inferred from `type`, which §0.16 found dead/unused in practice), of
+    whether this node is a Subject (a named boundary around domains only, no
+    single question it individually solves -- SystemDesign.md §4) or an Entity
+    (a boundary that also exists specifically to solve one nameable problem --
+    SystemDesign.md §5-6, "Entities as Solutions"). None means no such
+    judgment has been made yet, a real and distinct state from either value --
+    most ground-level nodes never earn one.
+    """
+    solves_question: Optional[str] = None
+    """Only meaningful when boundary_kind == "entity" -- the one specific
+    question/problem this entity exists to solve, in the agent's own words
+    (e.g. PayPal -> "how can people transact online without physical
+    exchange"). None for "subject" nodes and for nodes with no boundary_kind.
+    """
 
 
 class Abstraction(BaseModel):

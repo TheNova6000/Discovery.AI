@@ -27,6 +27,7 @@ from .interface import (
     get_subgraph,
     merge_entity,
     resolve_entity,
+    set_boundary_kind,
     supersede_claim,
     zoom_in,
 )
@@ -69,6 +70,7 @@ __all__ = [
     "zoom_in",
     "explain_entity",
     "resolve_entity",
+    "set_boundary_kind",
     "GraphNode",
     "Abstraction",
     "Relationship",

@@ -206,6 +206,33 @@ class GroundDecision(BaseModel):
             "restate it here) or when action != 'decompose' at master level."
         ),
     )
+    boundary_kind: Optional[Literal["subject", "entity"]] = Field(
+        default=None,
+        description=(
+            "Only set AT MASTER LEVEL, regardless of whether action is 'answer' or "
+            "'decompose': does the entity/subject you are CURRENTLY investigating "
+            "deserve to be understood as a named boundary in its own right? "
+            "'subject' = a boundary drawn around a set of domains, with no single "
+            "specific problem it individually solves (e.g. 'Quantum Computing' "
+            "spanning Physics, Computer Science, Information Theory — a region, "
+            "not a solution). 'entity' = a boundary that ALSO exists specifically "
+            "to solve one nameable question/problem (e.g. PayPal exists to solve "
+            "'how can people transact online without physical exchange'; a company, "
+            "project, or organization is almost always this kind, not 'subject'). "
+            "Leave BOTH this and boundary_solves_question unset when the current "
+            "entity doesn't yet warrant being understood as a named boundary at "
+            "all — most ground-level narrow questions never earn one."
+        ),
+    )
+    boundary_solves_question: Optional[str] = Field(
+        default=None,
+        description=(
+            "Required when boundary_kind == 'entity': the one specific question or "
+            "problem this entity exists to solve, in one sentence, in your own "
+            "words — not a restatement of the investigation's own question. Leave "
+            "unset for 'subject' or whenever boundary_kind is unset."
+        ),
+    )
 
 
 class SynthesisDraft(BaseModel):

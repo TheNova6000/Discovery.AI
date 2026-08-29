@@ -10,6 +10,7 @@ from backend.graph import (
     create_relationship,
     find_or_create_entity,
     resolve_entity,
+    set_boundary_kind,
 )
 from backend.questions import (
     GroundDecision,
@@ -207,6 +208,16 @@ class GroundAgent:
             child_results.append(result)
             known.append(self._summarize_child(child_state.question.text, result))
 
+        # docs/Architecture.md §0.21: a boundary-kind judgment is about the
+        # CURRENT ENTITY's nature, not about any one decide_next_step call --
+        # decide_next_step runs repeatedly for the same question as
+        # decomposition proceeds, so this tracks the most recent non-empty
+        # judgment across however many calls happen before _finish is
+        # eventually reached, rather than only capturing whichever call
+        # happens to be the terminal one.
+        latest_boundary_kind: str | None = None
+        latest_boundary_solves_question: str | None = None
+
         while True:
             budget_exhausted = self.depth >= self.max_depth or len(children_ids) >= self.max_sequential_steps
             # Master-level structural decisions escalate to MASTER_MODEL_CHAIN
@@ -231,6 +242,13 @@ class GroundAgent:
                 f"[ground:{self.agent_id[:8]}] level={self.question.level.value} "
                 f"action={decision.action} reasoning={decision.reasoning!r}{framing_suffix}"
             )
+            if decision.boundary_kind:
+                latest_boundary_kind = decision.boundary_kind
+                latest_boundary_solves_question = decision.boundary_solves_question
+                print(
+                    f"[ground:{self.agent_id[:8]}] boundary_kind={decision.boundary_kind!r} "
+                    f"solves_question={decision.boundary_solves_question!r}"
+                )
 
             if decision.action == "answer":
                 claims = await gather_evidence(self.question) if self.gather_evidence else []
@@ -243,6 +261,8 @@ class GroundAgent:
                         child_results=child_results,
                     ),
                     children=children_ids,
+                    boundary_kind=latest_boundary_kind,
+                    boundary_solves_question=latest_boundary_solves_question,
                 )
 
             if decision.action == "decompose" and decision.sub_question_texts and not budget_exhausted:
@@ -358,11 +378,24 @@ class GroundAgent:
                         child_results=child_results,
                     ),
                     children=children_ids,
+                    boundary_kind=latest_boundary_kind,
+                    boundary_solves_question=latest_boundary_solves_question,
                 )
 
-            return await self._finish(GroundResult(status=AgentStatus.BOUNDARY_HIT, boundary_reason=reason))
+            return await self._finish(
+                GroundResult(status=AgentStatus.BOUNDARY_HIT, boundary_reason=reason),
+                boundary_kind=latest_boundary_kind,
+                boundary_solves_question=latest_boundary_solves_question,
+            )
 
-    async def _finish(self, result: GroundResult, *, children: list[str] | None = None) -> GroundResult:
+    async def _finish(
+        self,
+        result: GroundResult,
+        *,
+        children: list[str] | None = None,
+        boundary_kind: str | None = None,
+        boundary_solves_question: str | None = None,
+    ) -> GroundResult:
         await self._save(
             AgentState(
                 agent_id=self.agent_id,
@@ -384,6 +417,17 @@ class GroundAgent:
             entity = await find_or_create_entity(
                 self.question.entity_name, scope_hint=self.question.entity_scope_hint
             )
+            if boundary_kind:
+                # docs/Architecture.md §0.21: recorded separately from the
+                # decompose/answer decision itself -- a boundary-kind judgment
+                # can accompany either action, and isn't required for either.
+                try:
+                    await set_boundary_kind(
+                        entity.id, boundary_kind=boundary_kind, solves_question=boundary_solves_question
+                    )
+                    print(f"[graph] {entity.name!r} boundary_kind={boundary_kind!r}")
+                except Exception as exc:  # noqa: BLE001 - enrichment, must not break _finish
+                    print(f"[boundary_kind] set_boundary_kind failed, degrading silently: {exc}")
             await attach_question(
                 entity.id,
                 question_id=self.question.id,

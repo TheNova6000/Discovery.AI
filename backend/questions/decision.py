@@ -102,6 +102,24 @@ silent. Leave `working_framing` unset whenever an explicit Dimension was given �
 the dimension already names the lens, restating it would be redundant — and \
 whenever the action isn't a master-level decompose.
 
+AT MASTER LEVEL ONLY, regardless of whether your action is "answer" or "decompose," \
+also judge whether the entity/subject you are CURRENTLY investigating deserves to \
+be understood as a named boundary in its own right — set `boundary_kind`. A \
+"subject" is a boundary drawn around a set of domains with no single specific \
+problem it individually solves — a region of study, not a solution (e.g. "Quantum \
+Computing" spans Physics, Computer Science, and Information Theory; nobody would \
+say Quantum Computing itself "solves a problem," it's the area where certain \
+problems live). An "entity" is a boundary that ALSO exists specifically to solve \
+one nameable question or problem — a company, project, or organization is almost \
+always this kind (e.g. PayPal exists to solve "how can people transact online \
+without physical exchange"; Stripe exists to solve a different problem, "how can \
+businesses integrate payment infrastructure into their own software"). When you \
+set `boundary_kind` to "entity", also set `boundary_solves_question` to that one \
+sentence. Leave both unset — this is the common case, not a fallback — whenever \
+the current entity doesn't yet warrant being understood as a named boundary at \
+all, which is almost always true at ground level and often true even at master \
+level for a narrow or early-stage question.
+
 If a "Dimension" is given below, it names the LENS this investigation is being \
 conducted through — it is ONE contextual input alongside the question, abstraction, \
 entity, and level, not an instruction that overrides or replaces the actual \
