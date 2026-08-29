@@ -28,6 +28,24 @@ class ChatMessage(BaseModel):
     intent_action: Optional[str] = None
 
 
+class PendingAction(BaseModel):
+    """docs/Architecture.md §0.20 — a single, structured, machine-executable
+    offer the assistant made in its last reply. Exists so a bare "yes"/"no"
+    resolves deterministically (see `_classify_confirmation` in app.py) instead
+    of being handed to `parse_intent`, which has no way to know what a
+    content-free confirmation refers to and — confirmed live — will fabricate a
+    full `new_investigation` out of it rather than admit it doesn't know.
+    """
+
+    action: Literal["new_investigation", "investigate_deeper"]
+    entity_name: str
+    question_text: Optional[str] = None
+    dimension_name: Optional[str] = None
+    dimension_description: Optional[str] = None
+    scope_hint: Optional[str] = None
+    created_at: str
+
+
 class SessionState:
     """One conversation's graph + chat transcript. Real graph structure is still
     persisted to Neo4j on every investigation (`persist_to_graph=True`); this is a
@@ -46,6 +64,7 @@ class SessionState:
         self.current_dimension_description: Optional[str] = None
         self.known_entities: list[str] = []
         self.messages: list[ChatMessage] = []
+        self.pending_action: Optional[PendingAction] = None
         self._nodes: dict[str, GraphNodeOut] = {}
         self._edges: list[tuple[str, str, str]] = []
 
@@ -99,6 +118,7 @@ class SessionState:
             "nodes": json.dumps([n.model_dump() for n in self._nodes.values()]),
             "edges": json.dumps([{"source": s, "target": t, "label": l} for s, t, l in self._edges]),
             "messages": json.dumps([m.model_dump() for m in self.messages]),
+            "pending_action": json.dumps(self.pending_action.model_dump()) if self.pending_action else None,
         }
 
     @classmethod
@@ -116,6 +136,8 @@ class SessionState:
             state._nodes[n["id"]] = GraphNodeOut(**n)
         state._edges = [(e["source"], e["target"], e["label"]) for e in json.loads(row["edges"])]
         state.messages = [ChatMessage(**m) for m in json.loads(row["messages"])]
+        raw_pending = row.get("pending_action")
+        state.pending_action = PendingAction(**json.loads(raw_pending)) if raw_pending else None
         return state
 
 

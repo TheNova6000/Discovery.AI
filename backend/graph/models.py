@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -87,6 +87,37 @@ class QuestionProvenance(BaseModel):
     question_text: str
     rationale: str
     parent_question_text: Optional[str] = None
+
+
+class CandidateEvidence(BaseModel):
+    """One existing candidate considered during `resolve_entity`, with the actual
+    matched tokens that produced its score — not just the number, so a decision
+    stays inspectable (docs/Architecture.md §0.18: "Reused X because 'packets'
+    and 'networking' strongly matched its existing context", not just "score=2")."""
+
+    node: GraphNode
+    matched_tokens: list[str] = Field(default_factory=list)
+    score: int
+
+
+class IdentityResolution(BaseModel):
+    """docs/Architecture.md §0.18 — the frozen contract for `resolve_entity`,
+    validated against a 6-case evidence-type matrix (lexical/domain/relational/
+    opposing-lexical/no-evidence/conflicting-evidence, all 6 correct) before
+    being built for real. Four decisions, not two: `REUSE`/`CREATE` are actions
+    a caller can safely act on; `AMBIGUOUS` (no candidate has any evidence) and
+    `CONFLICT` (multiple candidates have real, comparable evidence) are both
+    "don't guess" outcomes, but for different reasons — kept distinct rather
+    than collapsed into one shrug, since a real caller (and eventually a human
+    debugging the graph) needs to know which one happened. `selected_node` is
+    only ever populated for `REUSE`/`CREATE`; always `None` for the other two —
+    the resolver's whole point is refusing to pick when it shouldn't.
+    """
+
+    decision: Literal["REUSE", "CREATE", "AMBIGUOUS", "CONFLICT"]
+    selected_node: Optional[GraphNode] = None
+    candidates: list[CandidateEvidence] = Field(default_factory=list)
+    reason: str
 
 
 class EntityExplanation(BaseModel):

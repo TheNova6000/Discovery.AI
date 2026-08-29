@@ -28,9 +28,15 @@ create table if not exists sessions (
     known_entities jsonb not null default '[]'::jsonb,
     nodes jsonb not null default '[]'::jsonb,
     edges jsonb not null default '[]'::jsonb,
-    messages jsonb not null default '[]'::jsonb
+    messages jsonb not null default '[]'::jsonb,
+    pending_action jsonb
 );
 create index if not exists idx_sessions_user on sessions (user_id, created_at desc);
+-- docs/Architecture.md §0.20: additive migration for databases that already had
+-- this table before pending_action existed -- CREATE TABLE IF NOT EXISTS above
+-- has no effect on an already-existing table, so an already-provisioned
+-- deployment (e.g. Render) needs this to actually get the new column.
+alter table sessions add column if not exists pending_action jsonb;
 """
 
 
@@ -60,8 +66,8 @@ async def upsert_session(row: dict) -> None:
             insert into sessions (
                 session_id, user_id, title, current_entity, current_abstraction,
                 current_dimension_name, current_dimension_description,
-                known_entities, nodes, edges, messages
-            ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                known_entities, nodes, edges, messages, pending_action
+            ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
             on conflict (session_id) do update set
                 title = excluded.title,
                 current_entity = excluded.current_entity,
@@ -71,7 +77,8 @@ async def upsert_session(row: dict) -> None:
                 known_entities = excluded.known_entities,
                 nodes = excluded.nodes,
                 edges = excluded.edges,
-                messages = excluded.messages
+                messages = excluded.messages,
+                pending_action = excluded.pending_action
             """,
             row["session_id"],
             row["user_id"],
@@ -84,6 +91,7 @@ async def upsert_session(row: dict) -> None:
             row["nodes"],
             row["edges"],
             row["messages"],
+            row["pending_action"],
         )
 
 

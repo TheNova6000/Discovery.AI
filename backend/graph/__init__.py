@@ -26,14 +26,17 @@ from .interface import (
     get_questions_for_entity,
     get_subgraph,
     merge_entity,
+    resolve_entity,
     supersede_claim,
     zoom_in,
 )
 from .models import (
     Abstraction,
+    CandidateEvidence,
     ClaimNode,
     EntityExplanation,
     GraphNode,
+    IdentityResolution,
     QuestionNode,
     QuestionProvenance,
     Relationship,
@@ -65,6 +68,7 @@ __all__ = [
     "get_decomposition",
     "zoom_in",
     "explain_entity",
+    "resolve_entity",
     "GraphNode",
     "Abstraction",
     "Relationship",
@@ -73,4 +77,6 @@ __all__ = [
     "ClaimNode",
     "QuestionProvenance",
     "EntityExplanation",
+    "IdentityResolution",
+    "CandidateEvidence",
 ]

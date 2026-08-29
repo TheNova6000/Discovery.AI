@@ -168,6 +168,24 @@ class GroundDecision(BaseModel):
             "implies a new entity — most decompositions should leave this unset."
         ),
     )
+    relationship_type: Optional[str] = Field(
+        default=None,
+        description=(
+            "Only meaningful when action == 'decompose' AND discovered_entity_name "
+            "is set — names HOW the discovered entity relates to the current one, "
+            "as a short verb-phrase (e.g. 'routes_to', 'authorizes', 'delegates_to', "
+            "'regulates', 'precedes', 'depends_on', 'produces'). This list is "
+            "illustrative, not exhaustive — use whatever verb-phrase actually "
+            "describes the relationship, or invent one if none of these fit. Leave "
+            "unset when the relationship really is compositional ('the entity is "
+            "made up of / decomposes into this part') — unset defaults to "
+            "'decomposes_into', so most ordinary structural decompositions should "
+            "leave this unset. Only set it when the relationship is something OTHER "
+            "than plain composition — e.g. one entity acting on, routing to, "
+            "delegating to, or preceding another, as opposed to one entity being a "
+            "structural part of another."
+        ),
+    )
     boundary_reason: Optional[str] = Field(
         default=None,
         description=(

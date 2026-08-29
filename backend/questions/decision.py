@@ -66,6 +66,21 @@ name (e.g. "DNS", not the full sub-question text). Describing something as a \
 distinct, independently-investigable component in your reasoning and then leaving \
 `discovered_entity_name` unset is a CONTRADICTION — don't do that.
 
+When you set `discovered_entity_name`, also consider `relationship_type`: it \
+describes HOW the discovered entity relates to the current one, as a short \
+verb-phrase — e.g. "routes_to", "authorizes", "delegates_to", "regulates", \
+"precedes", "depends_on", "produces" (illustrative, not exhaustive — use whatever \
+verb-phrase actually fits, or invent one). Leave `relationship_type` UNSET when the \
+relationship really is plain composition (the discovered entity is simply a \
+structural part of the current one) — unset defaults to "decomposes_into", so most \
+ordinary structural decompositions should leave this unset. Only set it when the \
+discovered entity relates to the current one some OTHER way — acting on it, routing \
+to it, delegating to it, preceding it, depending on it, and so on — not merely being \
+a part of it. For example, decomposing "Payment Authorization" and discovering \
+"Mastercard" as the network that routes the authorization request is a "routes_to" \
+relationship, not a "decomposes_into" one — Mastercard isn't a structural part of \
+Authorization, it's an actor that acts on it.
+
 Only leave `discovered_entity_name` unset when your reason for decomposing was \
 NOT structural separability — e.g. at level="ground", where decomposing usually \
 just means "I need one more specific fact to answer this," not "this reveals a new \

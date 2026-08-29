@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import pathlib
+from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +16,15 @@ from backend.questions import Intent, Question, QuestionLevel, SessionContext, p
 
 from . import db
 from .auth import get_current_user_id
-from .session import ChatRequest, ChatResponse, SessionState, SwitchSessionRequest, get_store, persist
+from .session import (
+    ChatRequest,
+    ChatResponse,
+    PendingAction,
+    SessionState,
+    SwitchSessionRequest,
+    get_store,
+    persist,
+)
 
 app = FastAPI(title="Recursive Knowledge Graph — Demo")
 
@@ -125,11 +135,20 @@ async def handle_zoom_in(session: SessionState, intent: Intent) -> str:
     session.current_entity = entity_name
     children = await get_decomposition(entity.id)
     if not children:
-        # No sub-components yet -- but don't claim "nothing investigated": the
-        # entity may already have direct answers/claims attached (a leaf), just
-        # no further decomposition. "explain" surfaces that provenance; this
-        # message only speaks to structure, honestly.
-        return f"Focused on {entity_name}. No further sub-components yet — try \"go deeper into {entity_name}\" to investigate it, or \"why is {entity_name} here\" to see what's already known about it."
+        # docs/Architecture.md §0.20: same fix as handle_explain -- don't just
+        # report the dead end and require the user to type the exact right
+        # follow-up phrase. zoom_in still never investigates ON ITS OWN (that
+        # stays deliberate -- navigation stays free); it now offers to, via the
+        # same PendingAction mechanism, so a plain "yes" works. "why is X here"
+        # stays mentioned as a distinct alternative (provenance, not
+        # investigation) that a bare confirmation can't cover.
+        session.pending_action = PendingAction(
+            action="investigate_deeper",
+            entity_name=entity_name,
+            scope_hint=intent.scope_hint,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        return f"Focused on {entity_name}. No further sub-components yet — want me to go deeper into it? (Or ask \"why is {entity_name} here\" to see what's already known about it.)"
     names = ", ".join(c.name for c in children)
     return f"Focused on {entity_name}. Known components: {names}."
 
@@ -175,10 +194,27 @@ async def handle_explain(session: SessionState, intent: Intent) -> str:
     session.add_node(entity_name)
     if session.current_entity and session.current_entity != entity_name:
         session.add_edge(session.current_entity, entity_name, "relates_to")
+    session.current_entity = entity_name  # docs/Architecture.md §0.20, root cause C:
+    # every other handler that resolves a focal entity (zoom_in, investigate_deeper)
+    # sets this; explain silently didn't, so a follow-up "why?"/"go deeper"/"yes"
+    # had no reliable focus to resolve against.
     entity = await find_or_create_entity(entity_name, scope_hint=intent.scope_hint)
     explanation = await explain_entity(entity.id)
     if not explanation.discovered_by:
-        return f"{entity_name} hasn't had any questions attached to it yet."
+        # docs/Architecture.md §0.20: don't dead-end on "no questions attached" --
+        # offer to investigate, as a structured PendingAction so a follow-up
+        # "yes" resolves deterministically (see _classify_confirmation) instead
+        # of being handed to parse_intent, which — confirmed live — will
+        # fabricate a full new_investigation out of a bare "yes" rather than
+        # admit it has nothing to go on.
+        session.pending_action = PendingAction(
+            action="new_investigation",
+            entity_name=entity_name,
+            question_text=f"How does {entity_name} work?",
+            scope_hint=intent.scope_hint,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        return f"{entity_name} hasn't been investigated yet — want me to look into it?"
     lines = [f"{entity_name} was investigated via:"]
     for prov in explanation.discovered_by:
         lines.append(f"- {prov.question_text}")
@@ -238,6 +274,15 @@ async def handle_compare(session: SessionState, intent: Intent) -> str:
     return await _run_investigation(session, question)
 
 
+async def handle_no_action(session: SessionState, intent: Intent) -> str:
+    """docs/Architecture.md §0.20: the classifier's escape hatch — chosen when a
+    message doesn't clearly map to any real action and doesn't relate to session
+    context. Exists so short/uninterpretable input never forces the model to
+    invent an entity_name or question_text just to produce SOME action.
+    """
+    return "I'm not sure what to do with that — could you rephrase, or tell me what you'd like to explore?"
+
+
 _HANDLERS = {
     "new_investigation": handle_new_investigation,
     "zoom_in": handle_zoom_in,
@@ -245,7 +290,53 @@ _HANDLERS = {
     "explain": handle_explain,
     "change_dimension": handle_change_dimension,
     "compare": handle_compare,
+    "no_action": handle_no_action,
 }
+
+
+# docs/Architecture.md §0.20: a small, deterministic, non-LLM classifier for
+# yes/no-shaped replies -- built from variants actually worth covering, same
+# "start small, extend only on observed need" discipline as
+# normalize_relationship_type's synonym table, not an attempt at general NLP.
+# Runs on EVERY turn before parse_intent ever sees the message: a bare
+# confirmation must never reach the LLM, because it has nothing to interpret
+# "yes" against except whatever thin session context happens to be lying
+# around -- confirmed live to fabricate a full new_investigation from it.
+_AFFIRMATIVE = {
+    "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "do it", "go ahead",
+    "please do", "sounds good", "go for it", "please",
+}
+_NEGATIVE = {
+    "no", "nope", "nah", "don't", "dont", "skip", "cancel", "not now",
+    "no thanks", "never mind", "nevermind",
+}
+
+
+def _classify_confirmation(message: str) -> Optional[bool]:
+    normalized = message.strip().lower().rstrip(".!?")
+    if normalized in _AFFIRMATIVE:
+        return True
+    if normalized in _NEGATIVE:
+        return False
+    return None
+
+
+async def _execute_pending_action(session: SessionState, pending: PendingAction) -> str:
+    """Reuses the exact same handler a fresh Intent would have gone through --
+    no separate logic to keep in sync -- by building a synthetic Intent from the
+    structured PendingAction instead of from an LLM guess.
+    """
+    synthetic_intent = Intent(
+        action=pending.action,
+        question_text=pending.question_text,
+        entity_name=pending.entity_name,
+        abstraction_name=pending.entity_name,
+        scope_hint=pending.scope_hint,
+        dimension_name=pending.dimension_name,
+        dimension_description=pending.dimension_description,
+    )
+    handler = _HANDLERS[pending.action]
+    return await handler(session, synthetic_intent)
 
 
 @app.get("/graph")
@@ -299,23 +390,50 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)) ->
     store = await get_store(user_id)
     session = store.current()
     session.add_message("user", req.message)
-    context = SessionContext(
-        current_entity=session.current_entity,
-        current_abstraction=session.current_abstraction,
-        known_entities=session.known_entities,
-    )
-    intent = await parse_intent(req.message, context)
-    handler = _HANDLERS.get(intent.action)
-    if handler is None:
-        reply = f"I don't know how to handle intent: {intent.action}"
+
+    # docs/Architecture.md §0.20: confirmation detection runs FIRST, every turn,
+    # unconditionally -- before parse_intent ever sees the message. This is the
+    # actual fix, not a special case for the word "yes": deterministic
+    # conversational state decides what a confirmation means, never an LLM
+    # guess, because a bare "yes" carries no content for a classifier to work
+    # with and — confirmed live — will be fabricated into a full
+    # new_investigation rather than admitted as unknown.
+    confirmation = _classify_confirmation(req.message)
+    if confirmation is not None:
+        if session.pending_action is None:
+            reply = "There's nothing pending for me to confirm right now — what would you like to explore?"
+            intent_action = "no_action"
+        elif confirmation:
+            reply = await _execute_pending_action(session, session.pending_action)
+            intent_action = session.pending_action.action
+        else:
+            reply = "Okay, skipping that."
+            intent_action = "no_action"
+        session.pending_action = None
     else:
-        try:
-            reply = await handler(session, intent)
-        except Exception as exc:  # noqa: BLE001 - surface to the demo UI instead of a 500
-            reply = f"Something went wrong investigating that: {exc}"
-    session.add_message("agent", reply, intent_action=intent.action)
+        # Not a yes/no-shaped reply -- per §0.20's lifecycle policy, a new topic
+        # clears any stale offer rather than leaving it to be accidentally
+        # confirmed several turns later.
+        session.pending_action = None
+        context = SessionContext(
+            current_entity=session.current_entity,
+            current_abstraction=session.current_abstraction,
+            known_entities=session.known_entities,
+        )
+        intent = await parse_intent(req.message, context)
+        handler = _HANDLERS.get(intent.action)
+        if handler is None:
+            reply = f"I don't know how to handle intent: {intent.action}"
+        else:
+            try:
+                reply = await handler(session, intent)
+            except Exception as exc:  # noqa: BLE001 - surface to the demo UI instead of a 500
+                reply = f"Something went wrong investigating that: {exc}"
+        intent_action = intent.action
+
+    session.add_message("agent", reply, intent_action=intent_action)
     await persist(user_id, session)
-    return ChatResponse(reply=reply, intent_action=intent.action, graph=session.to_payload())
+    return ChatResponse(reply=reply, intent_action=intent_action, graph=session.to_payload())
 
 
 # Clean-URL routes for the two real pages. StaticFiles(html=True) below only

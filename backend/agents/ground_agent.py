@@ -4,8 +4,24 @@ import uuid
 from datetime import datetime, timezone
 
 from backend.evidence import gather_evidence
-from backend.graph import attach_claim, attach_question, create_relationship, find_or_create_entity
-from backend.questions import GroundDecision, Question, QuestionLevel, decide_next_step, synthesize_answer
+from backend.graph import (
+    attach_claim,
+    attach_question,
+    create_relationship,
+    find_or_create_entity,
+    resolve_entity,
+)
+from backend.questions import (
+    GroundDecision,
+    Question,
+    QuestionLevel,
+    canonicalize_relation,
+    decide_next_step,
+    extract_relations,
+    is_relation_worthy,
+    normalize_relationship_type,
+    synthesize_answer,
+)
 from backend.questions.llm_config import MASTER_MODEL_CHAIN
 from backend.runtime import init_db, load_state, save_state
 
@@ -251,10 +267,17 @@ class GroundAgent:
                         self.question.entity_name, scope_hint=self.question.entity_scope_hint
                     )
                     child_entity = await find_or_create_entity(decision.discovered_entity_name)
-                    await create_relationship(parent_entity.id, child_entity.id, "decomposes_into")
+                    # docs/Architecture.md §0.17: relationship_type is the LLM's own
+                    # word for how the child relates to the parent (e.g. "routes_to",
+                    # "delegates_to") — unset falls back to the old default so every
+                    # existing call site keeps producing exactly today's behavior.
+                    # create_relationship already accepted any relationship_type
+                    # string; this was the only call site, and it was hardcoded.
+                    relationship_type = decision.relationship_type or "decomposes_into"
+                    await create_relationship(parent_entity.id, child_entity.id, relationship_type)
                     child_entity_name = decision.discovered_entity_name
                     print(
-                        f"[graph] {parent_entity.name!r} -[decomposes_into]-> {child_entity.name!r}"
+                        f"[graph] {parent_entity.name!r} -[{relationship_type}]-> {child_entity.name!r}"
                     )
 
                 child_id = str(uuid.uuid4())
@@ -381,6 +404,76 @@ class GroundAgent:
                     source_type=claim.source.source_type,
                     valid_from=claim.valid_from,
                 )
+            if result.answer:
+                # docs/Architecture.md §0.18: a genuinely separate decision from
+                # decide_next_step's decompose branch above — extract_relations is
+                # never asked to "decompose" anything, which is what made the
+                # difference in the controlled experiment (the IDS/Privilege
+                # Escalation case: the same content, asked inside a "decompose"
+                # framing, produced decomposes_into; asked as its own decision, it
+                # produced the correct "spots" actor relation). Degrades to zero
+                # relations on total provider failure, same tolerance as
+                # gather_evidence's retrievers — an enrichment step failing must
+                # never take down the answer it was enriching.
+                try:
+                    candidates = await extract_relations(self.question.entity_name, result.answer)
+                except Exception as exc:  # noqa: BLE001 - enrichment, must not break _finish
+                    print(f"[relations] extract_relations failed, degrading to zero results: {exc}")
+                    candidates = []
+                for candidate in candidates:
+                    if not is_relation_worthy(candidate):
+                        continue
+                    # docs/Architecture.md §0.18: canonicalization is a separate step
+                    # from extraction, verified 8/8 on an adversarial active/passive/
+                    # modal matrix to collapse surface-voice variation onto the same
+                    # source/target/direction without inventing content. Falls back to
+                    # the raw (already-worthy) candidate on total provider failure --
+                    # canonicalization improves representation, it was never required
+                    # for the relation to be true.
+                    try:
+                        canonical = await canonicalize_relation(candidate)
+                        source_name, relationship_type, target_name = (
+                            canonical.canonical_source,
+                            canonical.canonical_relationship_type,
+                            canonical.canonical_target,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - enrichment, must not break _finish
+                        print(f"[relations] canonicalize_relation failed, using raw candidate: {exc}")
+                        source_name, relationship_type, target_name = (
+                            candidate.source_entity,
+                            candidate.relationship_type,
+                            candidate.target_entity,
+                        )
+                    relationship_type = normalize_relationship_type(relationship_type)
+                    # docs/Architecture.md §0.18: resolve_entity, not find_or_create_entity
+                    # — frozen after a 6-case evidence-type matrix (all correct) proved
+                    # deterministic candidate resolution can distinguish REUSE / CREATE /
+                    # AMBIGUOUS / CONFLICT without an LLM. A relation is only persisted
+                    # when BOTH endpoints resolve to something acceptable — an unresolved
+                    # endpoint must never pollute the world model with a half-known edge.
+                    source_resolution = await resolve_entity(
+                        source_name, candidate.justification, scope_hint=self.question.entity_scope_hint
+                    )
+                    target_resolution = await resolve_entity(
+                        target_name, candidate.justification, scope_hint=self.question.entity_scope_hint
+                    )
+                    if source_resolution.decision not in ("REUSE", "CREATE") or target_resolution.decision not in (
+                        "REUSE",
+                        "CREATE",
+                    ):
+                        print(
+                            f"[relations] skipped {source_name!r} -[{relationship_type}]-> {target_name!r}: "
+                            f"source={source_resolution.decision} ({source_resolution.reason}), "
+                            f"target={target_resolution.decision} ({target_resolution.reason})"
+                        )
+                        continue
+                    source_entity = source_resolution.selected_node
+                    target_entity = target_resolution.selected_node
+                    await create_relationship(source_entity.id, target_entity.id, relationship_type)
+                    print(
+                        f"[relations] {source_entity.name!r} -[{relationship_type}]-> "
+                        f"{target_entity.name!r}"
+                    )
         if self.bus is not None and result.status == AgentStatus.BOUNDARY_HIT:
             # Escalation (Rules.md rule 5) — never skipped or short-circuited: a
             # boundary hit is always posted to the bus when one exists, regardless

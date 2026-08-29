@@ -9,6 +9,15 @@ from .engine import generate_question
 from .exceptions import QuestionEngineError
 from .intent import Intent, SessionContext, parse_intent
 from .models import Dimension, GroundDecision, Question, QuestionDraft, QuestionLevel, SynthesisDraft
+from .relation_extraction import (
+    CandidateRelation,
+    CanonicalRelation,
+    RelationExtraction,
+    canonicalize_relation,
+    extract_relations,
+    is_relation_worthy,
+    normalize_relationship_type,
+)
 from .relationships import ClaimPairRelationship, RelationshipAnalysis, analyze_claim_relationships
 from .synthesis import synthesize_answer
 
@@ -22,6 +31,13 @@ __all__ = [
     "analyze_claim_relationships",
     "ClaimPairRelationship",
     "RelationshipAnalysis",
+    "extract_relations",
+    "is_relation_worthy",
+    "canonicalize_relation",
+    "normalize_relationship_type",
+    "CandidateRelation",
+    "CanonicalRelation",
+    "RelationExtraction",
     "parse_intent",
     "Intent",
     "SessionContext",

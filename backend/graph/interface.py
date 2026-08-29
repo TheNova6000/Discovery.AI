@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -10,9 +11,11 @@ from .driver import get_driver
 from .exceptions import GraphInterfaceError
 from .models import (
     Abstraction,
+    CandidateEvidence,
     ClaimNode,
     EntityExplanation,
     GraphNode,
+    IdentityResolution,
     QuestionNode,
     QuestionProvenance,
     Relationship,
@@ -181,6 +184,146 @@ async def find_or_create_entity(
         raise GraphInterfaceError(f"find_or_create_entity lookup failed: {exc}") from exc
 
     return await create_node(name, type_, description, scope=scope_hint)
+
+
+# docs/Architecture.md §0.18: minimal, uncontroversial stopword filter -- not a
+# scoring formula, just hygiene. Validated live: without it, a relationship-type
+# string like "CONNECTS_TO" contributes the meaningless fragment "to" to a
+# candidate's vocabulary, which can spuriously match unrelated context text and
+# manufacture a false CONFLICT/tie. Not exhaustive by design -- extend only when
+# a real observed case demands it, same discipline as `normalize_relationship_type`.
+_RESOLVE_STOPWORDS = {
+    "a", "an", "the", "is", "are", "was", "were", "to", "of", "in", "on", "and",
+    "or", "with", "this", "that", "it", "its", "by", "for", "as", "also", "while",
+}
+
+
+def _tokenize_for_resolution(text: str) -> set[str]:
+    return {t for t in re.split(r"[^a-z]+", text.lower()) if t and t not in _RESOLVE_STOPWORDS}
+
+
+async def _find_all_candidates(name: str) -> list[GraphNode]:
+    """Every existing node matching `name` (case/whitespace-insensitive), across
+    ALL scopes -- the candidate search `find_or_create_entity` never does (it
+    stops at the first match, or requires an exact scope match). This is the
+    search step `resolve_entity` needs and the older function was never meant
+    to provide.
+    """
+    query = f"MATCH (n:{NODE_LABEL}) WHERE toLower(trim(n.name)) = toLower(trim($name)) RETURN n"
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            result = await session.run(query, name=name)
+            return [_record_to_node(record["n"]) async for record in result]
+    except Neo4jError as exc:
+        raise GraphInterfaceError(f"_find_all_candidates failed: {exc}") from exc
+
+
+async def _candidate_vocab(node: GraphNode) -> set[str]:
+    """A candidate's evidence vocabulary: its real graph neighborhood (outgoing
+    relations' verb + target-entity words) plus its own `scope` string --
+    validated live as necessary, not decorative (docs/Architecture.md §0.18's
+    six-case matrix, case B: a bare domain-name reference resolved correctly
+    ONLY because of the scope-string fold-in, with zero neighborhood overlap).
+    """
+    query = (
+        f"MATCH (n:{NODE_LABEL} {{id: $id}})-[r:{RELATES_TO}]->(b:{NODE_LABEL}) "
+        "RETURN r.relationship_type AS rel, b.name AS target"
+    )
+    words: set[str] = set()
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            result = await session.run(query, id=node.id)
+            async for record in result:
+                words |= _tokenize_for_resolution(f"{record['rel']} {record['target']}")
+    except Neo4jError as exc:
+        raise GraphInterfaceError(f"_candidate_vocab failed: {exc}") from exc
+    if node.scope:
+        words |= _tokenize_for_resolution(node.scope)
+    return words
+
+
+async def resolve_entity(
+    mention: str,
+    context: str,
+    *,
+    scope_hint: Optional[str] = None,
+) -> IdentityResolution:
+    """docs/Architecture.md §0.18 — the frozen identity-resolution contract,
+    validated against a 6-case evidence-type matrix (all 6 correct) before being
+    built for real. Deterministic, zero LLM calls: candidate search over the
+    existing Node model, then evidence scoring over each candidate's real graph
+    neighborhood plus its own scope string. Four decisions:
+
+    - 0 existing candidates -> `CREATE` (mints via `find_or_create_entity`,
+      tagged with `scope_hint` if given — the same default `find_or_create_entity`
+      already used, just reached through a decision that records *why*).
+    - 1 existing candidate, no competitor -> `REUSE` it. Matches this project's
+      standing preference for reuse over duplication when there's no competing
+      alternative to weigh it against.
+    - 2+ candidates, scored by token overlap between `context` (+ `scope_hint`,
+      folded in as ordinary evidence, never as an override — docs/Architecture.md
+      §0.18: "scope is evidence that may help resolve identity," not identity
+      itself) and each candidate's vocabulary:
+        - top score is 0 for everyone -> `AMBIGUOUS` (no evidence at all)
+        - top score ties with the runner-up -> `CONFLICT` (real, competing evidence)
+        - otherwise -> `REUSE` the clear winner
+
+    `selected_node` is populated only for `REUSE`/`CREATE` — never for
+    `AMBIGUOUS`/`CONFLICT`. Callers must not persist anything using an
+    unresolved endpoint; a relation with an ambiguous/conflicting endpoint
+    should be skipped, not forced.
+    """
+    candidates = await _find_all_candidates(mention)
+
+    if not candidates:
+        node = await find_or_create_entity(mention, scope_hint=scope_hint)
+        return IdentityResolution(
+            decision="CREATE",
+            selected_node=node,
+            candidates=[],
+            reason="No existing candidate found.",
+        )
+
+    if len(candidates) == 1:
+        node = candidates[0]
+        return IdentityResolution(
+            decision="REUSE",
+            selected_node=node,
+            candidates=[CandidateEvidence(node=node, matched_tokens=[], score=0)],
+            reason="Single existing candidate, no competing alternative to weigh it against.",
+        )
+
+    context_tokens = _tokenize_for_resolution(f"{context} {scope_hint or ''}")
+    evidence: list[CandidateEvidence] = []
+    for node in candidates:
+        vocab = await _candidate_vocab(node)
+        matched = sorted(context_tokens & vocab)
+        evidence.append(CandidateEvidence(node=node, matched_tokens=matched, score=len(matched)))
+    evidence.sort(key=lambda e: e.score, reverse=True)
+    top, runner_up = evidence[0], evidence[1]
+
+    if top.score == 0:
+        return IdentityResolution(
+            decision="AMBIGUOUS",
+            selected_node=None,
+            candidates=evidence,
+            reason="No candidate has any matching evidence.",
+        )
+    if top.score == runner_up.score:
+        return IdentityResolution(
+            decision="CONFLICT",
+            selected_node=None,
+            candidates=evidence,
+            reason=f"Multiple candidates have comparable evidence ({top.score} matched tokens each).",
+        )
+    return IdentityResolution(
+        decision="REUSE",
+        selected_node=top.node,
+        candidates=evidence,
+        reason=f"Matched: {', '.join(top.matched_tokens)}",
+    )
 
 
 async def get_node(node_id: str) -> GraphNode:
@@ -650,24 +793,30 @@ async def explain_entity(entity_id: str) -> EntityExplanation:
 
 
 async def get_decomposition(entity_id: str) -> list[GraphNode]:
-    """The existing `decomposes_into` CHILDREN of an entity — the already-
-    discovered substructure a "zoom in" would reveal. Pure read; exposes only
-    what's already in the graph, never infers or invents structure. Raises
-    `GraphInterfaceError` if `entity_id` doesn't exist (via `get_node`'s check).
+    """The existing CHILDREN of an entity — the already-discovered substructure
+    a "zoom in" would reveal. Pure read; exposes only what's already in the
+    graph, never infers or invents structure. Raises `GraphInterfaceError` if
+    `entity_id` doesn't exist (via `get_node`'s check).
 
     Deliberately does NOT delegate to `get_neighbors` (found live, hackathon-day —
     docs/Memory.md): `get_neighbors`'s `RELATES_TO` match is directionless, which
-    is correct for symmetric relationship types but wrong for "decomposes_into"
-    specifically, which is inherently parent->child. Calling `zoom_in` on a CHILD
-    entity that itself has a parent previously returned that parent as if it were
-    one of the child's own children (a confusing, circular edge in the UI). This
-    query follows the `decomposes_into` edge outward only, in the direction it was
-    actually written by `_investigate_loop`.
+    is correct for symmetric relationship types but wrong for parent->child
+    discovery edges. Calling `zoom_in` on a CHILD entity that itself has a parent
+    previously returned that parent as if it were one of the child's own children
+    (a confusing, circular edge in the UI). This query follows OUTWARD edges only,
+    in the direction they were actually written by `_investigate_loop`.
+
+    Matches ANY relationship_type, not just "decomposes_into" (docs/Architecture.md
+    §0.17): a child discovered via a "routes_to"/"delegates_to"/etc. relationship
+    is still a real, navigable child — filtering to one literal type here would
+    make every non-default relationship_type silently invisible to zoom_in and
+    the live graph sync, reproducing the "no further sub-components yet" bug for
+    a new reason instead of fixing it.
     """
     await get_node(entity_id)
     query = (
         f"MATCH (a:{NODE_LABEL} {{id: $entity_id}})"
-        f"-[:{RELATES_TO} {{relationship_type: 'decomposes_into'}}]->(b:{NODE_LABEL}) "
+        f"-[:{RELATES_TO}]->(b:{NODE_LABEL}) "
         "RETURN DISTINCT b"
     )
     try:

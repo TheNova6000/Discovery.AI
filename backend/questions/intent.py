@@ -38,9 +38,25 @@ lens inline ("...economically," "...from a technical perspective"), set \
 `dimension_name`/`dimension_description` for that lens; otherwise leave them \
 unset and the session's current active dimension (if any) applies. Set \
 `entity_name`.
-- "explain": the user wants to know WHY an entity is where it is / what was \
-learned about it (e.g. "Why is PayPal here?," "What do we know about PayPal?"). \
-Set `entity_name`.
+- "explain": ONLY for a narrow provenance question — why is this entity in the \
+graph, what has the graph already learned about it, where did it come from \
+(e.g. "Why is PayPal here?," "What do we know about PayPal?," "Where did PayPal \
+come from?"). Do NOT choose "explain" just because the user's message happens \
+to contain the word "explain" — that is a surface coincidence, not the meaning \
+you're classifying. "Explain how PayPal works," "Explain the payment system in \
+detail," and "Explain me how X works in real life" are ALL knowledge requests \
+about the subject itself, not questions about the graph's own history with it — \
+classify those as "new_investigation" (or "investigate_deeper" if X is already \
+the current focus and the user wants MORE learned about it, not a first pass). \
+The test is never "does the message contain the word explain" — it is "is the \
+user asking about the graph's history with X, or asking to learn how/why X \
+itself works." Set `entity_name`.
+- "no_action": the message doesn't clearly map to any action above, and doesn't \
+relate to the session's current entity/abstraction/known entities either — \
+greetings, thanks, filler, or genuinely uninterpretable input (e.g. "hello," \
+"thanks," "asdf," a bare "yes"/"no" with nothing in CONTEXT to attach it to). \
+Never invent an `entity_name` or `question_text` to force a fit into one of the \
+other actions — choosing "no_action" honestly is always better than guessing.
 - "change_dimension": the user wants to view the current entity/abstraction \
 through a different lens GOING FORWARD, without necessarily asking for new \
 investigation right now (e.g. "Look at this economically," "Show me the \
@@ -67,7 +83,9 @@ Always give `reasoning` — one sentence on why this action and these arguments.
 
 
 class Intent(BaseModel):
-    action: Literal["new_investigation", "zoom_in", "investigate_deeper", "explain", "change_dimension", "compare"]
+    action: Literal[
+        "new_investigation", "zoom_in", "investigate_deeper", "explain", "change_dimension", "compare", "no_action"
+    ]
     question_text: Optional[str] = Field(default=None, description="Required for 'new_investigation'.")
     entity_name: Optional[str] = Field(
         default=None, description="The primary/resolved entity for zoom_in, explain, change_dimension, compare."
