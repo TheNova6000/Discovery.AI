@@ -240,7 +240,16 @@ class GroundAgent:
                     # NEW entity, not the parent's — this is what makes the graph
                     # actually remember the discovery instead of just accumulating
                     # narrower questions under one node.
-                    parent_entity = await find_or_create_entity(self.question.entity_name)
+                    # scope_hint on the PARENT lookup only (Pass 3, docs/Architecture.md
+                    # §0.14): without it, this call could resolve to a different,
+                    # wrong same-named node than the one _finish() below resolves for
+                    # the same question — the exact identity bug this pass exists to
+                    # prevent. The newly-discovered child has no scope of its own yet
+                    # from this mechanism; deliberately out of scope for Pass 3's
+                    # narrow acceptance test (top-level entity resolution only).
+                    parent_entity = await find_or_create_entity(
+                        self.question.entity_name, scope_hint=self.question.entity_scope_hint
+                    )
                     child_entity = await find_or_create_entity(decision.discovered_entity_name)
                     await create_relationship(parent_entity.id, child_entity.id, "decomposes_into")
                     child_entity_name = decision.discovered_entity_name
@@ -349,7 +358,9 @@ class GroundAgent:
             # every question this agent resolved, not just the ones that got a
             # direct answer. Idempotent: `find_or_create_entity` and `attach_*`
             # both MERGE, so resuming a crashed run never creates duplicates.
-            entity = await find_or_create_entity(self.question.entity_name)
+            entity = await find_or_create_entity(
+                self.question.entity_name, scope_hint=self.question.entity_scope_hint
+            )
             await attach_question(
                 entity.id,
                 question_id=self.question.id,

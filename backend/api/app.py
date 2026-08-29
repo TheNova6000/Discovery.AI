@@ -51,12 +51,18 @@ DEMO_MAX_DEPTH = 2
 DEMO_MAX_STEPS = 3
 
 
-async def _sync_decomposition(session: SessionState, entity_name: str) -> None:
+async def _sync_decomposition(session: SessionState, entity_name: str, scope_hint: str | None = None) -> None:
     """Pull the real `decomposes_into` children Neo4j already has for this entity
     (written by `persist_to_graph=True`) into the session's fast in-memory graph
     mirror, so the live UI reflects genuinely discovered structure, not a guess.
+
+    `scope_hint` (Pass 3, docs/Architecture.md §0.14): without it, this call could
+    resolve to a different same-named node than the one the investigation itself
+    just used — the session's displayed graph would look wrong even though Neo4j
+    is correct, exactly the kind of false negative Pass 3's acceptance test needs
+    to rule out.
     """
-    entity = await find_or_create_entity(entity_name)
+    entity = await find_or_create_entity(entity_name, scope_hint=scope_hint)
     children = await get_decomposition(entity.id)
     for child in children:
         session.add_edge(entity_name, child.name, "decomposes_into")
@@ -71,7 +77,7 @@ async def _run_investigation(session: SessionState, question: Question) -> str:
         max_sequential_steps=DEMO_MAX_STEPS,
     )
     result = await agent.run()
-    await _sync_decomposition(session, question.entity_name)
+    await _sync_decomposition(session, question.entity_name, question.entity_scope_hint)
     session.current_entity = question.entity_name
     session.current_abstraction = question.abstraction_name
     return result.answer or f"Investigated {question.entity_name}, but no answer was produced."
@@ -88,6 +94,7 @@ async def handle_new_investigation(session: SessionState, intent: Intent) -> str
         dimension_description=session.current_dimension_description,
         level=QuestionLevel.MASTER,
         entity_name=entity_name,
+        entity_scope_hint=intent.scope_hint,
         abstraction_name=abstraction_name,
     )
     session.add_node(abstraction_name, kind="abstraction")
@@ -112,8 +119,8 @@ async def handle_zoom_in(session: SessionState, intent: Intent) -> str:
     if not entity_name:
         return "I don't have an entity in focus yet — ask a question first."
 
-    entity = await find_or_create_entity(entity_name)
-    await _sync_decomposition(session, entity_name)
+    entity = await find_or_create_entity(entity_name, scope_hint=intent.scope_hint)
+    await _sync_decomposition(session, entity_name, intent.scope_hint)
     session.current_entity = entity_name
     children = await get_decomposition(entity.id)
     if not children:
@@ -151,6 +158,7 @@ async def handle_investigate_deeper(session: SessionState, intent: Intent) -> st
         dimension_description=dimension_description,
         level=QuestionLevel.MASTER,
         entity_name=entity_name,
+        entity_scope_hint=intent.scope_hint,
         abstraction_name=session.current_abstraction or entity_name,
     )
     return await _run_investigation(session, question)
@@ -166,7 +174,7 @@ async def handle_explain(session: SessionState, intent: Intent) -> str:
     session.add_node(entity_name)
     if session.current_entity and session.current_entity != entity_name:
         session.add_edge(session.current_entity, entity_name, "relates_to")
-    entity = await find_or_create_entity(entity_name)
+    entity = await find_or_create_entity(entity_name, scope_hint=intent.scope_hint)
     explanation = await explain_entity(entity.id)
     if not explanation.discovered_by:
         return f"{entity_name} hasn't had any questions attached to it yet."
@@ -194,6 +202,7 @@ async def handle_change_dimension(session: SessionState, intent: Intent) -> str:
         dimension_description=intent.dimension_description,
         level=QuestionLevel.MASTER,
         entity_name=entity_name,
+        entity_scope_hint=intent.scope_hint,
         abstraction_name=session.current_abstraction or entity_name,
     )
     return await _run_investigation(session, question)
@@ -203,6 +212,15 @@ async def handle_compare(session: SessionState, intent: Intent) -> str:
     a, b = intent.entity_name, intent.entity_b_name
     if not a or not b:
         return "I need two entities to compare."
+    # Pass 3 (docs/Architecture.md §0.14): resolve both sides against their
+    # respective scoped identities BEFORE building the comparison, so "compare"
+    # retrieves the two distinct canonical nodes an earlier scoped investigation
+    # already created, instead of the comparison being purely a display-layer
+    # label with no real Neo4j-level resolution behind either side.
+    entity_a = await find_or_create_entity(a, scope_hint=intent.scope_hint)
+    entity_b = await find_or_create_entity(b, scope_hint=intent.entity_b_scope_hint)
+    print(f"[compare] resolved {a!r} (scope={intent.scope_hint!r}) -> node {entity_a.id}")
+    print(f"[compare] resolved {b!r} (scope={intent.entity_b_scope_hint!r}) -> node {entity_b.id}")
     comparison_entity = f"{a} vs {b}"
     question = Question(
         text=f"What is the difference between {a} and {b}, and are they solving the same problem?",

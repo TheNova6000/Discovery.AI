@@ -92,6 +92,15 @@ class Question(BaseModel):
     """
     level: QuestionLevel
     entity_name: str
+    entity_scope_hint: Optional[str] = None
+    """Pass 3 (docs/Architecture.md §0.10/§0.14) — disambiguating context for
+    `entity_name` when the SAME name refers to different real-world things
+    depending on domain (e.g. "Transmission" in an electric grid vs. in
+    telecommunications). Optional and additive: unset means `find_or_create_entity`
+    falls back to its original global-name-only lookup, unchanged for every
+    existing caller. Populated from `Intent.scope_hint` when the user's own
+    phrasing names a disambiguating context ("...in electric grids").
+    """
     abstraction_name: str
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 

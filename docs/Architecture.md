@@ -406,6 +406,32 @@ QUESTION (context, not a graph node — see below)
 
 **Punch list status: Pass 1 and 2 done and verified. Pass 3 (scope-hint channel, §0.10) is next, then schema.**
 
+### 0.14 Punch-list Pass 3 — scope-hint channel: mechanism sound, extraction unreliable (2026-08-29)
+
+**Split verdict, not a clean pass or fail — exactly the kind of result the acceptance test was designed to surface.** Two independently-testable pieces, per this pass's own instruction to keep it narrow: the identity-*resolution* mechanism (Cypher-level scoping in `find_or_create_entity`), and the intent-*extraction* layer (does `parse_intent` actually populate `scope_hint` from real phrasing). They came back with opposite results.
+
+**Mechanism: `[VERIFIED]`, deterministically, zero LLM calls.** `find_or_create_entity('TestTransmission', scope_hint='Electric Grid')` and `scope_hint='Telecommunications'` produced two distinct node ids; calling the first again reused the same id; an unscoped call correctly (if non-deterministically, `LIMIT 1`) matched one of the two — exactly the documented fallback behavior, not a bug. `backend/questions/models.py` (`Question.entity_scope_hint`), `backend/graph/interface.py` (`find_or_create_entity`'s scope-aware query, reusing the existing `description` field — no schema expansion), `backend/agents/ground_agent.py` (`_finish()` passes it through), and `backend/api/app.py` (every handler wires `intent.scope_hint`/`entity_b_scope_hint` through, `handle_compare` now actually resolves both sides in Neo4j instead of only building a display-layer label) are all in place and behave correctly when given a real scope hint.
+
+**Extraction: fails, reproducibly, across all three of the acceptance test's own questions.** Isolated `parse_intent` calls (no full investigation, cheap):
+
+| Question | `entity_name` | `scope_hint` |
+|---|---|---|
+| "How does transmission work in an electric grid?" | `'Transmission'` | `None` |
+| "How does transmission work in telecommunications?" | `'Transmission'` | `None` |
+| "Compare transmission in electric grids and telecommunications." | `'transmission in electric grids'` | `None` |
+
+Not just "the hint gets dropped" — the compare case is a **worse failure mode than the one anticipated**: instead of leaving `scope_hint` unset (which would at least fail safely to the original unscoped behavior), the model folded the disambiguating context *into* `entity_name` as one compound string. That breaks canonical identity in a new way this pass didn't originally name: `'transmission in electric grids'` (from the compare phrasing) and `'Transmission'` (from the plain phrasing) are different name strings entirely, so the SAME real-world thing, asked about two different ways, would now resolve to *different* nodes — the opposite of criterion 2/3's "no unnecessary duplication," and not fixable by the scope-aware Cypher logic at all, since that logic never sees a separated name+scope to work with.
+
+**A live full-investigation run (Question A, ~200s, real evidence gathering) independently confirmed the same finding** via the persisted `AgentState`: `entity_name='Transmission' scope_hint=None`, before the isolated test above narrowed it down cheaply — consistent, not a fluke of one call.
+
+**Diagnosis, not yet a fix:** the system prompt (`backend/questions/intent.py`) gives an explicit worked example naming this exact scenario ("Transmission" in an electric grid vs. telecommunications) and a dedicated schema field for it — and the model still didn't use it reliably. This suggests the gap isn't "the model doesn't understand the concept," it's that **splitting a compound noun phrase into (bare name, disambiguating context) is a harder extraction task than the schema assumes**, closer to a real NLP span-extraction problem than a simple classification field. Matches this project's own prior, hard-won lesson (§0.9's `kind`-drift risk citation): self-report/extraction fields have failed before in exactly this shape (`discovered_entity_name`, `working_framing`) and needed dedicated fixing, not just a schema addition.
+
+**Also surfaced, a separate real gap, not yet fixed:** `scope_hint` only threads through `_finish()`'s terminal entity resolution — the DECOMPOSE branch (`ground_agent.py`, where a parent's decompose decision creates a new child entity mid-investigation) still calls `find_or_create_entity` unscoped. A child entity discovered while investigating a scoped parent doesn't inherit that scope. Not exercised by this pass's top-level test, but real and worth naming before it's mistaken for solved.
+
+**Per this pass's own stopping rule** ("if the scope hint fails, we learn where the identity model actually breaks — that's it, no attempt to solve every ambiguity in natural language now"): this is exactly that outcome. The identity *model* (§0.9's design) is not what broke; the *extraction* implementation is, and it's a scoped, nameable problem (prompt/extraction reliability for compound noun phrases), not evidence the whole approach needs rethinking.
+
+**Not done, deliberately, per "keep it surgical":** no prompt-engineering attempt to fix extraction reliability yet; no fix for the decompose-branch gap; no renderer work; no schema freeze. The mechanism half of Pass 3 is done. The extraction half is a real, separate, next problem — not solved by more testing.
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |

@@ -73,6 +73,13 @@ class Intent(BaseModel):
         default=None, description="The primary/resolved entity for zoom_in, explain, change_dimension, compare."
     )
     entity_b_name: Optional[str] = Field(default=None, description="Required for 'compare' — the second entity.")
+    scope_hint: Optional[str] = Field(
+        default=None,
+        description="Disambiguating domain/context for entity_name, ONLY if the message's own phrasing names one (e.g. 'Electric Grid'). Leave unset otherwise.",
+    )
+    entity_b_scope_hint: Optional[str] = Field(
+        default=None, description="Same as scope_hint, but for entity_b_name (compare only)."
+    )
     abstraction_name: Optional[str] = Field(default=None, description="Required for 'new_investigation'.")
     dimension_name: Optional[str] = Field(
         default=None, description="Required for 'change_dimension'. Optional for 'investigate_deeper' (only if a lens is named inline)."

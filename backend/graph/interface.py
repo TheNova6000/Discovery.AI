@@ -114,7 +114,13 @@ async def create_node(name: str, type_: str = "entity", description: Optional[st
         raise GraphInterfaceError(f"create_node failed: {exc}") from exc
 
 
-async def find_or_create_entity(name: str, type_: str = "entity", description: Optional[str] = None) -> GraphNode:
+async def find_or_create_entity(
+    name: str,
+    type_: str = "entity",
+    description: Optional[str] = None,
+    *,
+    scope_hint: Optional[str] = None,
+) -> GraphNode:
     """Resolve `name` against existing canonical entities (case/whitespace-
     insensitive exact match) before creating a new one — the minimal form of
     docs/Rules.md rule 12's "entities are canonical, not duplicated" for entities
@@ -126,22 +132,41 @@ async def find_or_create_entity(name: str, type_: str = "entity", description: O
     semantic resolution (e.g. realizing "Google" and "Alphabet" are the same real
     entity) — that harder case is still `merge_entity`'s job, called explicitly
     once such a duplication is actually detected.
+
+    `scope_hint` (Pass 3, docs/Architecture.md §0.14): disambiguating context for
+    names that collide across domains ("Transmission" in an electric grid vs. in
+    telecommunications — §0.9/§0.10's identity-rule finding). Deliberately reuses
+    the existing `description` field as the scope carrier rather than adding a
+    new property — this is a minimal, testable mechanism for Pass 3's acceptance
+    test, not the frozen Node schema (still §0.15+'s job). When `scope_hint` is
+    given, matching requires BOTH name and description to match; when omitted,
+    behavior is byte-for-byte the original global-name-only lookup, so no
+    existing caller regresses.
     """
-    query = (
-        f"MATCH (n:{NODE_LABEL}) WHERE toLower(trim(n.name)) = toLower(trim($name)) "
-        "RETURN n LIMIT 1"
-    )
+    if scope_hint:
+        query = (
+            f"MATCH (n:{NODE_LABEL}) WHERE toLower(trim(n.name)) = toLower(trim($name)) "
+            "AND toLower(trim(coalesce(n.description, ''))) = toLower(trim($scope_hint)) "
+            "RETURN n LIMIT 1"
+        )
+        params = {"name": name, "scope_hint": scope_hint}
+    else:
+        query = (
+            f"MATCH (n:{NODE_LABEL}) WHERE toLower(trim(n.name)) = toLower(trim($name)) "
+            "RETURN n LIMIT 1"
+        )
+        params = {"name": name}
     try:
         driver = get_driver()
         async with driver.session() as session:
-            result = await session.run(query, name=name)
+            result = await session.run(query, **params)
             record = await result.single()
             if record is not None:
                 return _record_to_node(record["n"])
     except Neo4jError as exc:
         raise GraphInterfaceError(f"find_or_create_entity lookup failed: {exc}") from exc
 
-    return await create_node(name, type_, description)
+    return await create_node(name, type_, description or scope_hint)
 
 
 async def get_node(node_id: str) -> GraphNode:
