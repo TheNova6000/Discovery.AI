@@ -388,12 +388,17 @@ async def handle_compare(session: SessionState, intent: Intent) -> str:
 
 
 async def handle_no_action(session: SessionState, intent: Intent) -> str:
-    """docs/Architecture.md §0.20: the classifier's escape hatch — chosen when a
-    message doesn't clearly map to any real action and doesn't relate to session
+    """docs/Architecture.md §0.20 -> the chat-or-tool agent turn: the classifier's
+    escape hatch is also where the model gets to just BE the conversational
+    reply, in its own words (`intent.chat_reply`) -- chosen when a message
+    doesn't clearly map to any real action and doesn't relate to session
     context. Exists so short/uninterpretable input never forces the model to
     invent an entity_name or question_text just to produce SOME action.
+
+    Falls back to a generic line only if the model left `chat_reply` blank
+    despite the prompt requiring it -- a defensive floor, not the normal path.
     """
-    return "I'm not sure what to do with that — could you rephrase, or tell me what you'd like to explore?"
+    return intent.chat_reply or "I'm not sure what to do with that — could you rephrase, or tell me what you'd like to explore?"
 
 
 _HANDLERS = {

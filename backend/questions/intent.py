@@ -53,10 +53,13 @@ user asking about the graph's history with X, or asking to learn how/why X \
 itself works." Set `entity_name`.
 - "no_action": the message doesn't clearly map to any action above, and doesn't \
 relate to the session's current entity/abstraction/known entities either — \
-greetings, thanks, filler, or genuinely uninterpretable input (e.g. "hello," \
-"thanks," "asdf," a bare "yes"/"no" with nothing in CONTEXT to attach it to). \
-Never invent an `entity_name` or `question_text` to force a fit into one of the \
-other actions — choosing "no_action" honestly is always better than guessing.
+greetings, thanks, small talk, a question about what this system is or can do, \
+filler, or genuinely uninterpretable input (e.g. "hello," "thanks," "asdf," a \
+bare "yes"/"no" with nothing in CONTEXT to attach it to). Never invent an \
+`entity_name` or `question_text` to force a fit into one of the other actions — \
+choosing "no_action" honestly is always better than guessing. When you choose \
+it, you are the one actually talking to the user this turn (see `chat_reply` \
+below) — there is no other layer that will rephrase this for them.
 - "change_dimension": the user wants to view the current entity/abstraction \
 through a different lens GOING FORWARD, without necessarily asking for new \
 investigation right now (e.g. "Look at this economically," "Show me the \
@@ -77,6 +80,27 @@ Always resolve references using CONTEXT rather than asking for clarification —
 if the message says "this" and CONTEXT has a current entity, use it. If the \
 message names entities not yet in CONTEXT, that's fine — a "compare" or \
 "zoom_in" can introduce a new entity name.
+
+`chat_reply` — REQUIRED whenever action is "no_action", unused otherwise. You \
+are not a classifier bolted onto a chatbot; for this one turn, you ARE the \
+conversational reply the user will read, exactly the way a person running this \
+system would answer if they were typing back themselves. Write a short, warm, \
+genuine reply to what the user actually said:
+- A greeting ("hi," "hey") gets a real greeting back, not a canned line — vary \
+your phrasing, don't repeat the same sentence every time.
+- "Thanks"/"cool"/acknowledgments get a brief, natural acknowledgment.
+- "What is this / what can you do / who are you" gets an honest, specific \
+answer grounded in what this actually is: a tool that builds a live, \
+navigable knowledge graph by recursively investigating whatever the user asks \
+about, backed by real evidence — not generic "I'm an AI assistant" filler. \
+Mention 1-2 concrete things they could try next (e.g. asking a how/why \
+question, or naming a topic to explore), but don't turn it into a feature list.
+- Genuinely uninterpretable input ("asdf," empty punctuation) gets a light, \
+un-annoyed nudge to try again — never sound confused or apologetic about it, \
+and never say something as flat as "I'm not sure what to do with that."
+Never invent an entity, question, or investigation just to have something to \
+do — a good conversational reply is a complete, correct response on its own, \
+not a consolation prize for failing to classify.
 
 Always give `reasoning` — one sentence on why this action and these arguments.
 """
@@ -110,6 +134,15 @@ class Intent(BaseModel):
     # content, so a model omitting it should never discard an otherwise-correct
     # `action`/`entity_name` classification.
     reasoning: Optional[str] = Field(default=None, description="One sentence on why this action/these arguments.")
+    # The chat-or-tool agent turn (docs/Architecture.md): when action is
+    # "no_action", this IS the reply the user sees -- the model's own natural
+    # conversational response, not a hand-written template string. Costs no
+    # extra LLM call: it's produced in this same structured_call, the same one
+    # every message already pays for. Unused for every other action, since
+    # those produce their own real content from the handler they invoke.
+    chat_reply: Optional[str] = Field(
+        default=None, description="Required for 'no_action' -- the natural-language reply to send the user directly."
+    )
 
 
 class SessionContext(BaseModel):
