@@ -26,6 +26,12 @@ class ChatMessage(BaseModel):
     role: Literal["user", "agent"]
     text: str
     intent_action: Optional[str] = None
+    entity_name: Optional[str] = None
+    """Which entity this reply was about, at the moment it was generated --
+    NOT re-derived from session.current_entity later, since that can move on
+    to a different topic by the time a "Resources" panel is opened. Only ever
+    set on agent messages; None for a reply with no real subject (no_action,
+    "I don't have an entity in focus yet")."""
 
 
 class PendingAction(BaseModel):
@@ -81,8 +87,14 @@ class SessionState:
         if edge not in self._edges:
             self._edges.append(edge)
 
-    def add_message(self, role: Literal["user", "agent"], text: str, intent_action: Optional[str] = None) -> None:
-        self.messages.append(ChatMessage(role=role, text=text, intent_action=intent_action))
+    def add_message(
+        self,
+        role: Literal["user", "agent"],
+        text: str,
+        intent_action: Optional[str] = None,
+        entity_name: Optional[str] = None,
+    ) -> None:
+        self.messages.append(ChatMessage(role=role, text=text, intent_action=intent_action, entity_name=entity_name))
         # Title the session after the first user message so the history list is
         # actually readable ("How does the electric grid work?") instead of every
         # entry saying "New session".

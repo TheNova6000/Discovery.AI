@@ -11,7 +11,13 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.agents import GroundAgent
-from backend.graph import explain_entity, find_or_create_entity, get_decomposition
+from backend.graph import (
+    explain_entity,
+    find_or_create_entity,
+    get_claims_for_question,
+    get_decomposition,
+    get_questions_for_entity,
+)
 from backend.questions import Intent, Question, QuestionLevel, SessionContext, parse_intent
 
 from . import db
@@ -40,7 +46,17 @@ _cors_origins = os.environ.get("CORS_ORIGINS", "*")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _cors_origins.split(",")] if _cors_origins != "*" else ["*"],
-    allow_credentials=True,
+    # allow_credentials=True + allow_origins=["*"] is a real, recurring bug, not
+    # a hypothetical one — browsers refuse a wildcard Access-Control-Allow-Origin
+    # paired with Access-Control-Allow-Credentials: true (confirmed live: the
+    # production frontend's every /chat call failed with exactly this CORS
+    # rejection). This app has no reason to need it: auth is a Bearer token
+    # attached explicitly via the Authorization header (authHeaders() in
+    # chat.html), never a browser-managed cookie -- credentialed CORS mode
+    # exists for cookies/TLS-client-certs, not manually-set headers, so it was
+    # never actually required here. False works with CORS_ORIGINS unset (the
+    # local/VM demo) and with it set (the real deployment) alike.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -385,12 +401,13 @@ async def switch_session(req: SwitchSessionRequest, user_id: str = Depends(get_c
     return state.to_payload()
 
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)) -> ChatResponse:
-    store = await get_store(user_id)
-    session = store.current()
-    session.add_message("user", req.message)
-
+async def _process_message(session: SessionState, message: str) -> tuple[str, str]:
+    """The actual "what should happen for this message" logic, shared between a
+    normal /chat turn and /chat/regenerate -- pulled out so regenerating a
+    reply re-runs EXACTLY the same dispatch a fresh message would, rather than
+    a second, drifting copy of it. Does not touch session.messages itself;
+    callers own when a user/agent message gets appended.
+    """
     # docs/Architecture.md §0.20: confirmation detection runs FIRST, every turn,
     # unconditionally -- before parse_intent ever sees the message. This is the
     # actual fix, not a special case for the word "yes": deterministic
@@ -398,7 +415,7 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)) ->
     # guess, because a bare "yes" carries no content for a classifier to work
     # with and — confirmed live — will be fabricated into a full
     # new_investigation rather than admitted as unknown.
-    confirmation = _classify_confirmation(req.message)
+    confirmation = _classify_confirmation(message)
     if confirmation is not None:
         if session.pending_action is None:
             reply = "There's nothing pending for me to confirm right now — what would you like to explore?"
@@ -410,30 +427,86 @@ async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)) ->
             reply = "Okay, skipping that."
             intent_action = "no_action"
         session.pending_action = None
-    else:
-        # Not a yes/no-shaped reply -- per §0.20's lifecycle policy, a new topic
-        # clears any stale offer rather than leaving it to be accidentally
-        # confirmed several turns later.
-        session.pending_action = None
-        context = SessionContext(
-            current_entity=session.current_entity,
-            current_abstraction=session.current_abstraction,
-            known_entities=session.known_entities,
-        )
-        intent = await parse_intent(req.message, context)
-        handler = _HANDLERS.get(intent.action)
-        if handler is None:
-            reply = f"I don't know how to handle intent: {intent.action}"
-        else:
-            try:
-                reply = await handler(session, intent)
-            except Exception as exc:  # noqa: BLE001 - surface to the demo UI instead of a 500
-                reply = f"Something went wrong investigating that: {exc}"
-        intent_action = intent.action
+        return reply, intent_action
 
-    session.add_message("agent", reply, intent_action=intent_action)
+    # Not a yes/no-shaped reply -- per §0.20's lifecycle policy, a new topic
+    # clears any stale offer rather than leaving it to be accidentally
+    # confirmed several turns later.
+    session.pending_action = None
+    context = SessionContext(
+        current_entity=session.current_entity,
+        current_abstraction=session.current_abstraction,
+        known_entities=session.known_entities,
+    )
+    intent = await parse_intent(message, context)
+    handler = _HANDLERS.get(intent.action)
+    if handler is None:
+        reply = f"I don't know how to handle intent: {intent.action}"
+    else:
+        try:
+            reply = await handler(session, intent)
+        except Exception as exc:  # noqa: BLE001 - surface to the demo UI instead of a 500
+            reply = f"Something went wrong investigating that: {exc}"
+    return reply, intent.action
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest, user_id: str = Depends(get_current_user_id)) -> ChatResponse:
+    store = await get_store(user_id)
+    session = store.current()
+    session.add_message("user", req.message)
+    reply, intent_action = await _process_message(session, req.message)
+    session.add_message("agent", reply, intent_action=intent_action, entity_name=session.current_entity)
     await persist(user_id, session)
     return ChatResponse(reply=reply, intent_action=intent_action, graph=session.to_payload())
+
+
+@app.post("/chat/regenerate", response_model=ChatResponse)
+async def regenerate(user_id: str = Depends(get_current_user_id)) -> ChatResponse:
+    """Re-runs the LAST turn only -- by construction, not by trusting a message
+    id/index the client sends. There is no parameter naming which message to
+    regenerate; this always operates on session.messages[-1], so an older
+    reply can never be regenerated even by a stale/replayed request. An error
+    can be permanent otherwise (a bad or failed answer just sits there) --
+    this exists so the single most recent reply can be retried without
+    resending the question or losing the rest of the conversation.
+    """
+    store = await get_store(user_id)
+    session = store.current()
+    if len(session.messages) < 2 or session.messages[-1].role != "agent" or session.messages[-2].role != "user":
+        raise HTTPException(status_code=400, detail="Nothing to regenerate — no prior agent reply to a user message.")
+    last_user_text = session.messages[-2].text
+    session.messages.pop()  # remove only the last agent reply, never anything earlier
+    reply, intent_action = await _process_message(session, last_user_text)
+    session.add_message("agent", reply, intent_action=intent_action, entity_name=session.current_entity)
+    await persist(user_id, session)
+    return ChatResponse(reply=reply, intent_action=intent_action, graph=session.to_payload())
+
+
+@app.get("/resources")
+async def resources(entity_name: str, user_id: str = Depends(get_current_user_id)) -> list[dict]:
+    """Every source behind a given entity's investigated questions, aggregated
+    and de-duplicated by URL. Read-only -- resolves the entity via the same
+    find_or_create_entity every other read path uses (idempotent; a brand-new
+    entity just comes back with an empty list, not an error).
+    """
+    entity = await find_or_create_entity(entity_name)
+    questions = await get_questions_for_entity(entity.id)
+    seen_urls: set[str] = set()
+    results: list[dict] = []
+    for question in questions:
+        for claim in await get_claims_for_question(question.id):
+            if claim.source_url in seen_urls:
+                continue
+            seen_urls.add(claim.source_url)
+            results.append(
+                {
+                    "title": claim.source_title,
+                    "url": claim.source_url,
+                    "source_type": claim.source_type,
+                }
+            )
+    return results
 
 
 # Clean-URL routes for the two real pages. StaticFiles(html=True) below only

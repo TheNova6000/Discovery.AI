@@ -297,6 +297,50 @@
     font-weight: 600;
   }
   .msg.user .intent-tag { color: rgba(0,0,0,0.55); }
+  /* ---------- per-message options: Resources / Regenerate ---------- */
+  .msg-options { margin-top: 8px; }
+  .msg-options-panel.hidden, .resources-panel.hidden { display: none; }
+  .msg-options-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+    border-radius: 0;
+  }
+  .msg-options-toggle:hover { color: #fff; border-color: var(--border-strong); }
+  .msg-options-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+  }
+  .msg-option-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 3px 10px;
+    cursor: pointer;
+    border-radius: 0;
+  }
+  .msg-option-btn:hover:not(:disabled) { border-color: var(--border-strong); }
+  .msg-option-btn:disabled { color: var(--muted-2); cursor: default; }
+  .resources-panel {
+    width: 100%;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .resources-panel ul { margin: 0; padding-left: 18px; }
+  .resources-panel li { margin: 3px 0; }
+  .resources-panel a { color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+  .resources-panel a:hover { opacity: 0.75; }
   .msg.typing {
     align-self: flex-start;
     background: #000;
@@ -702,9 +746,10 @@ function popFocus() {
   );
 }
 
-function addMessage(text, who, tag) {
+function addMessage(text, who, tag, entityName) {
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + who;
+  if (who === 'agent') wrap.dataset.entityName = entityName || '';
   if (tag) {
     const t = document.createElement('div');
     t.className = 'intent-tag';
@@ -724,9 +769,121 @@ function addMessage(text, who, tag) {
     body.textContent = text;
   }
   wrap.appendChild(body);
+  if (who === 'agent') wrap.appendChild(buildMessageOptions(wrap));
   messagesEl.appendChild(wrap);
+  if (who === 'agent') markLastAgentMessage();
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return wrap;
+}
+
+// Errors can be permanent otherwise — this lets a single bad/failed reply be
+// retried without resending the question or losing earlier history. Only
+// ever wired to act on whichever message is CURRENTLY last (markLastAgentMessage
+// strips the button from every earlier one), and the backend independently
+// enforces the same thing server-side (POST /chat/regenerate always targets
+// session.messages[-1], never a client-supplied index) — so this can't be used
+// to regenerate an older reply even by accident.
+function buildMessageOptions(wrap) {
+  const container = document.createElement('div');
+  container.className = 'msg-options';
+
+  const toggleBtn = document.createElement('button');
+  toggleBtn.className = 'msg-options-toggle';
+  toggleBtn.type = 'button';
+  toggleBtn.textContent = '⋯ options';
+  toggleBtn.onclick = () => panel.classList.toggle('hidden');
+
+  const panel = document.createElement('div');
+  panel.className = 'msg-options-panel hidden';
+
+  const resourcesPanel = document.createElement('div');
+  resourcesPanel.className = 'resources-panel hidden';
+
+  const resourcesBtn = document.createElement('button');
+  resourcesBtn.className = 'msg-option-btn';
+  resourcesBtn.type = 'button';
+  resourcesBtn.textContent = 'Resources';
+  resourcesBtn.onclick = async () => {
+    const opening = resourcesPanel.classList.contains('hidden');
+    resourcesPanel.classList.toggle('hidden');
+    if (!opening || resourcesPanel.dataset.loaded) return;
+    const entityName = wrap.dataset.entityName;
+    resourcesPanel.textContent = entityName ? 'Loading…' : 'No entity associated with this reply.';
+    if (!entityName) { resourcesPanel.dataset.loaded = '1'; return; }
+    try {
+      const res = await fetch(apiUrl('/resources?entity_name=' + encodeURIComponent(entityName)), { headers: authHeaders() });
+      const items = await res.json();
+      resourcesPanel.innerHTML = '';
+      if (!items.length) {
+        resourcesPanel.textContent = 'No sources recorded for this yet.';
+      } else {
+        const list = document.createElement('ul');
+        for (const item of items) {
+          const li = document.createElement('li');
+          const a = document.createElement('a');
+          a.href = item.url;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.textContent = item.title || item.url;
+          li.appendChild(a);
+          list.appendChild(li);
+        }
+        resourcesPanel.appendChild(list);
+      }
+    } catch (err) {
+      resourcesPanel.textContent = 'Failed to load resources.';
+    }
+    resourcesPanel.dataset.loaded = '1';
+  };
+
+  const regenerateBtn = document.createElement('button');
+  regenerateBtn.className = 'msg-option-btn regenerate-btn';
+  regenerateBtn.type = 'button';
+  regenerateBtn.textContent = 'Regenerate';
+  regenerateBtn.onclick = async () => {
+    regenerateBtn.disabled = true;
+    regenerateBtn.textContent = 'Regenerating…';
+    try {
+      const res = await fetch(apiUrl('/chat/regenerate'), { method: 'POST', headers: authHeaders() });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      const data = await res.json();
+      wrap.querySelector('.msg-body').innerHTML = DOMPurify.sanitize(marked.parse(data.reply));
+      const tagEl = wrap.querySelector('.intent-tag');
+      if (tagEl) tagEl.textContent = data.intent_action;
+      wrap.dataset.entityName = data.graph.current_entity || '';
+      resourcesPanel.classList.add('hidden');
+      resourcesPanel.dataset.loaded = '';
+      renderGraph(data.graph);
+      loadSessionList();
+    } catch (err) {
+      alert('Regenerate failed: ' + err.message);
+    } finally {
+      regenerateBtn.disabled = false;
+      regenerateBtn.textContent = 'Regenerate';
+    }
+  };
+
+  panel.appendChild(resourcesBtn);
+  panel.appendChild(regenerateBtn);
+  panel.appendChild(resourcesPanel);
+  container.appendChild(toggleBtn);
+  container.appendChild(panel);
+  return container;
+}
+
+// Regenerate must only ever apply to the LAST agent message, never an earlier
+// one (explicit requirement) — enforced here by physically removing the
+// button from every agent message except the newest each time one is added,
+// rather than just disabling/hiding it, so there's no stale-but-clickable
+// control lying around.
+function markLastAgentMessage() {
+  const agentMsgs = messagesEl.querySelectorAll('.msg.agent');
+  agentMsgs.forEach((m, i) => {
+    if (i < agentMsgs.length - 1) {
+      const btn = m.querySelector('.regenerate-btn');
+      if (btn) btn.remove();
+    }
+  });
 }
 
 let typingEl = null;
@@ -751,7 +908,7 @@ function updateExamplesVisibility() {
 function renderMessages(messages) {
   messagesEl.innerHTML = '';
   for (const m of (messages || [])) {
-    addMessage(m.text, m.role, m.intent_action);
+    addMessage(m.text, m.role, m.intent_action, m.entity_name);
   }
   updateExamplesVisibility();
 }
@@ -891,7 +1048,7 @@ async function send(message) {
     });
     const data = await res.json();
     hideTyping();
-    addMessage(data.reply, 'agent', data.intent_action);
+    addMessage(data.reply, 'agent', data.intent_action, data.graph.current_entity);
     renderGraph(data.graph);
     loadSessionList();
   } catch (err) {
