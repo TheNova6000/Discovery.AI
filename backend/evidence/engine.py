@@ -36,18 +36,33 @@ async def gather_evidence(
     )
     resources = [resource for results in results_per_retriever for resource in results]
 
+    # Each synthesize_claim call is a full LLM fallback chain (up to 3 providers x
+    # 2 passes, each with its own 30s timeout -- see structured_call) on its own,
+    # independent budget. Running these one at a time, as this used to, meant a
+    # dozen resources (2 per retriever x ~6 retrievers) each potentially paying
+    # that worst case SEQUENTIALLY -- confirmed live (2026-08-29) as the actual
+    # cause of a single investigation taking upwards of 10 minutes while
+    # providers were degraded, not the core decision logic being slow at all.
+    # gather() runs them concurrently instead, so total wall time is bounded by
+    # the SLOWEST single resource, not the sum of all of them -- exactly the same
+    # fix already applied to the retriever calls above.
+    draft_results = await asyncio.gather(
+        *(synthesize_claim(question, resource) for resource in resources),
+        return_exceptions=True,
+    )
+
     claims: list[Claim] = []
-    for resource in resources:
-        try:
-            draft = await synthesize_claim(question, resource)
-        except EvidenceRetrievalError:
+    for resource, result in zip(resources, draft_results):
+        if isinstance(result, EvidenceRetrievalError):
             continue
+        if isinstance(result, BaseException):
+            raise result
         claims.append(
             Claim(
                 question_id=question.id,
-                evidence=draft.evidence,
-                reasoning=draft.reasoning,
-                confidence=draft.confidence,
+                evidence=result.evidence,
+                reasoning=result.reasoning,
+                confidence=result.confidence,
                 source=resource,
             )
         )
