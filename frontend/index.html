@@ -251,6 +251,32 @@
   .feature-card h4 { font-size: 15px; margin: 0 0 10px; letter-spacing: 0.04em; }
   .feature-card p { font-size: 12.5px; color: var(--muted); line-height: 1.65; margin: 0; }
 
+  /* ---------- evidence example card ---------- */
+  #evidence .evidence-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+  #evidence .evidence-grid > div { min-width: 0; }
+  #evidence p { color: var(--muted); font-size: 14px; line-height: 1.8; margin: 0 0 18px; }
+  .example-card {
+    border: 1px solid rgba(94, 231, 255, 0.35);
+    border-left: 3px solid #5ee7ff;
+    padding: 20px 22px;
+    background: rgba(94, 231, 255, 0.03);
+  }
+  .example-card .example-tag { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #5ee7ff; margin-bottom: 12px; }
+  .example-card .example-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; padding: 9px 0; border-top: 1px solid var(--border); }
+  .example-card .example-row:first-of-type { border-top: none; }
+  .example-card .example-row .src { color: var(--text); }
+  .example-card .example-row .conf { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .example-card .example-row .conf.low { color: var(--muted-2); }
+  .example-card .example-row .conf.high { color: #5ee7ff; }
+  .example-caption { font-size: 11.5px; color: var(--muted-2); font-style: italic; margin-top: 14px; }
+
+  /* ---------- reliability / honesty ---------- */
+  #honesty { background: rgba(255,255,255,0.015); }
+  .limit-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .limit-card { border: 1px solid var(--border); padding: 20px 22px; }
+  .limit-card .limit-tag { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted-2); margin-bottom: 10px; }
+  .limit-card p { font-size: 12.5px; color: var(--muted); line-height: 1.7; margin: 0; }
+
   /* ---------- how it works ---------- */
   .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
   .step { min-width: 0; border-top: 1px solid var(--border-strong); padding-top: 16px; }
@@ -285,8 +311,10 @@
   @media (max-width: 860px) {
     nav.main-nav { display: none; }
     #about .about-grid { grid-template-columns: 1fr; }
+    #evidence .evidence-grid { grid-template-columns: 1fr; }
     .feature-grid { grid-template-columns: 1fr; }
     .steps { grid-template-columns: 1fr 1fr; }
+    .limit-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -298,8 +326,11 @@
   <a class="logo-link" href="index.html"><h1>Discovery.Ai</h1></a>
   <nav class="main-nav">
     <a href="#about">About</a>
+    <a href="#evidence">Evidence</a>
     <a href="#features">Features</a>
     <a href="#how">How it works</a>
+    <a href="#honesty">Limits</a>
+    <a href="/docs">Docs</a>
   </nav>
   <a class="nav-cta" href="/chat">Launch App →</a>
 </header>
@@ -337,8 +368,8 @@
             system explored a subject, not a claim that the subject is now
             fully modeled. The graph grows exactly as far as you push it.</p>
           <div class="stat-row">
-            <div class="stat"><div class="num">Recursive</div><div class="label">Question decomposition</div></div>
-            <div class="stat"><div class="num">Live</div><div class="label">Graph playground</div></div>
+            <div class="stat"><div class="num">6</div><div class="label">Real evidence sources per question</div></div>
+            <div class="stat"><div class="num">4</div><div class="label">Identity outcomes: reuse, create, ambiguous, conflict</div></div>
           </div>
         </div>
         <div class="diagram">
@@ -354,52 +385,98 @@
     </div>
   </section>
 
+  <section class="block" id="evidence">
+    <div class="inner">
+      <div class="section-label"><span>02 // evidence</span><span class="line"></span></div>
+      <div class="evidence-grid">
+        <div>
+          <h3 class="title">Real sources, scored honestly — even when they're wrong</h3>
+          <p>Every answer can pull from six real, named retrievers: Tavily, Semantic Scholar,
+            arXiv, Open Library, the YouTube Data API, and Wikipedia. Each source becomes a claim
+            with its own confidence score — not "how sure the model is," but how well that
+            specific source actually answers the question.</p>
+          <p>A source that misses the point isn't hidden — it's attached and scored low, so you
+            can see exactly what the system considered and correctly discounted.</p>
+        </div>
+        <div class="example-card">
+          <div class="example-tag">Real claims — "Card Payment" investigation</div>
+          <div class="example-row"><span class="src">Payment processor (Wikipedia)</span><span class="conf high">high confidence</span></div>
+          <div class="example-row"><span class="src">Centurion Card (Wikipedia)</span><span class="conf high">high confidence</span></div>
+          <div class="example-row"><span class="src">Expected Performance of the ATLAS Experiment (arXiv)</span><span class="conf low">~10% confidence</span></div>
+          <div class="example-row"><span class="src">Observation of a rare B⁰ₛ decay (arXiv)</span><span class="conf low">~10% confidence</span></div>
+          <div class="example-caption">The two arXiv papers are CERN particle-physics results that matched on keywords, not topic — correctly scored near zero instead of presented as equally good evidence.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="block" id="features">
     <div class="inner">
-      <div class="section-label center"><span class="line left"></span><span>02 // capabilities</span><span class="line"></span></div>
+      <div class="section-label center"><span class="line left"></span><span>03 // capabilities</span><span class="line"></span></div>
       <h3 class="title center-title" style="text-align:center">What the system actually does</h3>
       <div class="feature-grid">
         <div class="feature-card">
           <div class="corner tl"></div><div class="corner br"></div>
           <div class="tag">[ 01 ]</div>
           <h4>Recursive investigation</h4>
-          <p>Every question decomposes into sub-questions, answered independently
-            and synthesized back up — not a single flat LLM call.</p>
+          <p>Every question is answered, decomposed one narrower sub-question at a time, or
+            honestly flagged as a boundary — never planned as a batch upfront.</p>
         </div>
         <div class="feature-card">
           <div class="corner tl"></div><div class="corner br"></div>
           <div class="tag">[ 02 ]</div>
-          <h4>Live graph playground</h4>
-          <p>Watch the graph build in real time. Focus, siblings, and parents
-            are all visually distinct — you always know what you're looking at.</p>
+          <h4>Four-outcome identity resolution</h4>
+          <p>Discovering "Router" doesn't just reuse-or-create by name — REUSE, CREATE, AMBIGUOUS,
+            and CONFLICT are kept distinct so the graph never silently guesses.</p>
         </div>
         <div class="feature-card">
           <div class="corner tl"></div><div class="corner br"></div>
           <div class="tag">[ 03 ]</div>
-          <h4>Switchable lenses</h4>
-          <p>Re-investigate the same entity through an economic, technical, or
-            any other named dimension — the system re-frames, not just re-reads.</p>
+          <h4>Typed relationships</h4>
+          <p>Not everything is "decomposes_into" — routes_to, regulates, depends_on and more are
+            extracted as their own decision, then canonicalized for consistency.</p>
         </div>
         <div class="feature-card">
           <div class="corner tl"></div><div class="corner br"></div>
           <div class="tag">[ 04 ]</div>
-          <h4>Session history</h4>
-          <p>Every conversation is kept, switchable from the side rail — nothing
-            is silently overwritten when you start something new.</p>
+          <h4>Click any node to inspect it</h4>
+          <p>Every entity opens a real panel: the question that investigated it, why, and every
+            source behind it — not a black box you have to trust.</p>
         </div>
         <div class="feature-card">
           <div class="corner tl"></div><div class="corner br"></div>
           <div class="tag">[ 05 ]</div>
-          <h4>Google sign-in</h4>
-          <p>Your investigations are yours — sign in with Google and every
-            graph and session is scoped privately to your account.</p>
+          <h4>Bring your own API key</h4>
+          <p>Add a free Groq, Gemini, or Cerebras key in Settings and your investigations run on
+            your own quota — with live status on whether the shared pool is up.</p>
         </div>
         <div class="feature-card">
           <div class="corner tl"></div><div class="corner br"></div>
           <div class="tag">[ 06 ]</div>
+          <h4>Switchable lenses</h4>
+          <p>Re-investigate the same entity through an economic, technical, or any named
+            dimension — the system re-frames, not just re-reads.</p>
+        </div>
+        <div class="feature-card">
+          <div class="corner tl"></div><div class="corner br"></div>
+          <div class="tag">[ 07 ]</div>
+          <h4>Session history</h4>
+          <p>Every conversation is kept, switchable from the side rail, deletable when you're
+            done with it — nothing is silently overwritten.</p>
+        </div>
+        <div class="feature-card">
+          <div class="corner tl"></div><div class="corner br"></div>
+          <div class="tag">[ 08 ]</div>
+          <h4>Google sign-in</h4>
+          <p>Your investigations are yours — sign in with Google and every graph and session is
+            scoped privately to your account.</p>
+        </div>
+        <div class="feature-card">
+          <div class="corner tl"></div><div class="corner br"></div>
+          <div class="tag">[ 09 ]</div>
           <h4>Honest provenance</h4>
-          <p>Ask "why is this here" on any entity and see exactly which
-            question surfaced it — the graph never hides its own reasoning.</p>
+          <p>Ask "why is this here" on any entity and see exactly which question surfaced it —
+            the graph never hides its own reasoning.</p>
         </div>
       </div>
     </div>
@@ -407,13 +484,46 @@
 
   <section class="block" id="how">
     <div class="inner">
-      <div class="section-label"><span>03 // how it works</span><span class="line"></span></div>
+      <div class="section-label"><span>04 // how it works</span><span class="line"></span></div>
       <h3 class="title">From question to graph</h3>
       <div class="steps">
         <div class="step"><div class="n">01</div><h5>Ask</h5><p>Type any question — as broad or specific as you like.</p></div>
-        <div class="step"><div class="n">02</div><h5>Decompose</h5><p>The system breaks it into independently investigable pieces.</p></div>
-        <div class="step"><div class="n">03</div><h5>Investigate</h5><p>Each piece gets its own reasoning pass and, where useful, its own graph node.</p></div>
-        <div class="step"><div class="n">04</div><h5>Navigate</h5><p>Zoom, go deeper, switch lenses, or compare — the graph is yours to explore.</p></div>
+        <div class="step"><div class="n">02</div><h5>Decide</h5><p>The agent answers directly, decomposes into one narrower sub-question, or flags a real boundary.</p></div>
+        <div class="step"><div class="n">03</div><h5>Investigate</h5><p>Each sub-question is resolved on its own before the next decision is made, informed by what's now known.</p></div>
+        <div class="step"><div class="n">04</div><h5>Gather evidence</h5><p>Real sources are retrieved and scored — honestly, including when they don't fit.</p></div>
+        <div class="step"><div class="n">05</div><h5>Resolve identity</h5><p>New entities and relationships are only written when the system is genuinely sure they're new — or genuinely sure they're not.</p></div>
+        <div class="step"><div class="n">06</div><h5>Navigate</h5><p>Zoom, go deeper, switch lenses, or compare — the graph is yours to explore.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="honesty">
+    <div class="inner">
+      <div class="section-label"><span>05 // reliability</span><span class="line"></span></div>
+      <h3 class="title">What this doesn't promise</h3>
+      <p style="max-width:680px">Being upfront about limits is part of the design. Full technical
+        detail is in the <a href="/docs" style="color:#fff">documentation</a> — the short version:</p>
+      <div class="limit-grid">
+        <div class="limit-card">
+          <div class="limit-tag">Not a verified knowledge base</div>
+          <p>A trace of one investigation, backed by real evidence — not a claim that any subject
+            is now fully or correctly modeled.</p>
+        </div>
+        <div class="limit-card">
+          <div class="limit-tag">Free-tier LLM quotas are real</div>
+          <p>Shared providers can run dry at busy times, slowing or failing an investigation for
+            reasons unrelated to your question. Your own API key fixes this.</p>
+        </div>
+        <div class="limit-card">
+          <div class="limit-tag">Evidence relevance isn't perfect</div>
+          <p>Keyword search sometimes returns off-topic sources. They're scored honestly low, not
+            hidden — the confidence score is the signal to read.</p>
+        </div>
+        <div class="limit-card">
+          <div class="limit-tag">Synthesis can over-smooth disagreement</div>
+          <p>Genuinely competing explanations can get presented as complementary. Read the
+            underlying claims yourself on contested topics.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -422,7 +532,10 @@
     <div class="section-label center" style="margin-bottom:24px"><span class="line left"></span><span>ready</span><span class="line"></span></div>
     <h3>Start investigating.</h3>
     <p>Sign in with Google and ask your first question.</p>
-    <a class="btn-primary" href="/chat">Launch App →</a>
+    <div class="cta-row">
+      <a class="btn-primary" href="/chat">Launch App →</a>
+      <a class="btn-secondary" href="/docs">Read the docs</a>
+    </div>
   </section>
 </main>
 

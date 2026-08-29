@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Discovery.Ai — Documentation</title>
+<meta name="description" content="How Discovery.Ai actually works: the agent loop, evidence engine, identity resolution, and the limits it's honest about." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #000000;
+    --border: rgba(255, 255, 255, 0.12);
+    --border-strong: rgba(255, 255, 255, 0.35);
+    --text: #ffffff;
+    --muted: rgba(255, 255, 255, 0.55);
+    --muted-2: rgba(255, 255, 255, 0.35);
+    --hud: #5ee7ff;
+    --hud-dim: rgba(94, 231, 255, 0.35);
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  html, body { margin: 0; }
+  ::selection { background: #fff; color: #000; }
+  body {
+    font-family: var(--font-mono);
+    background: var(--bg);
+    color: var(--text);
+    position: relative;
+  }
+
+  .bg-layer { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+  .bg-layer::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, black 30%, transparent 100%);
+  }
+
+  .page-corner { position: fixed; width: 34px; height: 34px; pointer-events: none; z-index: 40; opacity: 0.3; }
+  .page-corner.tl { top: 0; left: 0; border-top: 2px solid #fff; border-left: 2px solid #fff; }
+  .page-corner.tr { top: 0; right: 0; border-top: 2px solid #fff; border-right: 2px solid #fff; }
+  .page-corner.bl { bottom: 0; left: 0; border-bottom: 2px solid #fff; border-left: 2px solid #fff; }
+  .page-corner.br { bottom: 0; right: 0; border-bottom: 2px solid #fff; border-right: 2px solid #fff; }
+
+  header, main, footer { position: relative; z-index: 1; }
+
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    background: rgba(0,0,0,0.8);
+    backdrop-filter: blur(10px);
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 700; letter-spacing: 0.16em; color: #fff; }
+  header a.logo-link { text-decoration: none; }
+  header .doc-eyebrow { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--hud); border-left: 1px solid var(--border); padding-left: 14px; }
+  .nav-cta {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #fff;
+    color: #000;
+    text-decoration: none;
+    padding: 9px 18px;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border: 1px solid #fff;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .nav-cta:hover { background: #000; color: #fff; }
+
+  .layout { display: grid; grid-template-columns: 240px 1fr; max-width: 1240px; margin: 0 auto; }
+
+  /* ---------- sidebar TOC ---------- */
+  .toc {
+    position: sticky;
+    top: 73px;
+    align-self: start;
+    height: calc(100vh - 73px);
+    overflow-y: auto;
+    padding: 40px 20px 40px 28px;
+    border-right: 1px solid var(--border);
+  }
+  .toc .toc-label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted-2); margin-bottom: 14px; }
+  .toc a {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 7px 0 7px 12px;
+    border-left: 2px solid transparent;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .toc a:hover { color: #fff; }
+  .toc a.active { color: #fff; border-left-color: var(--hud); }
+
+  /* ---------- doc content ---------- */
+  .doc-content { padding: 56px 40px 120px; min-width: 0; }
+  .doc-hero { margin-bottom: 64px; }
+  .doc-hero .eyebrow { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--hud); margin-bottom: 14px; }
+  .doc-hero h2 { font-size: clamp(28px, 4vw, 44px); margin: 0 0 18px; line-height: 1.15; }
+  .doc-hero p { color: var(--muted); font-size: 14px; line-height: 1.8; max-width: 680px; margin: 0; }
+
+  .doc-section { padding: 56px 0; border-top: 1px solid var(--border); opacity: 0; transform: translateY(16px); transition: opacity 0.6s ease, transform 0.6s ease; }
+  .doc-section.revealed { opacity: 1; transform: translateY(0); }
+  .doc-section:first-of-type { border-top: none; }
+  .doc-section .sec-label { font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--hud); margin-bottom: 10px; }
+  .doc-section h3 { font-size: clamp(22px, 2.6vw, 30px); margin: 0 0 20px; }
+  .doc-section h4 { font-size: 14.5px; margin: 28px 0 10px; letter-spacing: 0.02em; color: #fff; }
+  .doc-section p { color: var(--muted); font-size: 13.5px; line-height: 1.85; max-width: 760px; margin: 0 0 16px; }
+  .doc-section ul, .doc-section ol { color: var(--muted); font-size: 13.5px; line-height: 1.9; max-width: 760px; padding-left: 20px; margin: 0 0 16px; }
+  .doc-section li { margin-bottom: 6px; }
+  .doc-section code { background: rgba(255,255,255,0.08); padding: 2px 6px; font-size: 12.5px; color: #fff; border-radius: 2px; }
+  .doc-section strong { color: #fff; font-weight: 600; }
+
+  .diagram-box {
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.015);
+    padding: 24px;
+    margin: 20px 0 28px;
+    overflow-x: auto;
+  }
+  .diagram-caption { font-size: 11px; color: var(--muted-2); font-style: italic; margin-top: -18px; margin-bottom: 24px; }
+
+  .example-card {
+    border: 1px solid var(--hud-dim);
+    border-left: 3px solid var(--hud);
+    padding: 18px 20px;
+    margin: 20px 0 28px;
+    max-width: 760px;
+  }
+  .example-card .example-tag { font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--hud); margin-bottom: 10px; }
+  .example-card .example-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; padding: 6px 0; border-top: 1px solid var(--border); }
+  .example-card .example-row:first-of-type { border-top: none; }
+  .example-card .example-row .src { color: var(--text); }
+  .example-card .example-row .conf { flex-shrink: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .example-card .example-row .conf.low { color: var(--muted-2); }
+  .example-card .example-row .conf.high { color: var(--hud); }
+
+  .limit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 20px 0 8px; }
+  .limit-card { border: 1px solid var(--border); padding: 18px 20px; }
+  .limit-card .limit-tag { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted-2); margin-bottom: 8px; }
+  .limit-card p { font-size: 12.5px; margin: 0; }
+
+  .stack-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 20px 0 8px; }
+  .stack-item { border: 1px solid var(--border); padding: 14px 16px; }
+  .stack-item .layer { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--hud); margin-bottom: 6px; }
+  .stack-item .name { font-size: 13px; color: #fff; margin-bottom: 4px; }
+  .stack-item .note { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+
+  footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 28px;
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    .toc { position: relative; top: 0; height: auto; border-right: none; border-bottom: 1px solid var(--border); padding: 20px 20px 24px; }
+    .toc-links { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+    .toc a { padding: 4px 0 4px 10px; }
+    .doc-content { padding: 40px 20px 80px; }
+    .limit-grid, .stack-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="bg-layer"></div>
+<div class="page-corner tl"></div><div class="page-corner tr"></div><div class="page-corner bl"></div><div class="page-corner br"></div>
+
+<header>
+  <a class="logo-link" href="/"><h1>Discovery.Ai</h1></a>
+  <span class="doc-eyebrow">Documentation</span>
+  <a class="nav-cta" href="/chat">Launch App →</a>
+</header>
+
+<div class="layout">
+  <nav class="toc">
+    <div class="toc-label">On this page</div>
+    <div class="toc-links">
+      <a href="#overview">Overview</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#loop">The investigation loop</a>
+      <a href="#evidence">Evidence &amp; confidence</a>
+      <a href="#identity">Identity resolution</a>
+      <a href="#relationships">Typed relationships</a>
+      <a href="#limits">Reliability &amp; limits</a>
+      <a href="#stack">Tech stack</a>
+    </div>
+  </nav>
+
+  <main class="doc-content">
+    <div class="doc-hero">
+      <div class="eyebrow">// technical reference</div>
+      <h2>How Discovery.Ai actually works</h2>
+      <p>This is a straight technical account of the running system — the real agent loop, the
+        real evidence sources, the real decisions it makes about identity and relationships, and
+        the real limits it hits. Nothing here is aspirational; where something isn't built yet,
+        it says so.</p>
+    </div>
+
+    <section class="doc-section" id="overview">
+      <div class="sec-label">01 — Overview</div>
+      <h3>A traceable investigation, not a finished answer</h3>
+      <p>Discovery.Ai takes a question and recursively investigates it: an agent decides whether
+        to answer directly, break the question into one narrower sub-question, or admit it's hit
+        a genuine boundary. Each decision is made <strong>one step at a time</strong>, informed by
+        everything resolved so far — not planned out in a single batch up front. The result is
+        rendered as a live graph you can navigate: zoom into any entity, go deeper to trigger a
+        fresh investigation, or switch the lens (economic, technical, historical, or any dimension
+        you name) and watch the same subject get re-explored through a different frame.</p>
+      <p>It is deliberately <strong>not</strong> a knowledge base and doesn't claim to be one. It's
+        a trace of one investigation, backed by real retrieved evidence with honest confidence
+        scores — see <a href="#limits" style="color:#fff">Reliability &amp; limits</a> for exactly
+        what that does and doesn't guarantee.</p>
+    </section>
+
+    <section class="doc-section" id="architecture">
+      <div class="sec-label">02 — Architecture</div>
+      <h3>Six layers, each with one job</h3>
+      <p>There's no single monolith making decisions — each layer owns exactly one responsibility,
+        and only the Graph Interface is allowed to talk to Neo4j directly.</p>
+      <div class="diagram-box">
+        <pre class="mermaid">
+graph TD
+  FE["Frontend<br/>HTML / CSS / JS + Cytoscape.js"] -->|REST| API["API Layer<br/>FastAPI"]
+  API --> QE["Question Engine<br/>intent · decisions · relation extraction"]
+  API --> GI["Graph Interface<br/>the only code that touches Neo4j"]
+  QE --> LLM["LLM fallback chain<br/>Groq / Gemini / Cerebras"]
+  QE --> AR["Agent Runtime<br/>recursive Ground Agent"]
+  AR --> EE["Evidence Engine<br/>Tavily · Semantic Scholar · arXiv · Open Library · YouTube · Wikipedia"]
+  AR --> GI
+  GI --> NEO[("Neo4j")]
+  API --> PG[("Postgres / Supabase<br/>sessions + API keys")]
+  AR --> SQ[("SQLite<br/>agent checkpoints")]
+        </pre>
+      </div>
+      <div class="diagram-caption">Solid arrows are real, currently-wired call paths — not a target architecture.</div>
+      <h4>What each layer owns</h4>
+      <ul>
+        <li><strong>Graph Interface</strong> (<code>backend/graph</code>) — <code>find_or_create_entity</code>, <code>resolve_entity</code>, <code>attach_question</code>, <code>attach_claim</code>, <code>create_relationship</code>. Mechanically simple by design; no hierarchy or navigation logic lives here.</li>
+        <li><strong>Agent Runtime</strong> (<code>backend/agents</code>, <code>backend/runtime</code>) — one recursive agent class, not a fixed tier of specialized agent types. A "master-level" decision and a "ground-level" decision are the <em>same code path</em> at different recursion depths, using a heavier model only where the decision is structural.</li>
+        <li><strong>Question Engine</strong> (<code>backend/questions</code>) — intent classification, the per-step decompose/answer/boundary_hit decision, and relation extraction. Every LLM call in the system funnels through here.</li>
+        <li><strong>Evidence Engine</strong> (<code>backend/evidence</code>) — six real retrievers, fanned out concurrently per question, each result synthesized into a typed claim with its own confidence score.</li>
+        <li><strong>API layer</strong> (<code>backend/api</code>) — plain REST endpoints (no WebSocket, no push channel). The frontend re-fetches and re-renders after each action.</li>
+        <li><strong>Frontend</strong> (<code>frontend/</code>) — a single-page vanilla JS/HTML/CSS app, Cytoscape.js for the graph view. No framework, no build step.</li>
+      </ul>
+    </section>
+
+    <section class="doc-section" id="loop">
+      <div class="sec-label">03 — The investigation loop</div>
+      <h3>One decision at a time, not a plan made upfront</h3>
+      <p>Before any investigation starts, a single classification call decides what the message
+        even is — a new question, a navigation request, small talk, or something else — and can
+        just reply conversationally itself rather than forcing every message into a rigid action.
+        Once an investigation actually starts, this is the loop it runs:</p>
+      <div class="diagram-box">
+        <pre class="mermaid">
+flowchart TD
+  Q["Question"] --> D{"decide_next_step"}
+  D -->|answer| A["Gather evidence + finish"]
+  D -->|decompose| C["Spawn ONE child question<br/>at depth + 1"]
+  C --> D2{"decide_next_step<br/>on the child"}
+  D2 -->|answer| A
+  D2 -->|decompose| C
+  D2 -->|boundary_hit| B["Escalate up the parent chain"]
+  D -->|boundary_hit or budget exhausted| B
+  A --> R["Extract relationships<br/>a separate decision from decompose"]
+  R --> ID["resolve_entity on both endpoints"]
+  ID -->|REUSE or CREATE, both sides| W["Write the relationship"]
+  ID -->|AMBIGUOUS or CONFLICT, either side| SK["Skip — never guess"]
+        </pre>
+      </div>
+      <div class="diagram-caption">"decompose" only ever proposes ONE narrower sub-question at a time — the result folds back in before the next decision is made.</div>
+      <p>The budget for how many sub-questions one investigation can spawn is a hard ceiling, not
+        a target — a narrow question typically answers directly in one or two steps; a genuinely
+        structural question (data structures, protocols, multi-party systems) uses more of the
+        budget because the model judges there's real, separable structure worth representing as
+        distinct nodes.</p>
+    </section>
+
+    <section class="doc-section" id="evidence">
+      <div class="sec-label">04 — Evidence &amp; confidence</div>
+      <h3>Real sources, scored honestly — including when they're wrong</h3>
+      <p>Every answered question can gather evidence from six real, named retrievers: <strong>Tavily</strong>
+        (general web), <strong>Semantic Scholar</strong> and <strong>arXiv</strong> (papers),
+        <strong>Open Library</strong> (books), the <strong>YouTube Data API</strong>, and <strong>Wikipedia</strong>.
+        Each retrieved resource is synthesized into a claim with its own <code>evidence</code>,
+        <code>reasoning</code>, and a <code>confidence</code> score describing how well that
+        specific source actually answers the question — not how confident the model is in
+        general.</p>
+      <p>The important part: a source that doesn't actually answer the question is still attached
+        to the graph, scored honestly low, instead of being silently dropped. This is a real
+        result from an actual investigation into "Card Payment," inspected directly through the
+        app's node-detail panel:</p>
+      <div class="example-card">
+        <div class="example-tag">Real claims attached to one question</div>
+        <div class="example-row"><span class="src">Payment processor (Wikipedia)</span><span class="conf high">high confidence</span></div>
+        <div class="example-row"><span class="src">Centurion Card (Wikipedia)</span><span class="conf high">high confidence</span></div>
+        <div class="example-row"><span class="src">Expected Performance of the ATLAS Experiment (arXiv)</span><span class="conf low">~10% confidence</span></div>
+        <div class="example-row"><span class="src">Observation of a rare B⁰ₛ decay (arXiv)</span><span class="conf low">~10% confidence</span></div>
+      </div>
+      <p>The two arXiv results are CERN particle-physics papers that surfaced from a keyword-level
+        search match, not a topical one — the synthesis step correctly recognized they don't
+        address card payments at all and scored them accordingly, rather than presenting them
+        as if they were equally good evidence.</p>
+    </section>
+
+    <section class="doc-section" id="identity">
+      <div class="sec-label">05 — Identity resolution</div>
+      <h3>Four outcomes, not two</h3>
+      <p>When the system discovers something that might be an entity already in the graph, it
+        can't just do a name match — "Transmission" could mean the electrical-grid concept or the
+        car part, and two different investigations might both legitimately create something
+        called "Router." <code>resolve_entity</code> is a frozen, deterministic contract with four
+        outcomes, not a binary reuse-or-create guess:</p>
+      <div class="diagram-box">
+        <pre class="mermaid">
+flowchart LR
+  N["New candidate name"] --> S["Score existing candidates<br/>by real token overlap with context"]
+  S -->|one strong match| REUSE["REUSE<br/>same entity"]
+  S -->|no matching candidates| CREATE["CREATE<br/>genuinely new"]
+  S -->|no evidence either way| AMB["AMBIGUOUS<br/>don't guess"]
+  S -->|multiple real, competing matches| CONF["CONFLICT<br/>don't guess"]
+        </pre>
+      </div>
+      <p><strong>AMBIGUOUS</strong> and <strong>CONFLICT</strong> are kept distinct on purpose —
+        "there's no evidence anywhere" and "there's real, comparable evidence for more than one
+        candidate" are different failure modes, and collapsing them into one shrug would hide
+        which one actually happened. Both are "don't guess" outcomes: a relationship is only ever
+        written to the graph when <em>both</em> its endpoints resolve to REUSE or CREATE.</p>
+    </section>
+
+    <section class="doc-section" id="relationships">
+      <div class="sec-label">06 — Typed relationships</div>
+      <h3>Relationships are a separate decision from decomposition</h3>
+      <p>Early on, relationship type was extracted as a rider on the same "decompose" decision —
+        and that framing biased the model toward plain <code>decomposes_into</code> edges even for
+        clearly non-structural facts (an intrusion-detection system <em>spotting</em> a privilege
+        escalation attempt is an actor relationship, not composition). Asking "what decomposes into
+        what" and "how do these things relate" turned out to need genuinely separate prompts, so
+        relation extraction now runs as its own decision after an answer is produced, followed by a
+        canonicalization pass that normalizes active/passive voice inconsistency in what gets
+        extracted.</p>
+      <p>A more subtle finding from testing this: the same two claims, in identical wording, were
+        correctly classified with <em>three different</em> relationship types across three
+        sessions — sequential, complementary, and alternative-explanation — purely because the
+        question framing each was investigated under changed each time. A relationship isn't a
+        fixed property of two facts; it's a function of the facts <em>and</em> the question they're
+        being read in service of.</p>
+    </section>
+
+    <section class="doc-section" id="limits">
+      <div class="sec-label">07 — Reliability &amp; limits</div>
+      <h3>What this doesn't promise</h3>
+      <p>Being honest about limits is part of the design, not an afterthought:</p>
+      <div class="limit-grid">
+        <div class="limit-card">
+          <div class="limit-tag">Not a verified knowledge base</div>
+          <p>This is a trace of what one investigation found, backed by real evidence — not a
+            claim that any subject is now fully or correctly modeled.</p>
+        </div>
+        <div class="limit-card">
+          <div class="limit-tag">Free-tier LLM quotas are real</div>
+          <p>Groq's daily token cap, Gemini's free-tier daily request limit, and Cerebras needing
+            billing enabled have all been hit simultaneously during real use — an investigation can
+            fail or slow down for reasons that have nothing to do with the question asked. Bringing
+            your own API key (in Settings) runs your investigations on your own quota instead.</p>
+        </div>
+        <div class="limit-card">
+          <div class="limit-tag">Evidence relevance isn't perfect</div>
+          <p>Keyword-based retrieval sometimes returns off-topic sources (see the arXiv example
+            above). They're scored honestly low, not filtered out — the confidence score is the
+            signal, not a guarantee every attached source is useful.</p>
+        </div>
+        <div class="limit-card">
+          <div class="limit-tag">Synthesis can over-smooth disagreement</div>
+          <p>When claims genuinely represent competing explanations rather than additive facts,
+            synthesis has been observed presenting them as uniformly complementary. Worth reading
+            the underlying claims yourself when a topic is genuinely contested.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="doc-section" id="stack">
+      <div class="sec-label">08 — Tech stack</div>
+      <h3>What it actually runs on</h3>
+      <div class="stack-grid">
+        <div class="stack-item"><div class="layer">API</div><div class="name">FastAPI</div><div class="note">Plain REST, async throughout.</div></div>
+        <div class="stack-item"><div class="layer">Graph store</div><div class="name">Neo4j</div><div class="note">Entities, questions, claims, typed relationships.</div></div>
+        <div class="stack-item"><div class="layer">Sessions</div><div class="name">Postgres (Supabase)</div><div class="note">Chat history, per-account API keys.</div></div>
+        <div class="stack-item"><div class="layer">Agent state</div><div class="name">SQLite</div><div class="note">Resumable checkpoints per agent step.</div></div>
+        <div class="stack-item"><div class="layer">LLMs</div><div class="name">Groq · Gemini · Cerebras</div><div class="note">Free-tier fallback chain via Instructor.</div></div>
+        <div class="stack-item"><div class="layer">Evidence</div><div class="name">6 real retrievers</div><div class="note">Tavily, Semantic Scholar, arXiv, Open Library, YouTube, Wikipedia.</div></div>
+        <div class="stack-item"><div class="layer">Graph UI</div><div class="name">Cytoscape.js</div><div class="note">Interactive, click-to-inspect nodes.</div></div>
+        <div class="stack-item"><div class="layer">Frontend</div><div class="name">Vanilla JS/HTML/CSS</div><div class="note">No framework, no build step.</div></div>
+        <div class="stack-item"><div class="layer">Auth</div><div class="name">Supabase (Google OAuth)</div><div class="note">Per-account isolation, no shared state.</div></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div>DISCOVERY.AI · DOCUMENTATION</div>
+  <a href="/chat" style="color:inherit;text-decoration:none">Launch app →</a>
+</footer>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      background: '#000000',
+      primaryColor: '#0a0a0a',
+      primaryTextColor: '#ffffff',
+      primaryBorderColor: 'rgba(255,255,255,0.35)',
+      lineColor: 'rgba(94,231,255,0.6)',
+      secondaryColor: '#000000',
+      tertiaryColor: '#000000',
+      fontFamily: 'JetBrains Mono, monospace',
+      fontSize: '12px',
+    },
+  });
+
+  // Scroll-reveal for doc sections, and active-link highlighting in the TOC --
+  // both driven by one IntersectionObserver rather than a scroll listener.
+  const sections = document.querySelectorAll('.doc-section');
+  const tocLinks = document.querySelectorAll('.toc a');
+  const linkFor = (id) => document.querySelector(`.toc a[href="#${id}"]`);
+
+  const revealObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) entry.target.classList.add('revealed');
+    }
+  }, { threshold: 0.08 });
+  sections.forEach(s => revealObserver.observe(s));
+
+  const activeObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        tocLinks.forEach(l => l.classList.remove('active'));
+        const link = linkFor(entry.target.id);
+        if (link) link.classList.add('active');
+      }
+    }
+  }, { rootMargin: '-30% 0px -60% 0px' });
+  sections.forEach(s => activeObserver.observe(s));
+</script>
+</body>
+</html>

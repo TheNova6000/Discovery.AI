@@ -35,7 +35,13 @@ from .session import (
     persist,
 )
 
-app = FastAPI(title="Recursive Knowledge Graph — Demo")
+# FastAPI's own auto-generated Swagger UI defaults to "/docs" -- which collided
+# outright with the new real documentation PAGE at that same path (confirmed
+# live: /docs was rendering Swagger, not docs.html, because FastAPI's built-in
+# route wins regardless of registration order). Relocated rather than removed
+# -- still genuinely useful for API debugging, just not at the path a human
+# visitor actually wants.
+app = FastAPI(title="Recursive Knowledge Graph — Demo", docs_url="/api/docs", redoc_url="/api/redoc")
 
 
 @app.on_event("startup")
@@ -691,6 +697,11 @@ async def chat_page() -> FileResponse:
 @app.get("/home")
 async def home_page() -> FileResponse:
     return FileResponse(FRONTEND_DIR / "index.html")
+
+
+@app.get("/docs")
+async def docs_page() -> FileResponse:
+    return FileResponse(FRONTEND_DIR / "docs.html")
 
 
 @app.get("/app.html")
