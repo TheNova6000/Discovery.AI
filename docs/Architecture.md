@@ -515,6 +515,50 @@ Network-aware renderer   [explicitly LAST — 0.7 already named the current
                             renderer for data that doesn't exist yet]
 ```
 
+### 0.16 Node's field-by-field derivation (2026-08-29)
+
+**[THEORY], design only.** Every candidate tested against the same five questions (does this describe the thing itself / its context / how we discovered it / what we believe about it / does it belong to a View instead), against what 0.6-0.15 already established — not against intuition. Two of the candidates either of us would have reasonably guessed **fail** the test; that's the actual finding of this section, not a formality before accepting a pre-agreed list.
+
+**Passes — real Node fields:**
+
+| Field | Passes because | Established in |
+|---|---|---|
+| `id` | Describes the thing itself — a canonical identifier has to exist before anything else can be said. | (uncontroversial) |
+| `name` | Describes the thing itself — the raw label. | (uncontroversial) |
+| `scope` | Describes the thing itself, **not its context** — this is the correction worth stating precisely: scope isn't metadata sitting *next to* an otherwise context-free identity, it's *constitutive* of identity. "Transmission (Electric Grid)" and "Transmission (Telecommunications)" aren't the same thing with different context attached; they're different things, and scope is *how* they're different. | §0.9(3) — identity = (name, nearest discovery-time abstraction ancestor) |
+| `investigation_status` | Describes what we believe about it (`explored`/`partially_explored`/`unexplored`) — and critically, unlike `kind` below, this does NOT vary by question. How much has been learned about a thing accumulates across every question that's ever touched it; it doesn't reset or fork per-question. | §0.9(4) / §0.7's bounded-model-expansion resolution — **missing from your own draft list, worth re-adding explicitly** |
+| `created_at`, `updated_at`, `merged_from` | Describe how the record itself came to exist/change — administrative history of the node-as-record, not a claim about the world or a question's view of it. | Already in `GraphNode` (`backend/graph/models.py`) — pre-existing, still holds |
+
+**Fails — real candidates that don't survive the test:**
+
+| Candidate | Why it fails | Where it actually belongs |
+|---|---|---|
+| `kind` (entity/process/abstraction/...) | Fails question 1 outright: **already established as question-relative** — the same node is `process` under one question's view and `concept` under another (§0.9(2)). It describes how a question currently interprets the thing, not the thing itself. Your own draft listed this as a Node field; applying your own test to it says otherwise. | View/Question layer |
+| "structure" (relations to other nodes) | Not a field at all — real graph edges (a `Relation`-role node pointing at this one), never a stored property. Real and load-bearing, just not part of a field list. | Graph structure, reached by traversal, not stored |
+| "epistemic links" (Claims) | Same shape as structure — reached via the already-existing `Node -HAS_QUESTION-> Question -ANSWERED_BY-> Claim` path (§0.11), never a property on the node. | Graph structure, reached by traversal, not stored |
+| `question`, `dimension`, `zoom_level`, `comparison`, `user_intent` | Your own instinct, confirmed correct by the same test — these describe the asking, not the thing. | View/Question layer (§0.15) |
+
+**Two real tensions surfaced by doing this carefully, named rather than silently resolved:**
+
+1. **`description` is currently overloaded, and shouldn't stay that way once this schema is actually frozen.** §0.9/§0.14 deliberately reused the existing `description` field as the `scope` carrier — the right call *for a minimal, testable Pass-3 mechanism*, explicitly not the frozen schema (§0.14: "a minimal, testable mechanism ... not the frozen Node schema"). Now that `scope` has earned its way into the real field list on its own merits (above), it should become its own field, separate from `description` (which stays as an optional, human-readable summary, unrelated to identity). Continuing to conflate them past this point would be carrying a testing shortcut into production data.
+2. **Checked directly against the live VM's Neo4j (read-only, zero LLM calls, per this section's own "next session" plan below — done same day, not deferred):** `GraphNode.type` (`"entity" | "domain"`) is **entirely unused in practice** — every one of 113 real nodes is `type="entity"`; `type="domain"` has zero occurrences. `find_or_create_entity` always creates with the `"entity"` default, and nothing in the real investigation path ever passes `"domain"`. This isn't "may overlap with `kind`'s `abstraction` tag" — it's that the domain/entity axis has never actually done any work in the live system, so there's nothing there to reconcile with `kind` so much as a dead distinction to retire once `kind`'s View-layer version exists. **A third, previously unnoticed wrinkle, found while checking this:** `frontend/app.html`'s `SessionState.add_node(kind=...)` already has its *own*, disconnected `kind` concept (`"entity"` / `"abstraction"`, used only for Cytoscape node-shape styling) — a third parallel axis alongside Neo4j's `type` and the new semantic `kind` from §0.9, none of the three currently aware of each other. Not merged here — named so the eventual View-layer `kind` implementation doesn't accidentally leave two dead ones behind instead of one.
+
+**Resulting Node, semantics only, no types/constraints/Neo4j decided:**
+```
+Node
+├── id                    (identity)
+├── name                  (identity)
+├── scope                 (identity — NOT context; see above)
+├── description           (optional, human-readable, separate from scope)
+├── investigation_status  (what we believe about it — explored/partially_explored/unexplored)
+├── created_at / updated_at / merged_from   (record history)
+└── [relations and claims are NOT fields — reached via graph structure]
+```
+
+**Not decided here, on purpose:** whether `type`/`kind` merge into one field once the tension above is checked against real data; Neo4j property types/constraints; whether `investigation_status` needs sub-states per-relation as well as per-node (an open question, not raised before, worth naming: can a `Node` be `explored` while a specific `Relation` it participates in is still `unexplored`? Plausible, not tested — flagged, not answered).
+
+**Next session starts here:** split `scope` out of `description` in `find_or_create_entity` (small, mechanical, low-risk — the one remaining item; the `type`/`kind` check above is done); only then is there a real, checked field list to actually freeze as schema.
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |
