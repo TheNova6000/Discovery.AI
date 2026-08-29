@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
+from datetime import datetime, timedelta, timezone
 from typing import TypeVar
 
 import instructor
@@ -38,12 +40,72 @@ PER_PROVIDER_TIMEOUT_SECONDS = 30
 CHAIN_ATTEMPTS = 2
 
 
-def _is_quota_error(exc: Exception) -> bool:
-    text = str(exc).lower()
+def _is_quota_error_text(text: str) -> bool:
+    text = text.lower()
     return any(
         marker in text
         for marker in ("429", "402", "rate_limit", "rate limit", "quota", "payment_required", "payment required")
     )
+
+
+def _is_quota_error(exc: Exception) -> bool:
+    return _is_quota_error_text(str(exc))
+
+
+# Shared-pool health, passively derived from real structured_call attempts --
+# never from a dedicated probe call, which would burn real quota (Gemini's
+# free tier is a mere 20 requests/day) just to learn something a normal
+# request already tells us for free. Module-level, not per-request: this is
+# server-wide "is the pool everyone shares currently up" state, not anything
+# scoped to one user. Cleared to "ok" the moment ANY call on that provider
+# succeeds again -- no separate recovery/reset logic needed.
+_PROVIDER_STATUS: dict[str, dict] = {}
+
+# Matches both "...try again in 3m10.94s" (Groq) and "...retry in 7.97s"
+# (Gemini) shapes -- the minutes group is optional so a sub-minute retry
+# window (no "Xm" prefix) still parses. Best-effort: a provider error text
+# that doesn't match this shape just means no reset estimate, not a crash.
+_RETRY_SECONDS_PATTERN = re.compile(r"(?:try again|retry) in (?:(\d+)m)?([\d.]+)s", re.IGNORECASE)
+
+
+def _parse_retry_seconds(text: str) -> float | None:
+    match = _RETRY_SECONDS_PATTERN.search(text)
+    if not match:
+        return None
+    minutes = float(match.group(1)) if match.group(1) else 0.0
+    return minutes * 60 + float(match.group(2))
+
+
+def _record_provider_result(provider: str, *, ok: bool, used_shared_pool: bool, error_text: str | None = None) -> None:
+    """Bring-your-own-key attempts never update this -- a user's personal key
+    succeeding or failing says nothing about whether the pool everyone ELSE is
+    on is healthy (docs/Architecture.md's BYOK section: separate quota,
+    separate credential entirely).
+    """
+    if not used_shared_pool:
+        return
+    now = datetime.now(timezone.utc)
+    if ok:
+        _PROVIDER_STATUS[provider] = {"status": "ok", "checked_at": now.isoformat(), "detail": None, "reset_estimate": None}
+        return
+    detail = (error_text or "")[:300]
+    retry_seconds = _parse_retry_seconds(detail)
+    reset_estimate = (now + timedelta(seconds=retry_seconds)).isoformat() if retry_seconds is not None else None
+    status = "quota_exhausted" if _is_quota_error_text(detail) else "error"
+    _PROVIDER_STATUS[provider] = {
+        "status": status,
+        "checked_at": now.isoformat(),
+        "detail": detail,
+        "reset_estimate": reset_estimate,
+    }
+
+
+def get_provider_status() -> dict:
+    """Read-only snapshot for GET /provider_status (app.py) -- empty for any
+    provider this process hasn't actually attempted against the shared pool
+    yet, which is a real, distinct state from "confirmed ok."
+    """
+    return dict(_PROVIDER_STATUS)
 
 
 async def structured_call(
@@ -115,7 +177,7 @@ async def structured_call(
                     os.environ[env_var] = key
                 try:
                     client = instructor.from_provider(model, async_client=True)
-                    return await asyncio.wait_for(
+                    result = await asyncio.wait_for(
                         client.chat.completions.create(
                             response_model=response_model,
                             messages=[
@@ -144,10 +206,14 @@ async def structured_call(
                     key_note = f" (key {key_index + 1}/{len(attempts)})" if key is not None else ""
                     pass_note = f" [chain pass {chain_pass}/{CHAIN_ATTEMPTS}]" if chain_pass > 1 else ""
                     print(f"[questions] provider {model!r}{key_note}{pass_note} failed, trying next: {safe_reason}")
+                    _record_provider_result(provider, ok=False, used_shared_pool=not user_key, error_text=reason)
                     if not _is_quota_error(exc):
                         pass_had_non_quota_error = True
                     last_error = exc
                     continue
+                else:
+                    _record_provider_result(provider, ok=True, used_shared_pool=not user_key)
+                    return result
 
         if not pass_had_non_quota_error:
             # Every failure this pass was quota/billing (429/402) -- the same

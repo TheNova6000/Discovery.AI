@@ -19,6 +19,7 @@ from backend.graph import (
     get_questions_for_entity,
 )
 from backend.questions import Intent, Question, QuestionLevel, SessionContext, parse_intent
+from backend.questions.llm_client import get_provider_status
 from backend.questions.llm_config import set_current_user_keys
 
 from . import db
@@ -134,6 +135,19 @@ async def get_settings(user_id: str = Depends(get_current_user_id)) -> dict:
 @app.post("/settings")
 async def update_settings(req: SettingsUpdateRequest, user_id: str = Depends(get_current_user_id)) -> dict:
     return _settings_status(await _save_user_keys(user_id, req))
+
+
+@app.get("/provider_status")
+async def provider_status() -> dict:
+    """Server-wide shared-pool health -- not user-scoped (no auth dependency),
+    since it's the same answer for every caller and useful to check even from
+    the login gate. Derived entirely from real structured_call attempts that
+    already happened (see get_provider_status in llm_client.py) -- never from
+    a dedicated probe, which would burn real quota just to populate a status
+    widget. A provider absent from the response means this process hasn't
+    attempted it against the shared pool yet, not that it's confirmed healthy.
+    """
+    return get_provider_status()
 
 # Raised back from depth=1/steps=1 (docs/Memory.md — the Amazon investigation
 # diagnosis): that cut was bundled with the real latency fix (routing

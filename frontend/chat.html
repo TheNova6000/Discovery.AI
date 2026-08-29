@@ -145,6 +145,31 @@
   @keyframes pulse-idle { 0%,100% { opacity: 0.35; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
   @keyframes pulse-busy { 0%,100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.3); } }
 
+  /* ---------- shared-pool status widget ---------- */
+  #pool-status-wrap { position: relative; }
+  .pool-status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 6px; background: var(--muted-2); }
+  .pool-status-dot.ok { background: var(--hud); box-shadow: 0 0 5px 0 var(--hud); }
+  .pool-status-dot.degraded { background: #fff; }
+  .pool-status-dot.down { background: rgba(255,255,255,0.9); animation: pulse-busy 1.1s ease-in-out infinite; }
+  #pool-status-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 300px;
+    background: #000;
+    border: 1px solid var(--border-strong);
+    padding: 14px 16px;
+    font-size: 11px;
+    z-index: 90;
+  }
+  #pool-status-panel.hidden { display: none; }
+  .pool-status-row { padding: 8px 0; border-top: 1px solid var(--border); }
+  .pool-status-row:first-child { border-top: none; padding-top: 0; }
+  .pool-status-row-head { display: flex; justify-content: space-between; align-items: center; color: var(--text); text-transform: uppercase; letter-spacing: 0.05em; font-size: 10.5px; }
+  .pool-status-row-detail { color: var(--muted); font-size: 10px; margin-top: 4px; line-height: 1.5; }
+  .pool-status-label.ok { color: var(--hud); }
+  .pool-status-empty { color: var(--muted-2); font-style: italic; }
+
   main {
     flex: 1;
     display: grid;
@@ -615,7 +640,8 @@
   .onboarding-providers a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
   .onboarding-providers a:hover { color: #fff; }
   .onboarding-actions { display: flex; gap: 12px; margin-top: 20px; }
-  #onboarding-open-settings { border-color: var(--border-strong); color: #fff; }
+  #onboarding-open-settings { background: #fff; color: #000; border-color: #fff; font-weight: 700; transition: background 0.15s ease, color 0.15s ease; }
+  #onboarding-open-settings:hover { background: #000; color: #fff; box-shadow: inset 0 0 0 1px #fff; }
 
   /* ---------- node detail HUD panel (click a graph node) ---------- */
   #node-modal {
@@ -692,6 +718,12 @@
   <span class="tag">EST. 2026</span>
   <div class="sub">construct a model of what you're trying to understand — through conversation</div>
   <div class="status"><span class="status-dot" id="status-dot"></span><span id="status">ready</span></div>
+  <div id="pool-status-wrap">
+    <button class="signout-btn" id="pool-status-btn" style="margin-left:16px">
+      <span class="pool-status-dot" id="pool-status-dot"></span>Pool
+    </button>
+    <div id="pool-status-panel" class="hidden"></div>
+  </div>
   <button class="signout-btn" id="settings-btn" style="margin-left:16px">Settings</button>
   <div class="user-box" id="user-box" style="display:none">
     <span class="user-email" id="user-email"></span>
@@ -987,6 +1019,103 @@ async function openSettings() {
 document.getElementById('settings-btn').addEventListener('click', openSettings);
 document.getElementById('settings-close').addEventListener('click', () => settingsModalEl.classList.add('hidden'));
 settingsModalEl.addEventListener('click', (e) => { if (e.target === settingsModalEl) settingsModalEl.classList.add('hidden'); });
+
+// ---------- shared LLM pool status widget ----------
+// GET /provider_status is public (no auth) and server-wide -- derived purely
+// from real calls the backend already made, never a dedicated probe (that
+// would burn real quota just to populate this). Polled, not pushed: cheap
+// enough at this traffic level, and avoids a websocket for a once-a-minute
+// value.
+const poolStatusDotEl = document.getElementById('pool-status-dot');
+const poolStatusPanelEl = document.getElementById('pool-status-panel');
+const PROVIDER_LABELS = { groq: 'Groq', google: 'Gemini', cerebras: 'Cerebras' };
+
+function formatResetEstimate(iso) {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 'any moment now';
+  const mins = Math.round(ms / 60000);
+  return mins < 1 ? 'under a minute' : `~${mins} min`;
+}
+
+async function refreshPoolStatus() {
+  let status;
+  try {
+    const res = await fetch(apiUrl('/provider_status'));
+    status = await res.json();
+  } catch (err) {
+    poolStatusDotEl.className = 'pool-status-dot';
+    return;
+  }
+  const providers = Object.keys(PROVIDER_LABELS);
+  const known = providers.filter(p => status[p]);
+  const anyOk = known.some(p => status[p].status === 'ok');
+  const anyDown = known.some(p => status[p].status !== 'ok');
+  // Aggregate dot: green/hud only when EVERY provider we've seen is ok --
+  // one exhausted provider still means real users can still hit a wall on
+  // whichever question happens to route there.
+  let cls = 'pool-status-dot';
+  if (known.length === 0) cls += '';
+  else if (!anyDown) cls += ' ok';
+  else if (anyOk) cls += ' degraded';
+  else cls += ' down';
+  poolStatusDotEl.className = cls;
+
+  poolStatusPanelEl.innerHTML = '';
+  if (known.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'pool-status-empty';
+    empty.textContent = "No shared-pool calls made yet this server session — status appears after the first one.";
+    poolStatusPanelEl.appendChild(empty);
+    return;
+  }
+  for (const p of providers) {
+    const row = document.createElement('div');
+    row.className = 'pool-status-row';
+    const head = document.createElement('div');
+    head.className = 'pool-status-row-head';
+    const name = document.createElement('span');
+    name.textContent = PROVIDER_LABELS[p];
+    head.appendChild(name);
+    const label = document.createElement('span');
+    const s = status[p];
+    if (!s) {
+      label.textContent = 'unknown';
+      label.className = 'pool-status-label';
+    } else if (s.status === 'ok') {
+      label.textContent = 'ok';
+      label.className = 'pool-status-label ok';
+    } else if (s.status === 'quota_exhausted') {
+      label.textContent = 'quota exhausted';
+    } else {
+      label.textContent = 'error';
+    }
+    head.appendChild(label);
+    row.appendChild(head);
+    if (s && s.status !== 'ok') {
+      const detail = document.createElement('div');
+      detail.className = 'pool-status-row-detail';
+      const resetText = formatResetEstimate(s.reset_estimate);
+      detail.textContent = resetText ? `Resets in ${resetText}` : (s.detail || '').slice(0, 140);
+      row.appendChild(detail);
+    }
+    poolStatusPanelEl.appendChild(row);
+  }
+}
+
+document.getElementById('pool-status-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const opening = poolStatusPanelEl.classList.contains('hidden');
+  poolStatusPanelEl.classList.toggle('hidden');
+  if (opening) refreshPoolStatus();
+});
+document.addEventListener('click', (e) => {
+  if (!poolStatusPanelEl.classList.contains('hidden') && !e.target.closest('#pool-status-wrap')) {
+    poolStatusPanelEl.classList.add('hidden');
+  }
+});
+refreshPoolStatus();
+setInterval(refreshPoolStatus, 30000);
 
 if (AUTH_ENABLED) {
   document.getElementById('settings-signout-btn').addEventListener('click', async () => {
