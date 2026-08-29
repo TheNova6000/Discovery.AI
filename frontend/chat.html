@@ -347,16 +347,6 @@
   .msg.agent .msg-body hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
   .msg.agent .msg-body table { border-collapse: collapse; margin: 0 0 10px; font-size: 12.5px; }
   .msg.agent .msg-body th, .msg.agent .msg-body td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
-  .msg.intent-tag {
-    font-size: 10px;
-    color: var(--muted);
-    margin-bottom: 5px;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-family: var(--font-mono);
-    font-weight: 600;
-  }
-  .msg.user .intent-tag { color: rgba(0,0,0,0.55); }
   /* ---------- per-message options: Resources / Regenerate ---------- */
   .msg-options { margin-top: 8px; }
   .msg-options-panel.hidden, .resources-panel.hidden { display: none; }
@@ -1506,15 +1496,15 @@ function popFocus() {
 }
 
 function addMessage(text, who, tag, entityName) {
+  // `tag` (the classifier's internal intent_action, e.g. "no_action",
+  // "zoom_in") is deliberately never rendered -- it's implementation detail
+  // the user has no reason to see, not a real status. Still accepted as a
+  // parameter (and still sent by the backend) since callers pass it
+  // positionally alongside entityName; regenerate's `.intent-tag` lookup
+  // below just no-ops when the element doesn't exist.
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + who;
   if (who === 'agent') wrap.dataset.entityName = entityName || '';
-  if (tag) {
-    const t = document.createElement('div');
-    t.className = 'intent-tag';
-    t.textContent = tag;
-    wrap.appendChild(t);
-  }
   const body = document.createElement('div');
   body.className = 'msg-body';
   if (who === 'agent') {
