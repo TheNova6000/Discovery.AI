@@ -25,10 +25,25 @@ PER_PROVIDER_TIMEOUT_SECONDS = 30
 # live, in the same session, missing a required field on one call and emitting a
 # wrong-cased tool name on the next. A fresh sample of the same prompt is
 # unlikely to repeat the same slip, so re-running the WHOLE provider/key chain a
-# couple of extra times is cheap, high-leverage insurance: Gemini/Cerebras fail
-# near-instantly when genuinely exhausted (quota/billing), so extra passes mostly
-# just buy Groq more rolls of the dice, not real wall-clock cost.
+# couple of extra times is cheap insurance -- IF the failures are that kind of
+# flake. The assumption below this comment used to claim quota/billing failures
+# are near-instant, so a second pass "mostly just buys Groq more rolls of the
+# dice." Confirmed live (2026-08-29) that assumption is false under today's
+# conditions: a single structured_call across all 3 providers x both passes
+# took 3m52s to fail, averaging well over PER_PROVIDER_TIMEOUT_SECONDS per
+# attempt -- these are NOT fast failures right now. _is_quota_error below is
+# the actual fix: skip the second pass when every failure in the first one was
+# quota/billing, since re-trying the same exhausted keys seconds later cannot
+# succeed and only doubles a wait that's already too long.
 CHAIN_ATTEMPTS = 2
+
+
+def _is_quota_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in ("429", "402", "rate_limit", "rate limit", "quota", "payment_required", "payment required")
+    )
 
 
 async def structured_call(
@@ -69,6 +84,7 @@ async def structured_call(
     # key even attempted" answerable from the UI itself, no log access needed.
     source_log: list[str] = []
     for chain_pass in range(1, CHAIN_ATTEMPTS + 1):
+        pass_had_non_quota_error = False
         for model in model_chain:
             provider = model.split("/", 1)[0]
             env_var = PROVIDER_ENV_VAR.get(provider)
@@ -128,8 +144,20 @@ async def structured_call(
                     key_note = f" (key {key_index + 1}/{len(attempts)})" if key is not None else ""
                     pass_note = f" [chain pass {chain_pass}/{CHAIN_ATTEMPTS}]" if chain_pass > 1 else ""
                     print(f"[questions] provider {model!r}{key_note}{pass_note} failed, trying next: {safe_reason}")
+                    if not _is_quota_error(exc):
+                        pass_had_non_quota_error = True
                     last_error = exc
                     continue
+
+        if not pass_had_non_quota_error:
+            # Every failure this pass was quota/billing (429/402) -- the same
+            # keys are still exhausted seconds later, so a second identical
+            # pass cannot succeed and would just double an already-long wait.
+            # Only skip when the WHOLE pass was quota errors: a mixed pass
+            # (e.g. one provider's genuine transient/flaky failure alongside
+            # another's exhausted quota) still deserves the extra pass for the
+            # flaky one, per CHAIN_ATTEMPTS's original reliability rationale.
+            break
 
     raise RuntimeError(
         f"structured_call failed on every provider/key across {CHAIN_ATTEMPTS} chain passes in "
