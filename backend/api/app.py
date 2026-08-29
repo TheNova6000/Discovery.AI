@@ -185,6 +185,14 @@ async def handle_new_investigation(session: SessionState, intent: Intent) -> str
         entity_scope_hint=intent.scope_hint,
         abstraction_name=abstraction_name,
     )
+    # Graph annotation happens AFTER a successful investigation, not before --
+    # confirmed live (2026-08-29) that adding these unconditionally up front
+    # left a visible entity/abstraction node in the graph even when
+    # `_run_investigation` raised (e.g. every provider quota-exhausted), while
+    # the chat reply was just the same generic error string every retry. That
+    # made "Regenerate" look like it was silently doing SOMETHING (the graph
+    # changed) while the actual answer never did.
+    answer = await _run_investigation(session, question)
     session.add_node(abstraction_name, kind="abstraction")
     if abstraction_name != entity_name:
         # The intent parser occasionally names the abstraction the same as the
@@ -192,7 +200,7 @@ async def handle_new_investigation(session: SessionState, intent: Intent) -> str
         # never meaningful, so just skip drawing one rather than rely on the
         # model always picking distinct names.
         session.add_edge(abstraction_name, entity_name, "contains")
-    return await _run_investigation(session, question)
+    return answer
 
 
 async def handle_zoom_in(session: SessionState, intent: Intent) -> str:
@@ -346,9 +354,12 @@ async def handle_compare(session: SessionState, intent: Intent) -> str:
         entity_name=comparison_entity,
         abstraction_name=session.current_abstraction or "Comparison",
     )
+    # Same fix as handle_new_investigation above: don't draw the comparison
+    # edges until the investigation actually succeeds.
+    answer = await _run_investigation(session, question)
     session.add_edge(comparison_entity, a, "compares")
     session.add_edge(comparison_entity, b, "compares")
-    return await _run_investigation(session, question)
+    return answer
 
 
 async def handle_no_action(session: SessionState, intent: Intent) -> str:
