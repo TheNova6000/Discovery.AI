@@ -566,6 +566,35 @@
   .clear-key-btn { flex-shrink: 0; }
   .settings-actions { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
   #settings-save-status { font-size: 11px; color: var(--muted); }
+  /* ---------- onboarding: one-time "you need your own API key" tutorial ---------- */
+  #onboarding-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #onboarding-modal.hidden { display: none; }
+  #onboarding-box {
+    position: relative;
+    border: 1px solid var(--border-strong);
+    background: #000;
+    padding: 32px 36px;
+    width: 460px;
+    max-width: 90vw;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  #onboarding-box h2 { font-size: 14px; letter-spacing: 0.14em; margin: 0 0 16px; font-style: italic; transform: skewX(-8deg); }
+  .onboarding-lede { font-size: 11.5px; color: var(--muted); line-height: 1.7; margin: 0 0 14px; }
+  .onboarding-lede b { color: var(--text); font-weight: 600; }
+  .onboarding-providers { margin: 0 0 14px; padding-left: 18px; font-size: 11.5px; color: var(--muted); line-height: 2; }
+  .onboarding-providers a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+  .onboarding-providers a:hover { color: #fff; }
+  .onboarding-actions { display: flex; gap: 12px; margin-top: 20px; }
+  #onboarding-open-settings { border-color: var(--border-strong); color: #fff; }
 </style>
 </head>
 <body>
@@ -624,6 +653,32 @@
         <button id="settings-save-btn" class="signout-btn">Save</button>
         <span id="settings-save-status"></span>
       </div>
+    </div>
+  </div>
+</div>
+<div id="onboarding-modal" class="hidden">
+  <div id="onboarding-box">
+    <div class="corner tl sm"></div><div class="corner tr sm"></div><div class="corner bl sm"></div><div class="corner br sm"></div>
+    <h2>BEFORE YOU START</h2>
+    <p class="onboarding-lede">
+      Every investigation here runs on a real LLM call, not a script. This account can run on a
+      <b>free shared pool</b> to start — no setup needed — but that pool is shared by everyone using
+      this app right now, so it can run dry at busy times and your questions will fail with a quota
+      error that has nothing to do with what you asked.
+    </p>
+    <p class="onboarding-lede">
+      Add your own free API key from any of these providers and your investigations run on
+      <b>your own quota</b> instead — never blocked by anyone else:
+    </p>
+    <ul class="onboarding-providers">
+      <li><a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer">Groq</a> — free, no card required</li>
+      <li><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio (Gemini)</a> — free, no card required</li>
+      <li><a href="https://cloud.cerebras.ai/" target="_blank" rel="noopener noreferrer">Cerebras Cloud</a> — free tier available</li>
+    </ul>
+    <p class="onboarding-lede">Takes about two minutes. Paste whichever ones you get into Settings — you only need one to be covered.</p>
+    <div class="onboarding-actions">
+      <button id="onboarding-open-settings" class="signout-btn">Add my keys now</button>
+      <button id="onboarding-dismiss" class="signout-btn">Maybe later</button>
     </div>
   </div>
 </div>
@@ -712,8 +767,36 @@ function applyAuthState(session) {
   if (signedIn) {
     userEmailEl.textContent = session.user.email || '';
     bootApp();
+    maybeShowOnboarding(session.user.id);
   }
 }
+
+// One-time "add your own API key" tutorial, shown right after a login this
+// browser hasn't seen complete before -- the shared server pool is real but
+// finite (see docs/Memory.md: multiple providers hit their daily cap on the
+// same day), and a new signup has no way to know that's even a possibility
+// until their very first question fails with a quota error that looks like
+// it's about THEM, not about the pool. localStorage-keyed per account id so
+// it survives a page reload but doesn't nag on every visit -- not tied to the
+// server (a fresh browser/device sees it again, which is an acceptable
+// tradeoff for not needing a new persisted-state column just for this).
+const onboardingModalEl = document.getElementById('onboarding-modal');
+function maybeShowOnboarding(userId) {
+  const key = 'discoveryai_onboarded_' + userId;
+  if (localStorage.getItem(key)) return;
+  onboardingModalEl.classList.remove('hidden');
+}
+function dismissOnboarding(userId) {
+  try { localStorage.setItem('discoveryai_onboarded_' + userId, '1'); } catch (err) { /* private browsing, etc — fine to just re-show next time */ }
+  onboardingModalEl.classList.add('hidden');
+}
+document.getElementById('onboarding-dismiss').addEventListener('click', () => {
+  if (authSession) dismissOnboarding(authSession.user.id);
+});
+document.getElementById('onboarding-open-settings').addEventListener('click', () => {
+  if (authSession) dismissOnboarding(authSession.user.id);
+  openSettings();
+});
 
 if (AUTH_ENABLED) {
   document.getElementById('google-signin-btn').addEventListener('click', () => {
