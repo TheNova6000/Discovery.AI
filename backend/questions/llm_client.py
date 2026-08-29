@@ -59,6 +59,15 @@ async def structured_call(
     attempt used a different-but-still-working key, not a crash.
     """
     last_error: Exception | None = None
+    # Confirmed live (2026-08-29): a user reported saving their own keys and
+    # still seeing the exact same shared-pool 402 error, with no way for
+    # either of us to tell from the outside whether their key was ever
+    # actually tried. Rather than guess again, record which source (their own
+    # key vs. the shared pool) was used for each provider and surface it
+    # directly in the error text this function raises -- that error is what
+    # ends up in the chat reply the user already sees, so this makes "was my
+    # key even attempted" answerable from the UI itself, no log access needed.
+    source_log: list[str] = []
     for chain_pass in range(1, CHAIN_ATTEMPTS + 1):
         for model in model_chain:
             provider = model.split("/", 1)[0]
@@ -70,8 +79,12 @@ async def structured_call(
                 # pool -- a single attempt, no round-robin, since there's only
                 # one key to try.
                 attempts: list[str | None] = [user_key]
+                if chain_pass == 1:
+                    source_log.append(f"{provider}=your saved key (…{user_key[-4:]})")
             else:
                 key_pool = PROVIDER_KEY_POOLS.get(provider) or []
+                if chain_pass == 1:
+                    source_log.append(f"{provider}=shared server pool" if key_pool else f"{provider}=server default key")
                 # No pool configured for this provider -> fall back to the
                 # server's OWN original key, explicitly (never "whatever's
                 # currently in the env var"). That distinction matters now: a
@@ -120,5 +133,5 @@ async def structured_call(
 
     raise RuntimeError(
         f"structured_call failed on every provider/key across {CHAIN_ATTEMPTS} chain passes in "
-        f"{model_chain}: {last_error}"
+        f"{model_chain} (key source per provider: {', '.join(source_log)}): {last_error}"
     ) from last_error
