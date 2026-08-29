@@ -41,6 +41,7 @@ def _record_to_node(node) -> GraphNode:
         name=node["name"],
         type=node["type"],
         description=node.get("description"),
+        scope=node.get("scope"),
         merged_from=list(node.get("merged_from") or []),
         created_at=node["created_at"],
         updated_at=node["updated_at"],
@@ -82,16 +83,24 @@ def _record_to_claim(node) -> ClaimNode:
     )
 
 
-async def create_node(name: str, type_: str = "entity", description: Optional[str] = None) -> GraphNode:
+async def create_node(
+    name: str, type_: str = "entity", description: Optional[str] = None, *, scope: Optional[str] = None
+) -> GraphNode:
     """Create a canonical GraphNode (a domain or entity). See docs/Rules.md rule 12 —
-    entities are canonical and deduplicated (via merge_entity), not created per-abstraction."""
+    entities are canonical and deduplicated (via merge_entity), not created per-abstraction.
+
+    `scope` (docs/Architecture.md §0.16): part of canonical IDENTITY, not
+    descriptive metadata — a separate property from `description` on purpose,
+    so identity is never encoded inside prose. See `find_or_create_entity`,
+    the only caller that actually sets this today.
+    """
     if type_ not in ("entity", "domain"):
         raise GraphInterfaceError(f"invalid node type: {type_!r} (expected 'entity' or 'domain')")
     node_id = str(uuid.uuid4())
     now = _now()
     query = (
         f"CREATE (n:{NODE_LABEL} {{id: $id, name: $name, type: $type, description: $description, "
-        f"merged_from: [], created_at: $created_at, updated_at: $updated_at}}) "
+        f"scope: $scope, merged_from: [], created_at: $created_at, updated_at: $updated_at}}) "
         "RETURN n"
     )
     try:
@@ -103,6 +112,7 @@ async def create_node(name: str, type_: str = "entity", description: Optional[st
                 name=name,
                 type=type_,
                 description=description,
+                scope=scope,
                 created_at=now,
                 updated_at=now,
             )
@@ -133,20 +143,24 @@ async def find_or_create_entity(
     entity) — that harder case is still `merge_entity`'s job, called explicitly
     once such a duplication is actually detected.
 
-    `scope_hint` (Pass 3, docs/Architecture.md §0.14): disambiguating context for
-    names that collide across domains ("Transmission" in an electric grid vs. in
-    telecommunications — §0.9/§0.10's identity-rule finding). Deliberately reuses
-    the existing `description` field as the scope carrier rather than adding a
-    new property — this is a minimal, testable mechanism for Pass 3's acceptance
-    test, not the frozen Node schema (still §0.15+'s job). When `scope_hint` is
-    given, matching requires BOTH name and description to match; when omitted,
-    behavior is byte-for-byte the original global-name-only lookup, so no
-    existing caller regresses.
+    `scope_hint` (docs/Architecture.md §0.9/§0.10/§0.16): disambiguating context
+    for names that collide across domains ("Transmission" in an electric grid
+    vs. in telecommunications). Matched against the dedicated `scope` property
+    — identity is `(name, scope)`, not `name` alone, and `scope` is deliberately
+    NOT the same property as `description` (§0.16: encoding identity inside
+    prose makes canonical resolution fragile). Earlier revisions of this
+    function reused `description` as a minimal Pass-3 testing mechanism
+    (§0.14); any node created under that scheme has its scope sitting in
+    `description` instead of `scope` and won't be found by this version —
+    acceptable and not migrated, since every such node was disposable
+    mechanism-verification test data, not real investigated content. When
+    `scope_hint` is omitted, behavior is byte-for-byte the original
+    global-name-only lookup, so no existing caller regresses.
     """
     if scope_hint:
         query = (
             f"MATCH (n:{NODE_LABEL}) WHERE toLower(trim(n.name)) = toLower(trim($name)) "
-            "AND toLower(trim(coalesce(n.description, ''))) = toLower(trim($scope_hint)) "
+            "AND toLower(trim(coalesce(n.scope, ''))) = toLower(trim($scope_hint)) "
             "RETURN n LIMIT 1"
         )
         params = {"name": name, "scope_hint": scope_hint}
@@ -166,7 +180,7 @@ async def find_or_create_entity(
     except Neo4jError as exc:
         raise GraphInterfaceError(f"find_or_create_entity lookup failed: {exc}") from exc
 
-    return await create_node(name, type_, description or scope_hint)
+    return await create_node(name, type_, description, scope=scope_hint)
 
 
 async def get_node(node_id: str) -> GraphNode:

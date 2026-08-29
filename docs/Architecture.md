@@ -557,7 +557,23 @@ Node
 
 **Not decided here, on purpose:** whether `type`/`kind` merge into one field once the tension above is checked against real data; Neo4j property types/constraints; whether `investigation_status` needs sub-states per-relation as well as per-node (an open question, not raised before, worth naming: can a `Node` be `explored` while a specific `Relation` it participates in is still `unexplored`? Plausible, not tested — flagged, not answered).
 
-**Next session starts here:** split `scope` out of `description` in `find_or_create_entity` (small, mechanical, low-risk — the one remaining item; the `type`/`kind` check above is done); only then is there a real, checked field list to actually freeze as schema.
+**Update (2026-08-29, same day) — the split is done and verified; §0.16 is frozen.** `scope: Optional[str]` is now its own real property on `GraphNode` (`backend/graph/models.py`) and `create_node`/`find_or_create_entity` (`backend/graph/interface.py`) — matching/creating against `n.scope`, not `n.description`. Verified live against the VM's Neo4j, deterministically, zero LLM calls (same discipline as §0.14's mechanism check):
+
+```
+find_or_create_entity('SplitTestTransmission', scope_hint='Electric Grid')     -> id=e7fea979...  scope='Electric Grid'      description=None
+find_or_create_entity('SplitTestTransmission', scope_hint='Telecommunications') -> id=1d890f64...  scope='Telecommunications' description=None
+find_or_create_entity('SplitTestTransmission', scope_hint='Electric Grid')     -> id=e7fea979...  (same as the first call)
+
+A != B (no false merge):                                    True
+A == A2 (repeated call with the same scope reuses the node): True
+scope is a real property, description stays clean (None):   True
+```
+
+Old nodes created under the pre-split mechanism (§0.14's `TestTransmission` fixtures, scope sitting in `description`) are now unreachable by scope-aware lookups and were **not migrated** — deliberately, per this section's own note above: disposable mechanism-verification test data, not real investigated content.
+
+**§0.16's Node field list is now frozen:** `id`, `name`, `scope`, `description`, `investigation_status`, `created_at`/`updated_at`/`merged_from`. `type`/`kind` merging and Neo4j-level types/constraints remain explicitly open (not blocking anything downstream).
+
+**Next session starts here:** how `Node`s and `Relation`s are actually represented as a network in Neo4j while keeping View state (§0.15) out of the canonical model — the bridge from proven semantics into a real implementation. Not a full rewrite: `handle_compare`'s fix (make it build an ephemeral View instead of persisting a comparison node — §0.15) is the first concrete, low-risk piece of that bridge, now unblocked by both a frozen field list and documented View semantics.
 
 ## 1. Consolidated stack
 

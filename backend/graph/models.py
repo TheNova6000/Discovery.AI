@@ -10,6 +10,15 @@ class GraphNode(BaseModel):
     name: str
     type: str  # "domain" | "entity"
     description: Optional[str] = None
+    scope: Optional[str] = None
+    """Part of canonical identity, NOT descriptive metadata (docs/Architecture.md
+    §0.16) — disambiguates same-named nodes across domains ("Transmission" in an
+    electric grid vs. in telecommunications). Identity is (name, scope), not name
+    alone. Previously reused `description` as the scope carrier as a minimal
+    Pass-3 mechanism (§0.9/§0.14) — split into its own field now that scope has
+    earned its way into the real field set, so identity is never encoded inside
+    prose.
+    """
     merged_from: list[str] = Field(default_factory=list)
     created_at: str
     updated_at: str
