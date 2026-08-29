@@ -524,7 +524,17 @@ function applyAuthState(session) {
 
 if (AUTH_ENABLED) {
   document.getElementById('google-signin-btn').addEventListener('click', () => {
-    supabaseClient.auth.signInWithOAuth({ provider: 'google' });
+    // Without redirectTo, Supabase's OAuth redirect defaults to the site's
+    // origin root ("/", index.html) rather than the page the button was
+    // clicked from. index.html has no Supabase client at all (it's the
+    // static marketing page), so the access token landing there in the URL
+    // fragment was silently dropped — by the time the user navigated to
+    // app.html, there was no session anywhere, producing an infinite-looking
+    // login loop. Pinning the redirect to this exact page fixes it.
+    supabaseClient.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin + '/app.html' },
+    });
   });
   document.getElementById('signout-btn').addEventListener('click', async () => {
     await supabaseClient.auth.signOut();
