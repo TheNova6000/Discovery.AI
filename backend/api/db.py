@@ -120,6 +120,22 @@ async def fetch_sessions(user_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def delete_session(user_id: str, session_id: str) -> None:
+    """Scoped by user_id as well as session_id -- a session id alone is a UUID
+    an attacker could guess/enumerate; this makes it impossible to delete a
+    row that isn't the caller's own even if they somehow got another user's id.
+    A no-op (not an error) when DATABASE_URL isn't set, matching every other
+    function here -- the in-memory SessionStore.delete is what actually
+    matters for that deployment shape.
+    """
+    if _pool is None:
+        return
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            "delete from sessions where user_id = $1 and session_id = $2", user_id, session_id
+        )
+
+
 async def fetch_user_keys(user_id: str) -> Optional[dict]:
     """None when DB is disabled OR the user has never saved any keys -- callers
     must treat both the same way (fall back to the shared server pool)."""

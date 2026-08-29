@@ -484,6 +484,24 @@ async def switch_session(req: SwitchSessionRequest, user_id: str = Depends(get_c
     return state.to_payload()
 
 
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str, user_id: str = Depends(get_current_user_id)) -> dict:
+    """Deletes outright, not a soft-hide -- irreversible, matching what a trash
+    icon in the session rail should mean. Deleting the CURRENT session hands
+    back whatever the store now considers current (SessionStore.delete's own
+    fallback logic), so the caller can just re-render from the response the
+    same way every other session-mutating endpoint here already works.
+    """
+    store = await get_store(user_id)
+    try:
+        state = store.delete(session_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"No session with id {session_id!r}")
+    await db.delete_session(user_id, session_id)
+    await persist(user_id, state)  # covers the "had to create a brand-new one" fallback case
+    return state.to_payload()
+
+
 async def _process_message(session: SessionState, message: str, user_id: str) -> tuple[str, str]:
     """The actual "what should happen for this message" logic, shared between a
     normal /chat turn and /chat/regenerate -- pulled out so regenerating a
@@ -596,6 +614,47 @@ async def resources(entity_name: str, user_id: str = Depends(get_current_user_id
                 }
             )
     return results
+
+
+@app.get("/node_detail")
+async def node_detail(entity_name: str, user_id: str = Depends(get_current_user_id)) -> dict:
+    """Real backing data for clicking a node in the graph panel -- every
+    question this entity was actually investigated through (and why it was
+    asked), each question's real evidence with the agent's own stated
+    reasoning for whether that source supports the answer (ClaimNode.reasoning
+    -- written live by synthesize_claim, not fabricated here), and what this
+    entity was found to decompose into. Entirely existing persisted data,
+    same as /resources -- no new graph writes, nothing invented for display.
+    """
+    entity = await find_or_create_entity(entity_name)
+    explanation = await explain_entity(entity.id)
+    children = await get_decomposition(entity.id)
+    questions = []
+    for prov in explanation.discovered_by:
+        claims = await get_claims_for_question(prov.question_id)
+        questions.append(
+            {
+                "question_text": prov.question_text,
+                "rationale": prov.rationale,
+                "parent_question_text": prov.parent_question_text,
+                "claims": [
+                    {
+                        "evidence": c.evidence,
+                        "reasoning": c.reasoning,
+                        "confidence": c.confidence,
+                        "source_title": c.source_title,
+                        "source_url": c.source_url,
+                        "source_type": c.source_type,
+                    }
+                    for c in claims
+                ],
+            }
+        )
+    return {
+        "entity_name": entity.name,
+        "questions": questions,
+        "leads_to": [c.name for c in children],
+    }
 
 
 # Clean-URL routes for the two real pages. StaticFiles(html=True) below only

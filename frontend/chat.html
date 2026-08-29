@@ -16,6 +16,11 @@
     --muted: rgba(255, 255, 255, 0.55);
     --muted-2: rgba(255, 255, 255, 0.35);
     --font-mono: "JetBrains Mono", ui-monospace, Menlo, "Courier New", monospace;
+    /* Node-detail HUD panel only -- everywhere else stays strictly monochrome
+       by design; this one accent is deliberate, to make clicking into a node
+       feel like opening a distinct instrument panel, not another gray modal. */
+    --hud: #5ee7ff;
+    --hud-dim: rgba(94, 231, 255, 0.35);
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -184,19 +189,35 @@
     font-size: 12px;
     color: var(--muted);
     cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
     border: 1px solid transparent;
     border-left: 2px solid transparent;
     transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
+  .session-item-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .session-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
   .session-item.current {
     background: rgba(255,255,255,0.08);
     color: #fff;
     border-left-color: #fff;
   }
+  .session-delete-btn {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    color: var(--muted-2);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1;
+    padding: 2px 4px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease, color 0.15s ease;
+  }
+  .session-item:hover .session-delete-btn { opacity: 1; }
+  .session-delete-btn:hover { color: #fff; }
 
   /* ---------- chat panel ---------- */
   #chat-panel {
@@ -595,6 +616,72 @@
   .onboarding-providers a:hover { color: #fff; }
   .onboarding-actions { display: flex; gap: 12px; margin-top: 20px; }
   #onboarding-open-settings { border-color: var(--border-strong); color: #fff; }
+
+  /* ---------- node detail HUD panel (click a graph node) ---------- */
+  #node-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 110;
+    display: flex;
+    justify-content: flex-end;
+    background: rgba(0, 0, 0, 0);
+    pointer-events: none;
+    transition: background 0.4s ease;
+  }
+  #node-modal.hidden { display: none; }
+  #node-modal.open { background: rgba(0, 0, 0, 0.6); pointer-events: auto; }
+  #node-panel {
+    position: relative;
+    width: 440px;
+    max-width: 92vw;
+    height: 100%;
+    background: #000;
+    border-left: 1px solid var(--hud);
+    box-shadow: -24px 0 70px -18px var(--hud-dim);
+    padding: 30px 28px 40px;
+    overflow-y: auto;
+    transform: scaleX(0.015);
+    transform-origin: right center;
+    opacity: 0;
+    filter: blur(8px) brightness(1.6);
+    transition: transform 0.5s cubic-bezier(.16,1,.3,1), opacity 0.3s ease, filter 0.45s ease;
+  }
+  #node-modal.open #node-panel { transform: scaleX(1); opacity: 1; filter: blur(0) brightness(1); }
+  .node-scanline {
+    position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 3;
+    background: linear-gradient(90deg, transparent, var(--hud) 15%, #fff 50%, var(--hud) 85%, transparent);
+    box-shadow: 0 0 12px 1px var(--hud);
+    opacity: 0;
+    pointer-events: none;
+  }
+  #node-modal.open .node-scanline { animation: node-scan 0.85s cubic-bezier(.4,0,.2,1) 0.05s 1; }
+  @keyframes node-scan {
+    0% { top: 0; opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+  }
+  #node-panel .corner { border-color: var(--hud) !important; }
+  .node-panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+  .node-panel-eyebrow { font-size: 9.5px; letter-spacing: 0.18em; color: var(--hud); text-transform: uppercase; margin-bottom: 6px; }
+  #node-panel-title { font-size: 17px; margin: 0; font-style: italic; transform: skewX(-6deg); }
+  #node-panel-close { border-color: var(--border-strong); flex-shrink: 0; }
+  #node-panel-body { font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .node-leads-to { margin: 0 0 22px; }
+  .node-leads-to-label { font-size: 9.5px; letter-spacing: 0.14em; color: var(--hud); text-transform: uppercase; margin-bottom: 8px; }
+  .node-leads-to-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .node-leads-to-chip { border: 1px solid var(--hud-dim); color: var(--text); padding: 3px 8px; font-size: 11px; }
+  .node-question { border: 1px solid var(--border); border-left: 2px solid var(--hud); padding: 12px 14px; margin-bottom: 14px; }
+  .node-question-text { color: var(--text); font-size: 12.5px; margin-bottom: 4px; }
+  .node-question-rationale { font-size: 10.5px; color: var(--muted-2); font-style: italic; margin-bottom: 10px; }
+  .node-claim { padding: 8px 0; border-top: 1px solid var(--border); }
+  .node-claim:first-of-type { border-top: none; }
+  .node-claim-evidence { color: var(--text); font-size: 11.5px; margin-bottom: 4px; }
+  .node-claim-reasoning { font-size: 10.5px; color: var(--muted); margin-bottom: 6px; }
+  .node-claim-meta { display: flex; align-items: center; gap: 8px; font-size: 10px; }
+  .node-claim-confidence { color: var(--hud); flex-shrink: 0; }
+  .node-claim-source { color: var(--text); text-decoration: underline; text-underline-offset: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .node-claim-source:hover { color: var(--hud); }
+  .node-panel-empty { font-size: 11.5px; color: var(--muted-2); font-style: italic; padding: 20px 0; }
+  .node-panel-loading { font-size: 11.5px; color: var(--hud); letter-spacing: 0.06em; }
 </style>
 </head>
 <body>
@@ -680,6 +767,20 @@
       <button id="onboarding-open-settings" class="signout-btn">Add my keys now</button>
       <button id="onboarding-dismiss" class="signout-btn">Maybe later</button>
     </div>
+  </div>
+</div>
+<div id="node-modal" class="hidden">
+  <div id="node-panel">
+    <div class="node-scanline"></div>
+    <div class="corner tl sm"></div><div class="corner tr sm"></div><div class="corner bl sm"></div><div class="corner br sm"></div>
+    <div class="node-panel-header">
+      <div>
+        <div class="node-panel-eyebrow">Entity Analysis</div>
+        <h2 id="node-panel-title">—</h2>
+      </div>
+      <button id="node-panel-close" class="signout-btn">Close</button>
+    </div>
+    <div id="node-panel-body"></div>
   </div>
 </div>
 <div id="auth-gate" class="hidden">
@@ -1037,6 +1138,144 @@ setInterval(() => {
   cy.edges().style('line-dash-offset', dashOffset);
 }, 55);
 
+// Pointer affordance for "click a node" (the graph-hint text already promises
+// this) — cytoscape doesn't set a CSS cursor on its own.
+const cyContainerEl = document.getElementById('cy');
+cy.on('mouseover', 'node', () => { cyContainerEl.style.cursor = 'pointer'; });
+cy.on('mouseout', 'node', () => { cyContainerEl.style.cursor = 'default'; });
+cy.on('tap', 'node', (evt) => openNodePanel(evt.target.id()));
+
+// ---------- node detail HUD panel: click a graph node to see what the agents
+// actually did with it -- real questions asked, real evidence gathered, and
+// the agent's own stated reasoning per source (backend/api/app.py's
+// /node_detail, built entirely from data already persisted -- nothing here is
+// invented for display). ----------
+const nodeModalEl = document.getElementById('node-modal');
+const nodePanelTitleEl = document.getElementById('node-panel-title');
+const nodePanelBodyEl = document.getElementById('node-panel-body');
+
+function openNodeModalShell() {
+  nodeModalEl.classList.remove('hidden');
+  // Force a layout flush so the transform/opacity transition below actually
+  // animates from its start state instead of jumping straight to "open" --
+  // without this, removing "hidden" and adding "open" in the same tick can
+  // get batched into one style recalculation with no visible transition.
+  void nodeModalEl.offsetWidth;
+  nodeModalEl.classList.add('open');
+}
+function closeNodePanel() {
+  nodeModalEl.classList.remove('open');
+  // Matches #node-panel's own transform transition duration (0.5s) -- re-hide
+  // only after the close animation has actually finished playing.
+  setTimeout(() => nodeModalEl.classList.add('hidden'), 500);
+}
+document.getElementById('node-panel-close').addEventListener('click', closeNodePanel);
+nodeModalEl.addEventListener('click', (e) => { if (e.target === nodeModalEl) closeNodePanel(); });
+
+function renderNodePanel(detail) {
+  nodePanelTitleEl.textContent = detail.entity_name;
+  nodePanelBodyEl.innerHTML = '';
+
+  if (detail.leads_to && detail.leads_to.length) {
+    const wrap = document.createElement('div');
+    wrap.className = 'node-leads-to';
+    const label = document.createElement('div');
+    label.className = 'node-leads-to-label';
+    label.textContent = 'Decomposes into';
+    wrap.appendChild(label);
+    const chips = document.createElement('div');
+    chips.className = 'node-leads-to-chips';
+    for (const name of detail.leads_to) {
+      const chip = document.createElement('span');
+      chip.className = 'node-leads-to-chip';
+      chip.textContent = name;
+      chips.appendChild(chip);
+    }
+    wrap.appendChild(chips);
+    nodePanelBodyEl.appendChild(wrap);
+  }
+
+  if (!detail.questions || !detail.questions.length) {
+    const empty = document.createElement('div');
+    empty.className = 'node-panel-empty';
+    empty.textContent = "This entity hasn't been investigated yet — no questions or sources attached.";
+    nodePanelBodyEl.appendChild(empty);
+    return;
+  }
+
+  for (const q of detail.questions) {
+    const qEl = document.createElement('div');
+    qEl.className = 'node-question';
+
+    const qText = document.createElement('div');
+    qText.className = 'node-question-text';
+    qText.textContent = q.question_text;
+    qEl.appendChild(qText);
+
+    const rationale = document.createElement('div');
+    rationale.className = 'node-question-rationale';
+    rationale.textContent = q.rationale + (q.parent_question_text ? ' (of: ' + q.parent_question_text + ')' : '');
+    qEl.appendChild(rationale);
+
+    if (!q.claims.length) {
+      const noEvidence = document.createElement('div');
+      noEvidence.className = 'node-claim-reasoning';
+      noEvidence.textContent = 'No sources gathered for this question.';
+      qEl.appendChild(noEvidence);
+    }
+    for (const c of q.claims) {
+      const claimEl = document.createElement('div');
+      claimEl.className = 'node-claim';
+
+      const ev = document.createElement('div');
+      ev.className = 'node-claim-evidence';
+      ev.textContent = c.evidence;
+      claimEl.appendChild(ev);
+
+      const reasoning = document.createElement('div');
+      reasoning.className = 'node-claim-reasoning';
+      reasoning.textContent = c.reasoning;
+      claimEl.appendChild(reasoning);
+
+      const meta = document.createElement('div');
+      meta.className = 'node-claim-meta';
+      const conf = document.createElement('span');
+      conf.className = 'node-claim-confidence';
+      conf.textContent = Math.round(c.confidence * 100) + '%';
+      meta.appendChild(conf);
+      const src = document.createElement('a');
+      src.className = 'node-claim-source';
+      src.href = c.source_url;
+      src.target = '_blank';
+      src.rel = 'noopener noreferrer';
+      src.textContent = c.source_title || c.source_url;
+      meta.appendChild(src);
+      claimEl.appendChild(meta);
+
+      qEl.appendChild(claimEl);
+    }
+    nodePanelBodyEl.appendChild(qEl);
+  }
+}
+
+async function openNodePanel(entityName) {
+  nodePanelTitleEl.textContent = entityName;
+  nodePanelBodyEl.innerHTML = '<div class="node-panel-loading">SCANNING…</div>';
+  openNodeModalShell();
+  try {
+    const res = await fetch(apiUrl('/node_detail?entity_name=' + encodeURIComponent(entityName)), { headers: authHeaders() });
+    if (!res.ok) throw new Error(res.statusText);
+    const detail = await res.json();
+    renderNodePanel(detail);
+  } catch (err) {
+    nodePanelBodyEl.innerHTML = '';
+    const errEl = document.createElement('div');
+    errEl.className = 'node-panel-empty';
+    errEl.textContent = 'Failed to load entity data.';
+    nodePanelBodyEl.appendChild(errEl);
+  }
+}
+
 // Focus node gets a one-shot border "pop" when it becomes the focus — a single
 // animate() on a valid, well-supported property (border-width), not an infinite
 // recursive loop. Simple and robust beats a fancy animation that silently breaks.
@@ -1226,11 +1465,46 @@ async function loadSessionList() {
   for (const s of sessions) {
     const item = document.createElement('div');
     item.className = 'session-item' + (s.is_current ? ' current' : '');
-    item.textContent = s.title;
     item.title = s.title;
     item.onclick = () => switchSession(s.session_id);
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'session-item-title';
+    titleEl.textContent = s.title;
+    item.appendChild(titleEl);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'session-delete-btn';
+    deleteBtn.type = 'button';
+    deleteBtn.textContent = '×';
+    deleteBtn.title = 'Delete this chat';
+    deleteBtn.onclick = (e) => {
+      e.stopPropagation(); // don't also trigger switchSession on the parent item
+      deleteSession(s.session_id);
+    };
+    item.appendChild(deleteBtn);
+
     listEl.appendChild(item);
   }
+}
+
+async function deleteSession(sessionId) {
+  // Irreversible -- a real confirm() is the right call here (not automation,
+  // just an ordinary destructive-action guard any chat app would have).
+  if (!confirm('Delete this chat? This cannot be undone.')) return;
+  setBusy(true, 'deleting chat…');
+  const res = await fetch(apiUrl('/sessions/' + encodeURIComponent(sessionId)), {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  const data = await res.json();
+  // The deleted session may or may not have been the one on screen -- either
+  // way, re-render from whatever the backend now says is current (it always
+  // returns SOME valid session, creating a fresh one if that was the last).
+  renderMessages(data.messages);
+  renderGraph(data);
+  await loadSessionList();
+  setBusy(false);
 }
 
 async function newChat() {

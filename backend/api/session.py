@@ -185,6 +185,23 @@ class SessionStore:
         self.current_id = session_id
         return self.sessions[session_id]
 
+    def delete(self, session_id: str) -> SessionState:
+        """Removes a session outright (not a soft-hide) -- returns whatever
+        session is current AFTER the delete, since deleting the current one
+        means something else must become current for /chat and /graph to keep
+        acting on. Falls back to a brand-new session only when that was the
+        very last one, same as a fresh SessionStore's own constructor.
+        """
+        if session_id not in self.sessions:
+            raise KeyError(session_id)
+        del self.sessions[session_id]
+        self.order.remove(session_id)
+        if self.current_id == session_id:
+            self.current_id = self.order[0] if self.order else ""
+            if not self.current_id:
+                return self.new_session()
+        return self.current()
+
     def list_sessions(self) -> list[dict]:
         return [
             {
