@@ -128,6 +128,15 @@
   .doc-section li { margin-bottom: 6px; }
   .doc-section code { background: rgba(255,255,255,0.08); padding: 2px 6px; font-size: 12.5px; color: #fff; border-radius: 2px; }
   .doc-section strong { color: #fff; font-weight: 600; }
+  .doc-section table { border-collapse: collapse; width: 100%; max-width: 780px; margin: 4px 0 24px; font-size: 12.5px; }
+  .doc-section th, .doc-section td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+  .doc-section th { color: var(--hud); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; }
+  .doc-section td { color: var(--muted); line-height: 1.6; }
+  .doc-section td:first-child { color: var(--text); font-weight: 600; white-space: nowrap; }
+  .dim-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; margin: 0 0 24px; max-width: 760px; }
+  .dim-list .dim-row { font-size: 12.5px; color: var(--muted); padding: 6px 0; border-top: 1px solid var(--border); }
+  .dim-list .dim-row:nth-child(-n+2) { border-top: none; }
+  .dim-list .dim-row b { color: var(--text); }
 
   .diagram-box {
     border: 1px solid var(--border);
@@ -201,6 +210,7 @@
     <div class="toc-label">On this page</div>
     <div class="toc-links">
       <a href="#overview">Overview</a>
+      <a href="#theory">Theory</a>
       <a href="#architecture">Architecture</a>
       <a href="#loop">The investigation loop</a>
       <a href="#evidence">Evidence &amp; confidence</a>
@@ -237,8 +247,119 @@
         what that does and doesn't guarantee.</p>
     </section>
 
+    <section class="doc-section" id="theory">
+      <div class="sec-label">02 — Theory</div>
+      <h3>The knowledge model underneath the code</h3>
+      <p>Before any of this was code, it was a conceptual model of how knowledge itself is
+        structured — the graph, the identity resolver, and the dimension-based lenses all exist
+        to implement <em>this</em> model, not the other way around.</p>
+
+      <h4>A network, not a taxonomy</h4>
+      <p>The foundation is a network of domains — Physics, Economics, Law, Technology, Psychology,
+        and so on — connected to each other rather than filed into one rigid tree. A domain can sit
+        in many different networks at once; there is no single "correct" parent for anything.</p>
+
+      <h4>Abstraction: a boundary, not a dimension</h4>
+      <p>An <strong>abstraction</strong> is a boundary drawn around the part of the network you're
+        currently choosing to study — "for this investigation, this is the portion of the network
+        we're considering." It can be a <strong>subject</strong> (a bounded region — "Quantum
+        Computing" spans Physics, Mathematics, Information Theory, and Computer Science at once) or
+        an <strong>entity</strong> (a concrete thing — PayPal, Mastercard, an individual) that
+        exists inside a boundary, across dimensions, with its own internal structure and history.
+        Crucially, an abstraction is <strong>cheap to redraw</strong> — it's a lens you're holding
+        up to the network right now, not a permanent structural commitment.</p>
+
+      <h4>Zoom: changing the boundary, not moving through space</h4>
+      <p>Zooming doesn't mean approaching an object — it means changing which boundary is currently
+        the object of study. Zoom in and one entity unfolds into a network of smaller components;
+        zoom out and a whole network collapses into a single node inside a larger one. The
+        underlying reality doesn't change — only which boundary you're currently reading it
+        through.</p>
+      <div class="diagram-box">
+        <pre class="mermaid">
+flowchart TB
+  E["PayPal<br/>(one entity)"] -->|"zoom in — unfolds into"| N["Payment Processing · Transaction Processing<br/>Authorization · Fraud Detection"]
+  N -->|"zoom out — collapses into"| E
+  E -->|"zoom out again"| P["Payment Platforms<br/>(PayPal, Mastercard, Stripe, Visa, banks)"]
+  P -->|"zoom out again"| F["Financial System"]
+        </pre>
+      </div>
+      <p>This is also why the structure is a <strong>pyramid you can enter from any layer</strong>,
+        not a fixed tree the user is forced to descend top-down — PayPal sits under "Payment
+        Platforms" today, but could just as validly sit under "Fintech Case Studies" under a
+        different abstraction drawn around it later. Discovery.Ai's <code>resolve_entity</code>
+        (see <a href="#identity" style="color:#fff">Identity resolution</a>) is what makes that
+        non-strict hierarchy actually safe to build without duplicating or colliding entities.</p>
+
+      <h4>Dimensions: ways of interrogating, not nodes</h4>
+      <p>A dimension is not a thing in the graph — it's a lens you apply to whatever abstraction
+        you're studying, and applying one is what actually generates a question:
+        <strong>Abstraction + Dimension → Question</strong>. Three dimensions are useful across
+        almost any abstraction; the rest are specific to whatever system you're actually looking
+        at:</p>
+      <div class="dim-list">
+        <div class="dim-row"><b>Scale</b> — physical → individual → group → organization → society → global</div>
+        <div class="dim-row"><b>Perspective</b> — economic, psychological, legal, computational, historical…</div>
+        <div class="dim-row"><b>Time</b> — origin, development, current state, failure, transformation</div>
+        <div class="dim-row"><b>Custom, per-abstraction</b> — Risk/Settlement/Trust for payments; Architecture/Reliability for systems; Jurisdiction/Precedent for law</div>
+      </div>
+      <p>The same entity produces a genuinely different question under each lens — this is real,
+        not a template swap:</p>
+      <table>
+        <tr><th>Dimension</th><th>Question generated for "PayPal"</th></tr>
+        <tr><td>Economic</td><td>How does PayPal create and capture value?</td></tr>
+        <tr><td>Computational</td><td>How does PayPal process transactions?</td></tr>
+        <tr><td>Psychological</td><td>Why do users trust PayPal?</td></tr>
+        <tr><td>Legal</td><td>What legal structures govern its operations?</td></tr>
+        <tr><td>Historical</td><td>Why did PayPal emerge when it did?</td></tr>
+      </table>
+      <p>And the reverse holds too: the <em>same</em> dimension asked at a different scale produces
+        a different question — Economic + Individual asks about income and constraints; Economic +
+        Organization asks about revenue and competition; Economic + Society asks about markets and
+        distribution. This is why the Question Engine is level-aware rather than a flat
+        dimension-to-question lookup — <code>Question = f(Abstraction, Network, Entity, Dimension,
+        Level, Context)</code>.</p>
+      <p>One consequence worth stating explicitly: <strong>hierarchy itself is dimension-relative,
+        not intrinsic to the entities</strong>. Order the same set of organizations by Scale and you
+        get Individual → Local → Regional → National → Global; order the identical set by Revenue,
+        or Technical dependency, and they line up completely differently. A hierarchy is an
+        emergent structure produced by choosing a dimension, not a fact about the entities
+        themselves.</p>
+
+      <h4>The full loop, and the four operations it's built from</h4>
+      <div class="diagram-box">
+        <pre class="mermaid">
+flowchart LR
+  NET["Network"] --> ABS["Abstraction"]
+  ABS --> DIM["Dimension"]
+  DIM --> Q["Question"]
+  Q --> RES["Resource"]
+  RES --> K["Knowledge"]
+  K -.->|generates| Q
+        </pre>
+      </div>
+      <p>Everything a user actually does reduces to four operations over that loop:</p>
+      <table>
+        <tr><th>Operation</th><th>In theory</th><th>In the app today</th></tr>
+        <tr><td>Navigate</td><td>Move between connected nodes along existing relationships</td><td>Click a node or edge in the graph view</td></tr>
+        <tr><td>Zoom</td><td>Change the abstraction boundary</td><td>"Zoom into X" / "go deeper into X"</td></tr>
+        <tr><td>Interrogate</td><td>Apply a dimension to generate a question</td><td>"Look at this economically" / switch lens</td></tr>
+        <tr><td>Learn</td><td>Attach a resource that answers the question</td><td>The Evidence Engine's six real retrievers</td></tr>
+      </table>
+
+      <h4>Theory vs. what's actually live</h4>
+      <p>The conceptual model above is the original design in full — the running system implements
+        a real, working slice of it, not a simplification pretending to be the whole thing.
+        Dimensions today are freeform named lenses an investigation can carry (not a fixed
+        Scale/Perspective/Time selector UI), decomposition and question-generation are fully live
+        and level-aware, and identity resolution is what makes the non-strict pyramid safe in
+        practice. A dedicated <strong>Roadmap</strong> feature — turning an explored sub-graph into
+        an ordered, readable learning path rather than free-form exploration — is designed but not
+        yet built.</p>
+    </section>
+
     <section class="doc-section" id="architecture">
-      <div class="sec-label">02 — Architecture</div>
+      <div class="sec-label">03 — Architecture</div>
       <h3>Six layers, each with one job</h3>
       <p>There's no single monolith making decisions — each layer owns exactly one responsibility,
         and only the Graph Interface is allowed to talk to Neo4j directly.</p>
@@ -270,7 +391,7 @@ graph TD
     </section>
 
     <section class="doc-section" id="loop">
-      <div class="sec-label">03 — The investigation loop</div>
+      <div class="sec-label">04 — The investigation loop</div>
       <h3>One decision at a time, not a plan made upfront</h3>
       <p>Before any investigation starts, a single classification call decides what the message
         even is — a new question, a navigation request, small talk, or something else — and can
@@ -302,7 +423,7 @@ flowchart TD
     </section>
 
     <section class="doc-section" id="evidence">
-      <div class="sec-label">04 — Evidence &amp; confidence</div>
+      <div class="sec-label">05 — Evidence &amp; confidence</div>
       <h3>Real sources, scored honestly — including when they're wrong</h3>
       <p>Every answered question can gather evidence from six real, named retrievers: <strong>Tavily</strong>
         (general web), <strong>Semantic Scholar</strong> and <strong>arXiv</strong> (papers),
@@ -329,7 +450,7 @@ flowchart TD
     </section>
 
     <section class="doc-section" id="identity">
-      <div class="sec-label">05 — Identity resolution</div>
+      <div class="sec-label">06 — Identity resolution</div>
       <h3>Four outcomes, not two</h3>
       <p>When the system discovers something that might be an entity already in the graph, it
         can't just do a name match — "Transmission" could mean the electrical-grid concept or the
@@ -354,7 +475,7 @@ flowchart LR
     </section>
 
     <section class="doc-section" id="relationships">
-      <div class="sec-label">06 — Typed relationships</div>
+      <div class="sec-label">07 — Typed relationships</div>
       <h3>Relationships are a separate decision from decomposition</h3>
       <p>Early on, relationship type was extracted as a rider on the same "decompose" decision —
         and that framing biased the model toward plain <code>decomposes_into</code> edges even for
@@ -373,7 +494,7 @@ flowchart LR
     </section>
 
     <section class="doc-section" id="limits">
-      <div class="sec-label">07 — Reliability &amp; limits</div>
+      <div class="sec-label">08 — Reliability &amp; limits</div>
       <h3>What this doesn't promise</h3>
       <p>Being honest about limits is part of the design, not an afterthought:</p>
       <div class="limit-grid">
@@ -405,7 +526,7 @@ flowchart LR
     </section>
 
     <section class="doc-section" id="stack">
-      <div class="sec-label">08 — Tech stack</div>
+      <div class="sec-label">09 — Tech stack</div>
       <h3>What it actually runs on</h3>
       <div class="stack-grid">
         <div class="stack-item"><div class="layer">API</div><div class="name">FastAPI</div><div class="note">Plain REST, async throughout.</div></div>
