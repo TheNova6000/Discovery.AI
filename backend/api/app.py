@@ -94,7 +94,18 @@ async def _save_user_keys(user_id: str, updates: SettingsUpdateRequest) -> dict:
 
 
 def _settings_status(keys: dict) -> dict:
-    return {f"{field}_set": bool(keys.get(field)) for field in _SETTINGS_FIELDS}
+    # `db_persisted` (docs/Architecture.md): whether a saved key actually lands
+    # in Postgres or only in this process's in-memory cache -- confirmed live
+    # (2026-08-29) that the two are easy to confuse from the UI alone: a key
+    # saves and reads back fine either way, right up until the backend process
+    # restarts (a manual redeploy on the VM, or Render free tier's own
+    # idle-timeout spin-down), at which point an in-memory-only key silently
+    # vanishes with no error anywhere. Surfacing `db.enabled()` directly is
+    # cheaper and more honest than making the user infer it from whether their
+    # key happened to survive until they next checked.
+    status = {f"{field}_set": bool(keys.get(field)) for field in _SETTINGS_FIELDS}
+    status["db_persisted"] = db.enabled()
+    return status
 
 
 def _resolve_provider_keys(stored: dict) -> dict[str, str]:

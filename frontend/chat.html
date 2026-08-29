@@ -540,6 +540,8 @@
   .settings-section:last-child { margin-bottom: 0; }
   .settings-section h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0 0 10px; }
   .settings-hint { font-size: 11px; color: var(--muted); line-height: 1.6; margin: 0 0 16px; }
+  #settings-persist-hint { border: 1px solid var(--border); padding: 8px 10px; }
+  #settings-persist-hint.warn { color: #fff; border-color: var(--border-strong); font-weight: 600; }
   .settings-account-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .settings-field { margin-bottom: 12px; }
   .settings-field label { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
@@ -601,6 +603,7 @@
         never blocked by the shared server pool. Leave a field blank to keep it unchanged; clear the
         field's text and hit Save to remove a key and go back to the shared pool for that provider.
       </p>
+      <p class="settings-hint" id="settings-persist-hint"></p>
       <div class="settings-field" data-field="groq_api_key">
         <label>Groq <span class="key-status"></span></label>
         <div class="settings-field-row"><input type="password" autocomplete="off" placeholder="gsk_..."><button class="signout-btn clear-key-btn" type="button">Clear</button></div>
@@ -756,6 +759,21 @@ function applyKeyStatus(field, isSet) {
   input.placeholder = isSet ? '•••••••••••••••• (saved — leave blank to keep)' : input.dataset.defaultPlaceholder;
 }
 
+// Answers the question a "set"/"not set" label alone can't: does a saved key
+// actually land in Postgres, or only in this backend process's memory (true
+// right up until the process restarts, then it's just gone, silently -- the
+// VM demo has no database wired up at all, and Render's free tier restarts
+// the whole process on every idle-timeout spin-down).
+const persistHintEl = document.getElementById('settings-persist-hint');
+function applyPersistHint(status) {
+  const persisted = !!status.db_persisted;
+  persistHintEl.textContent = persisted
+    ? 'Saved to this account\'s database row — survives server restarts.'
+    : 'No database is connected on this backend right now — saved keys live only in ' +
+      'server memory and WILL be lost on the next restart/redeploy, with no warning.';
+  persistHintEl.classList.toggle('warn', !persisted);
+}
+
 async function openSettings() {
   settingsModalEl.classList.remove('hidden');
   const accountSection = document.getElementById('settings-account-section');
@@ -775,8 +793,10 @@ async function openSettings() {
     for (const field of settingsFieldEls) {
       applyKeyStatus(field, !!status[field.dataset.field + '_set']);
     }
+    applyPersistHint(status);
   } catch (err) {
     for (const field of settingsFieldEls) field.querySelector('.key-status').textContent = 'unknown — refresh failed';
+    persistHintEl.textContent = '';
   }
 }
 
@@ -808,6 +828,7 @@ for (const field of settingsFieldEls) {
     const status = await saveSettings({ [name]: '' });
     field.querySelector('input').value = '';
     applyKeyStatus(field, !!status[name + '_set']);
+    applyPersistHint(status);
     document.getElementById('settings-save-status').textContent = 'Cleared.';
   });
 }
@@ -833,6 +854,7 @@ document.getElementById('settings-save-btn').addEventListener('click', async () 
       field.querySelector('input').value = '';
       applyKeyStatus(field, !!status[field.dataset.field + '_set']);
     }
+    applyPersistHint(status);
     saveStatusEl.textContent = 'Saved.';
   } catch (err) {
     saveStatusEl.textContent = 'Failed to save: ' + err;
