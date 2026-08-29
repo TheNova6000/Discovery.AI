@@ -545,6 +545,8 @@
   .settings-field label { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
   .settings-field .key-status { color: var(--muted-2); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
   .settings-field .key-status.set { color: #fff; }
+  .settings-field .key-status::before { content: '\25CB\a0'; white-space: pre; }
+  .settings-field .key-status.set::before { content: '\25CF\a0'; }
   .settings-field-row { display: flex; gap: 6px; }
   .settings-field input {
     flex: 1;
@@ -557,6 +559,8 @@
     padding: 7px 9px;
   }
   .settings-field input:focus { outline: none; border-color: var(--border-strong); }
+  .settings-field input.has-saved-key { border-color: var(--border-strong); }
+  .settings-field input.has-saved-key::placeholder { color: var(--text); opacity: 0.55; }
   .clear-key-btn { flex-shrink: 0; }
   .settings-actions { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
   #settings-save-status { font-size: 11px; color: var(--muted); }
@@ -735,6 +739,23 @@ if (AUTH_ENABLED) {
 const settingsModalEl = document.getElementById('settings-modal');
 const settingsFieldEls = document.querySelectorAll('.settings-field');
 
+// The backend never returns a saved key's actual value (GET /settings only
+// ever returns a boolean per provider -- see _settings_status in app.py), so
+// there's no real secret to mask here. This just makes that boolean visible
+// AT the input itself (masked placeholder text + a filled status dot) instead
+// of a small label elsewhere that's easy to miss -- the input always renders
+// empty regardless of whether a key is saved, which is exactly what made it
+// impossible to tell "saved but showing blank" apart from "never saved."
+function applyKeyStatus(field, isSet) {
+  const input = field.querySelector('input');
+  if (input.dataset.defaultPlaceholder === undefined) input.dataset.defaultPlaceholder = input.placeholder;
+  const el = field.querySelector('.key-status');
+  el.textContent = isSet ? 'key saved' : 'no key saved';
+  el.classList.toggle('set', isSet);
+  input.classList.toggle('has-saved-key', isSet);
+  input.placeholder = isSet ? '•••••••••••••••• (saved — leave blank to keep)' : input.dataset.defaultPlaceholder;
+}
+
 async function openSettings() {
   settingsModalEl.classList.remove('hidden');
   const accountSection = document.getElementById('settings-account-section');
@@ -752,14 +773,10 @@ async function openSettings() {
     const res = await fetch(apiUrl('/settings'), { headers: authHeaders() });
     const status = await res.json();
     for (const field of settingsFieldEls) {
-      const name = field.dataset.field;
-      const isSet = !!status[name + '_set'];
-      const el = field.querySelector('.key-status');
-      el.textContent = isSet ? 'set' : 'not set';
-      el.classList.toggle('set', isSet);
+      applyKeyStatus(field, !!status[field.dataset.field + '_set']);
     }
   } catch (err) {
-    for (const field of settingsFieldEls) field.querySelector('.key-status').textContent = '';
+    for (const field of settingsFieldEls) field.querySelector('.key-status').textContent = 'unknown — refresh failed';
   }
 }
 
@@ -790,9 +807,7 @@ for (const field of settingsFieldEls) {
     const name = field.dataset.field;
     const status = await saveSettings({ [name]: '' });
     field.querySelector('input').value = '';
-    const el = field.querySelector('.key-status');
-    el.textContent = status[name + '_set'] ? 'set' : 'not set';
-    el.classList.toggle('set', !!status[name + '_set']);
+    applyKeyStatus(field, !!status[name + '_set']);
     document.getElementById('settings-save-status').textContent = 'Cleared.';
   });
 }
@@ -815,12 +830,8 @@ document.getElementById('settings-save-btn').addEventListener('click', async () 
   try {
     const status = await saveSettings(body);
     for (const field of settingsFieldEls) {
-      const name = field.dataset.field;
       field.querySelector('input').value = '';
-      const isSet = !!status[name + '_set'];
-      const el = field.querySelector('.key-status');
-      el.textContent = isSet ? 'set' : 'not set';
-      el.classList.toggle('set', isSet);
+      applyKeyStatus(field, !!status[field.dataset.field + '_set']);
     }
     saveStatusEl.textContent = 'Saved.';
   } catch (err) {
