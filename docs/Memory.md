@@ -4,6 +4,24 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-08-30 — Subject/Entity, re-derived from memory, turned out to already be the plan
+
+The user restated the project's own original abstraction vocabulary unprompted, months in —
+Subject (2D abstraction: a named boundary around domains only) and Entity (3D abstraction: a
+boundary around domains *plus the specific question it solves*), asking to give the agent real
+power to draw and name these boundaries, and for zoom-in to open a node's own internal graph
+rather than return a summary line. Checked against `docs/SystemDesign.md` §3-6: word-for-word the
+original spec, not drift. Checked against the deep §0.6-§0.16 design arc already in
+`docs/Architecture.md` (Node/Relation stress-testing, `kind` as a question-relative annotation, the
+View/Investigation/World-Model split): the same conclusion, reached independently from a totally
+different direction months apart — Subject and Entity are the two `kind` values that arc's own
+punch list was always missing, and "zoom opens the node's internal graph" is exactly what §0.15's
+View semantics already specify, just not yet built end-to-end (`handle_compare` still persists a
+comparison node; `handle_zoom_in` still returns a one-line summary instead of a View). Documented as
+`docs/Architecture.md` §0.21 and added as a new Theory section on the public `/docs` page, both
+[THEORY]/design-only per the user's own explicit choice this round — the actual boundary-naming
+decision and the View-based zoom/compare rebuild are next, not done here.
+
 ## 2026-08-29 (continued) — From typed edges to a real identity resolver to a conversational-state layer, all verified live on the VM
 
 Direct continuation of the entry below, same day. That entry ended with the Node schema frozen (§0.16) and the punch list ordered: scope-hint extraction, the Model Graph implementation, and a network-aware renderer, "deliberately last." What actually happened next was forced by live use, not the planned order — the user hit real bugs while using the deployed system, and each one became a research pass with a working fix, verified against the real VM before being called done. Full detail is `docs/Architecture.md` §0.17-§0.20; this is the summary.

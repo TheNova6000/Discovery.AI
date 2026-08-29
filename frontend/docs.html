@@ -356,6 +356,16 @@ flowchart LR
         practice. A dedicated <strong>Roadmap</strong> feature — turning an explored sub-graph into
         an ordered, readable learning path rather than free-form exploration — is designed but not
         yet built.</p>
+      <p>Two gaps worth naming precisely rather than glossing over. First, drawing and naming a
+        Subject or Entity boundary isn't yet a decision the agent deliberately makes — today's
+        abstraction label is picked incidentally by the intent classifier, not reasoned about the
+        way <code>decompose</code>/<code>answer</code>/<code>boundary_hit</code> are. Second, "zoom
+        in" today returns a one-line summary of what's known about a node rather than opening that
+        node's own internal graph of domains and sub-entities — the real target, already designed
+        (a bounded "tile" read as a View, never persisted as new structure), just not built
+        end-to-end yet. Comparing two entities currently also persists a node for the comparison
+        itself, which it shouldn't — a comparison is a way of looking at two existing things, not a
+        new thing in the world. Full internal detail in <code>docs/Architecture.md</code> §0.6-§0.21.</p>
     </section>
 
     <section class="doc-section" id="architecture">

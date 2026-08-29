@@ -906,6 +906,91 @@ Refined diagnosis, corrected from the initial hypothesis: "Authorization" is not
 
 Neither of these two follow-on findings is fixed yet — reported precisely, not guessed at, awaiting direction on priority.
 
+## 0.21 Subject vs. Entity — the original vocabulary, reconciled with Node/kind (2026-08-30)
+
+**[THEORY], design only.** The user restated the project's own original abstraction vocabulary from
+memory, unprompted, months into building on top of it — Abstraction = a boundary around what's
+currently being studied; **Subject** (2D abstraction) = a boundary drawn around domains only, just
+named ("Quantum Mechanics" circling Physics/CS/Information Theory); **Entity** (3D abstraction) = a
+boundary around domains *plus the specific question(s) it's trying to solve* (a company, project,
+org — understood as a solution, not just a label, per §6 "Entities as Solutions" — PayPal solves
+"how do people transact online without physical exchange," Stripe solves a different problem
+entirely). This is `docs/SystemDesign.md` §3-6, verbatim, not a new idea — worth stating plainly
+before anything else in this section: **the user re-derived their own original spec from memory and
+it matched exactly**, independent confirmation that the theory itself was never the problem.
+
+**The actual finding: this is the same conclusion §0.6-§0.16 already reached, from a completely
+different direction, under different names.** That arc spent eleven sections stress-testing
+`Node`/`Relation` against real worked examples (smartphone pipeline, electric grid, PayPal, the
+adversarial "Payment" case) and independently concluded: one primitive (`Node`), `kind` as a
+question-relative annotation rather than an intrinsic property, and the same node interpreted
+differently depending on which question is asking (§0.8-§0.9). **Subject and Entity are not new
+`kind` values needing new machinery — they're the two `kind` values that were missing from the list,
+and they resolve a specific gap the earlier arc left unnamed:**
+
+- **Subject** = `Node{kind: "subject"}` — a boundary whose only claim is "these domains belong
+  together for the purpose of this investigation." No question it specifically solves; it's a
+  region, not a solution.
+- **Entity** = `Node{kind: "entity"}` — the same boundary shape, but with at least one attached
+  `Claim`/relation that names the specific question/problem it exists to solve (§0.6's "Entities as
+  Solutions" — the query that already runs today, "what questions does this thing answer," is the
+  literal test for whether something has earned Entity rather than Subject).
+- Both are ordinary `Node`s under §0.8's collapse — the distinction lives in the `kind` annotation
+  and in what's attached (a solved-question claim), not in a separate schema or a separate primitive.
+  This is consistent with, not a change to, §0.16's frozen field list (`id`, `name`, `scope`,
+  `description`, `investigation_status`) — `kind` was already excluded from that list on purpose,
+  precisely because it's View/Question-layer, not a Node property (§0.16's "fails" table).
+
+**"AI agent power to build boundaries and name them" is a real, specific, nameable next capability
+— not a vague ambition.** It's the concrete act this project has been calling, at different points,
+"the Node schema implementation" (§0.16's punch list) and "kind as a View-layer annotation" (§0.9):
+a decision, distinct from `decompose`/`answer`/`boundary_hit`, where the agent looks at what it's
+currently holding — a cluster of domains, or a cluster of domains plus a specific problem it's
+solving — and deliberately draws and *names* that boundary, choosing Subject or Entity by the same
+test named above (is there a specific question this boundary is understood to solve, yes or no).
+This is genuinely new relative to today's live code: `abstraction_name` today is a string the intent
+classifier picks incidentally, attached via one `contains` edge — never a deliberate act the agent
+reasons about and could get right or wrong. Making it a real decision is what turns "the graph has an
+abstraction node called X" into "the agent decided X deserves to be a named boundary, and decided
+whether it's a Subject or an Entity, and could explain why."
+
+**"Zoom in = going inside the node to see its own internal graph" is not a new requirement either —
+it's §0.6.1/§0.6.2's tile metaphor and §0.15's View semantics, confirmed correct by being re-derived
+independently.** Zooming into PayPal should open PayPal's own bounded neighborhood — the domains and
+sub-entities inside its boundary — not return a one-line "known components" summary. That's exactly
+what a View (§0.15) reading a bounded tile (§0.6.2) of the World Model already means; nothing about
+this section changes that design, it just reconfirms it from the Subject/Entity angle. **A concrete
+gap this cross-check surfaces, worth stating precisely:** `handle_zoom_in`'s current one-line summary
+and `handle_compare`'s still-unfixed node-persisting behavior (§0.15's own named example, not yet
+built) are the two places where live code still lags this already-designed View model — not because
+the design is wrong, but because the View/Investigation/World-Model split (§0.15) was designed and
+never implemented end-to-end.
+
+**Dimensions/Perspective, separately — genuinely new relative to the original system, and correctly
+so.** The user is right that the system as originally conceived had no working Scale/Perspective/Time
+mechanism; `dimension_name`/`dimension_description` (and composed multi-lens steering via
+`Question.dimensions`) are real, `[VERIFIED]` additions built after the original spec, and they slot
+into this reconciliation cleanly: a dimension is what a **View** (§0.15) applies to a Subject or
+Entity to generate a question, exactly matching SystemDesign.md §12's `Abstraction + Dimension ->
+Question` rule — dimensions were never meant to be Nodes or boundaries themselves, and they aren't
+one here either.
+
+**What this section does not do, on purpose, matching this document's own standing discipline:** it
+does not add `subject`/`entity` to any enum in code, does not change `find_or_create_entity` or
+`create_relationship`, and does not implement the boundary-naming decision. Per the user's own
+explicit choice this round (documentation first, feature second), this section's job is only to
+confirm the vocabularies are the same thing and name the concrete next build item precisely enough
+that it doesn't need re-deriving from scratch next session.
+
+**Next session starts here, now with two independently-confirmed reasons to do it in this order**
+(the original §0.16 punch list, unchanged, just re-affirmed): scope-hint extraction reliability
+(§0.14's still-open gap) → the Node schema, now including `kind ∈ {subject, entity, process,
+abstraction, ...}` as a View-layer annotation with Subject/Entity's solved-question test as the
+concrete rule for choosing between them → a real boundary-naming decision in the agent's decision
+step, alongside `decompose`/`answer`/`boundary_hit` → `handle_compare`/`handle_zoom_in` rebuilt as
+Views per §0.15, rather than persisting or dead-ending. The network-aware renderer (§0.15's ordering)
+stays explicitly last.
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |
