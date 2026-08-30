@@ -270,6 +270,23 @@
   .btn-corner.br { bottom: -4px; right: -4px; border-bottom: 2px solid #fff; border-right: 2px solid #fff; }
   #new-chat-btn:hover .btn-corner, #composer button:hover:not(:disabled) .btn-corner { opacity: 1; }
   #session-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+  #session-rail #settings-btn {
+    flex-shrink: 0;
+    margin-top: 10px;
+    padding-top: 10px;
+    border: none;
+    border-top: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-align: left;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+  #session-rail #settings-btn:hover { color: #fff; }
   .session-item {
     padding: 8px 9px;
     border-radius: 0;
@@ -826,7 +843,6 @@
     </button>
     <div id="pool-status-panel" class="hidden"></div>
   </div>
-  <button class="signout-btn" id="settings-btn" style="margin-left:16px">Settings</button>
   <div class="user-box" id="user-box" style="display:none">
     <span class="user-email" id="user-email"></span>
     <button class="signout-btn" id="signout-btn">Sign out</button>
@@ -931,6 +947,7 @@
   <div id="session-rail">
     <button id="new-chat-btn" onclick="newChat()">+ New chat<span class="btn-corner tl"></span><span class="btn-corner br"></span></button>
     <div id="session-list"></div>
+    <button id="settings-btn">Settings</button>
   </div>
   <button id="rail-toggle" title="Toggle session list">&#171;</button>
   <div id="chat-panel">
@@ -1496,7 +1513,7 @@ const cy = cytoscape({
         'border-style': 'dashed',
     }},
   ],
-  layout: { name: 'breadthfirst', directed: true, padding: 30, spacingFactor: 1.3 },
+  layout: { name: 'cose', padding: 40 },
 });
 
 // Subtle "data flow" effect along edges — purely visual, no relation to data.
@@ -2195,29 +2212,30 @@ function renderGraph(graph) {
     eles.push({ data: { id: e.source + '->' + e.target + ':' + e.label, source: e.source, target: e.target, label: e.label } });
   }
   cy.add(eles);
-  // Cytoscape's own layout animation (well-tested, not custom code) glides
-  // nodes into their breadthfirst positions instead of popping in instantly.
-  //
-  // Rooting matters: parentEdges/siblingEdges point OUT of the parent (parent ->
-  // focus, parent -> sibling), not out of focus. Rooting a directed breadthfirst
-  // layout at focus itself left the parent/siblings unreachable by forward
-  // traversal, so cytoscape treated them as a separate disconnected component and
-  // stacked it — that's what looked like "nodes overlapping, not centered". Root
-  // at the parent(s) instead so every visible node is forward-reachable from a
-  // single root and lands in one properly spaced tree; fall back to focus itself
-  // when there's no parent (the very first investigation, nothing zoomed into yet).
-  const rootIds = (view.parentIds && view.parentIds.length) ? view.parentIds : (view.focusId ? [view.focusId] : undefined);
+  // Force-directed (cose), not a tree layout -- this project's whole point is
+  // that the graph isn't always a tree (§0.28-§0.32), so the layout shouldn't
+  // assume one either. `breadthfirst` needed an explicit `roots` workaround
+  // to stop disconnected components (cycles, meshes, cross-space context)
+  // from stacking on top of each other; cose has no such assumption baked
+  // in -- it spaces every node (including compound/boxed ones) by simulated
+  // repulsion, so a mesh spreads out, a cycle closes cleanly, and unrelated
+  // components separate on their own, using however much canvas is available
+  // rather than a fixed tree shape.
   cy.layout({
-    name: 'breadthfirst',
-    directed: true,
-    roots: rootIds,
-    padding: 30,
-    spacingFactor: 1.5,
-    avoidOverlap: true,
-    nodeDimensionsIncludeLabels: true,
+    name: 'cose',
     animate: true,
     animationDuration: 450,
     animationEasing: 'ease-out-cubic',
+    fit: true,
+    padding: 40,
+    nodeDimensionsIncludeLabels: true,
+    avoidOverlap: true,
+    nodeRepulsion: 9000,
+    idealEdgeLength: 95,
+    edgeElasticity: 100,
+    nestingFactor: 1.2,
+    gravity: 35,
+    numIter: 1200,
   }).run();
   cy.one('layoutstop', () => popFocus());
 
