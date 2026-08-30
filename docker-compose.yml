@@ -10,7 +10,7 @@ services:
     environment:
       - NEO4J_AUTH=neo4j/changeme-local-dev
       - NEO4J_PLUGINS=["apoc"]
-      # Tuned down for a ~500MB-usable-RAM host (Oracle Cloud Always Free micro shape) — see Implimentation-Research/.
+      # Tuned down for a ~500MB-usable-RAM host (e.g. a small free-tier cloud VM).
       - NEO4J_server_memory_heap_initial__size=192m
       - NEO4J_server_memory_heap_max__size=192m
       - NEO4J_server_memory_pagecache_size=96m

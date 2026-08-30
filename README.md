@@ -89,18 +89,50 @@ Python · FastAPI · Neo4j · Groq / Google Gemini / Cerebras (free-tier LLM fal
 Cytoscape.js (graph rendering, fCoSE layout) · Supabase (auth + session storage) · SQLite (agent state) ·
 vanilla JS/HTML/CSS, no build step
 
-## Local / VM dev (no login)
+## Running it locally
 
 This is how the project has run so far — zero auth, one shared session store. Nothing about the
 deployment steps below changes this: every new capability is off unless you explicitly configure it.
 
+**Prerequisites:** Python 3.9+, Docker (for a local Neo4j — or point at an existing Neo4j/Aura instance
+instead), and a free API key from at least one LLM provider (Groq, Gemini, or Cerebras — all have a
+no-cost tier, links are in `.env.example`).
+
+**1. Start Neo4j** (the graph database everything gets written to):
+
+```
+docker compose up -d
+```
+
+This runs Neo4j 5 Community on `bolt://localhost:7687` with the same credentials `.env.example` already
+expects (`neo4j` / `changeme-local-dev`) — nothing to configure. Its own browser UI is at
+`http://localhost:7474` if you want to inspect the graph directly with Cypher.
+
+**2. Install dependencies and configure at least one LLM key:**
+
 ```
 pip install -r requirements.txt
-cp .env.example .env   # fill in NEO4J_* and at least one LLM provider key
+cp .env.example .env
+```
+
+Open `.env` and paste in at least one of `GEMINI_API_KEY` / `GROQ_API_KEY` / `CEREBRAS_API_KEY` (each
+is free to get). Leave `NEO4J_*` as the defaults if you used step 1's Docker container.
+
+**3. Start the backend:**
+
+```
 uvicorn backend.api.app:app --reload
 ```
 
-Open `http://localhost:8000`.
+**4. Open the app** — the actual chat/graph interface is at **`http://localhost:8000/chat`**
+(`http://localhost:8000` alone is just the marketing landing page; `/docs` is the architecture write-up).
+
+**5. Use it** — type a real question ("How does an online payment work?") and wait; a full investigation
+takes anywhere from a few seconds to a couple of minutes depending on how deep it decomposes and which LLM
+provider responds. Once a graph exists, try natural-language navigation directly in the chat box:
+`Enter PayPal` (step inside an entity's own subgraph), `Show only the network view` (filter to one
+relation family), `Go back` (undo the last navigation) — none of these trigger a new investigation, they're
+instant reads over what's already been discovered.
 
 ## Deploying publicly, with Google login
 
