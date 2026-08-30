@@ -77,6 +77,66 @@ existed before the fix: `Risk checks -[PRECEDES]-> Authorization -[PRECEDES]-> P
 end-to-end UI render of the complete chain (through Settlement) is the natural follow-up once provider quota
 resets — not yet observed, and not claimed as observed.
 
+## 2026-08-30 (continued) — §0.32: bounded reachability, implemented and regression-tested live
+
+Direct implementation of §0.31's validated contract, with the user's explicit constraint honored throughout:
+"do not redesign the contract while implementing it." `frontend/chat.html` gained the three functions the
+spec named — `reach(graph, seeds, maxDepth, familyFilter, direction)`, `edgesAmong` (every edge with both ends
+in a node set, computed as a pass strictly separate from the BFS that found those nodes), and
+`truncationByNode` (per-node counts of real edges leading outside the current view) — and `computeSpaceViewport`
+plus a new `computeFocusViewport` are now built from these three primitives instead of being two
+independently hand-rolled traversals. One implementation detail was cleaned up mid-write rather than shipped
+as-is: the first draft of `computeFocusViewport`'s context-set calculation used a hard-to-verify combined
+boolean expression (`id !== focusId && !core.has(id) || parentIds.includes(id)`, correct by operator
+precedence but not obviously so at a glance); rewritten as two explicit steps (seed `contextIds` with
+`parentIds`, then add any sibling not already in `core`) before it was ever deployed, on the general
+principle that code whose correctness depends on remembering JS operator precedence is a liability regardless
+of whether it's currently correct.
+
+A disclosure badge was added to match §0.31's design exactly: `data.truncated` plus a dashed amber
+(`#ffd166`) border via a new Cytoscape style rule, and the count baked directly into the node's own label as
+a `⋯+N` suffix — anchored to the specific node with hidden structure, matching the spec's explicit preference
+for spatial anchoring over a vague page-level counter. Confirmed rendering correctly with a live screenshot,
+not just verified at the data layer: three mesh nodes each showing their own dashed border and `+1` badge
+exactly where their real hidden connections are.
+
+**Full acceptance battery, run against the actually-deployed app in a live Chrome tab (not the §0.31
+prototype) after shipping:**
+
+- Whole-graph rendering: 10/10 on the complete §0.28 synthetic corpus, zero regression from the rewrite.
+- **Cycle under Focus**: 3/3 edges, zero truncation — full recovery at Focus's *unchanged* radius, exactly
+  matching what the §0.31 prototype had already predicted, now true of the shipped code.
+- **DAG under Focus**, root or sink: same 3/4 nodes shown either way, but now discloses 2 hidden edges on the
+  two intermediate nodes symmetrically regardless of which end was clicked — previously silent in both
+  directions.
+- **Mesh under Focus**, low-degree node: same partial view, now with `+1` badges landing on exactly the three
+  nodes that have a real hidden connection — and, checked specifically because a disclosure mechanism is only
+  trustworthy if it never cries wolf: focusing the mesh's high-degree node instead gives full recovery with
+  **zero** false-positive badges. The contract only ever flags real hidden structure.
+- **Hub under Focus** on a leaf: full recovery, zero boxes formed — composition-vs-interaction distinction
+  from §0.22 unaffected by the rewrite underneath it.
+- **Enter Space on a nested workflow** (`Authorization` inside `Payment Process`): box forms correctly over
+  its 5 compositional children, `Capture` correctly shows as boundary-crossing context, and the disclosure
+  numbers land exactly where §0.31's prototype predicted — `Authorization` and `Capture` together accounting
+  for the 2 hidden nodes / 3 hidden edges one hop past the boundary.
+- **Enter Space on a doubly-nested box** (`Payment Stages` inside `Payment`): shows only its own internal
+  chain, correctly excludes the outer siblings `PayPal`/`Mastercard`, and correctly discloses its own
+  incoming parent edge as exactly 1 hidden edge.
+- **Cross-space edges**: unchanged in kind — both boxes form, both boundary-crossing interaction edges
+  survive — and the nodes reached only as context now honestly disclose that their own containing structure
+  (their real parent box) isn't shown either, a level of honesty the pre-§0.32 implementation never attempted.
+- **Projection composed with an entered Space**: `Authorization` + `flow` projection still correctly filters
+  to the temporal chain within scope, confirming §0.27's behavior survived the rewrite underneath it intact.
+- **World Model**: `graph.nodes`/`graph.edges` length and identity confirmed unchanged across every test
+  above — true by construction, since `reach`/`edgesAmong`/`truncationByNode` only ever read their `graph`
+  argument, never assign into it.
+- **Determinism**: the same graph and parameters, rendered twice in direct succession, produced byte-identical
+  node and edge sets both times. `V = f(G, root, depth, family, direction, mode)` is now a verified property
+  of the shipped code, not just a stated intention.
+
+No new Node type, no new graph type, no stored topology field, no duplicate graph — the same standard held
+since §0.29, now carried all the way through to a real, deployed, live-tested implementation.
+
 ## 2026-08-30 (continued) — §0.31: the bounded-reachability contract, specified and tested before any code
 
 Direct follow-on from §0.30's conclusion that Focus and Enter Space are one primitive with different bound

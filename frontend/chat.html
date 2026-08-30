@@ -1378,6 +1378,17 @@ const cy = cytoscape({
         'line-style': 'solid',
         'line-opacity': 0.55,
     }},
+    // docs/Architecture.md §0.31/§0.32: a bounded view may legitimately omit
+    // real structure -- it may never imply completeness while doing so. Any
+    // node with real edges leading outside the current viewport gets this
+    // mark; the count is baked into its own label (see renderGraph) so the
+    // disclosure is anchored to exactly where the missing structure is, not
+    // a vague page-level counter.
+    { selector: 'node[truncated > 0]', style: {
+        'border-color': '#ffd166',
+        'border-width': 2.5,
+        'border-style': 'dashed',
+    }},
   ],
   layout: { name: 'breadthfirst', directed: true, padding: 30, spacingFactor: 1.3 },
 });
@@ -1822,75 +1833,122 @@ async function switchSession(sessionId) {
 // here (deciding what's IN a space) and in renderGraph's box logic below.
 function isCompositionalEdge(e) { return e.family === 'composition'; }
 
-// "Enter Space" re-roots the view at current_space's own compositional
-// subgraph -- unlike computeViewport's focus mode below, it does NOT show the
-// space's own parent/siblings as context (that surrounding context is exactly
-// what's being dropped by stepping inside). Cross-space relations (any
-// non-compositional edge touching something inside the space) stay visible,
-// rendered as context nodes -- a box is a navigational boundary, not a wall.
-function computeSpaceViewport(graph) {
-  const spaceId = graph.current_space;
-  const insideIds = new Set([spaceId]);
-  const compositionalEdges = [];
-  let frontier = [spaceId];
-  while (frontier.length) {
+// docs/Architecture.md §0.31: the one general primitive Enter Space and Focus
+// are both built from, validated as a standalone prototype before ever being
+// written here. Node discovery (BFS bounded by depth/family/direction) and
+// edge inclusion are deliberately SEPARATE passes -- conflating them (keeping
+// only the specific edges a traversal happened to walk) is exactly what used
+// to silently drop a cycle's back-edge and a mesh's cross-links even when
+// every node involved was already on screen. `familyFilter` is `'all'`, an
+// array of families to require, or `['!', ...families]` to exclude them.
+function reach(graph, seeds, maxDepth, familyFilter, direction) {
+  const exclude = Array.isArray(familyFilter) && familyFilter[0] === '!';
+  const list = exclude ? familyFilter.slice(1) : familyFilter;
+  const familyMatches = (fam) => familyFilter === 'all' ? true : (exclude ? !list.includes(fam) : list.includes(fam));
+  const visited = new Set(seeds);
+  let frontier = [...seeds];
+  let depth = 0;
+  while (frontier.length && depth < maxDepth) {
     const next = [];
-    for (const id of frontier) {
-      for (const e of graph.edges) {
-        if (e.source === id && isCompositionalEdge(e) && !insideIds.has(e.target)) {
-          insideIds.add(e.target);
-          next.push(e.target);
-          compositionalEdges.push(e);
-        }
+    for (const e of graph.edges) {
+      if (!familyMatches(e.family)) continue;
+      if ((direction === 'forward' || direction === 'both') && frontier.includes(e.source) && !visited.has(e.target)) {
+        visited.add(e.target);
+        next.push(e.target);
+      }
+      if ((direction === 'backward' || direction === 'both') && frontier.includes(e.target) && !visited.has(e.source)) {
+        visited.add(e.source);
+        next.push(e.source);
       }
     }
     frontier = next;
+    depth++;
   }
+  return visited;
+}
 
-  const nonCompositionalEdges = graph.edges.filter(e =>
-    (insideIds.has(e.source) || insideIds.has(e.target)) && !isCompositionalEdge(e)
-  );
-  const contextIds = new Set();
-  for (const e of nonCompositionalEdges) {
-    if (!insideIds.has(e.source)) contextIds.add(e.source);
-    if (!insideIds.has(e.target)) contextIds.add(e.target);
+// Every edge in the FULL graph with both ends in `nodeSet` -- not just the
+// edges a traversal happened to discover (§0.31's actual fix for the
+// cycle/mesh edge-drop bug).
+function edgesAmong(graph, nodeSet) {
+  return graph.edges.filter(e => nodeSet.has(e.source) && nodeSet.has(e.target));
+}
+
+// docs/Architecture.md §0.31/§0.32: "a viewport is allowed to be incomplete;
+// it is not allowed to imply completeness when it is bounded." For every node
+// in `nodeSet`, counts real edges leading to something NOT in `nodeSet` --
+// never materialized as fake graph elements, just metadata renderGraph turns
+// into a per-node disclosure badge anchored to exactly where more exists.
+function truncationByNode(graph, nodeSet) {
+  const counts = new Map();
+  for (const e of graph.edges) {
+    const sIn = nodeSet.has(e.source), tIn = nodeSet.has(e.target);
+    if (sIn && !tIn) counts.set(e.source, (counts.get(e.source) || 0) + 1);
+    if (tIn && !sIn) counts.set(e.target, (counts.get(e.target) || 0) + 1);
   }
+  return counts;
+}
 
-  const visibleIds = new Set([...insideIds, ...contextIds]);
+// "Enter Space" re-roots the view at current_space's own compositional
+// subgraph -- unlike Focus below, it does NOT show the space's own
+// parent/siblings as context (that surrounding context is exactly what's
+// being dropped by stepping inside) -- the context step below deliberately
+// excludes the composition family for exactly this reason (an earlier draft
+// of this exact logic, tested against the nested-workflow case before being
+// shipped, used an unrestricted family filter and leaked the parent back in).
+// Cross-space relations (any non-compositional edge touching something inside
+// the space) stay visible -- a box is a navigational boundary, not a wall.
+function computeSpaceViewport(graph) {
+  const spaceId = graph.current_space;
+  const coreSet = reach(graph, [spaceId], Infinity, ['composition'], 'forward');
+  const fullSet = reach(graph, [...coreSet], 1, ['!', 'composition'], 'both');
+  const contextIds = new Set([...fullSet].filter(id => !coreSet.has(id)));
   return {
-    nodes: graph.nodes.filter(n => visibleIds.has(n.id)),
-    edges: [...compositionalEdges, ...nonCompositionalEdges],
+    nodes: graph.nodes.filter(n => fullSet.has(n.id)),
+    edges: edgesAmong(graph, fullSet),
     focusId: spaceId,
     contextIds,
     parentIds: [],
+    truncation: truncationByNode(graph, fullSet),
+  };
+}
+
+// Focus: a small, readable, family-blind neighborhood -- unlike Enter Space,
+// ANY relation type counts as "nearby" (an interaction edge from the focused
+// node is exactly as relevant to "what's around this" as a compositional
+// one). Siblings (other children of focus's own parents) are one further
+// forward hop from whatever was reached backward, shown as context -- so the
+// user can see "Transmission has siblings Generation/Distribution under
+// Electric Grid" without mistaking those siblings for Transmission's own
+// structure. The radius here is intentionally the same one that made Focus
+// readable before §0.31/§0.32 -- what changed is edge inclusion (every edge
+// among the resulting nodes, not just traversal-discovered ones, which is
+// what recovers a cycle's back-edge for free) and truncation disclosure, not
+// the bound itself.
+function computeFocusViewport(graph, focusId) {
+  const core = reach(graph, [focusId], 1, 'all', 'both');
+  const parentIds = [...core].filter(id =>
+    id !== focusId && graph.edges.some(e => e.source === id && e.target === focusId)
+  );
+  const withSiblings = parentIds.length ? reach(graph, parentIds, 1, 'all', 'forward') : new Set();
+  const fullSet = new Set([...core, ...withSiblings]);
+  const contextIds = new Set(parentIds);
+  for (const id of withSiblings) if (!core.has(id)) contextIds.add(id);
+  return {
+    nodes: graph.nodes.filter(n => fullSet.has(n.id)),
+    edges: edgesAmong(graph, fullSet),
+    focusId,
+    contextIds,
+    parentIds,
+    truncation: truncationByNode(graph, fullSet),
   };
 }
 
 function computeViewport(graph) {
   if (graph.current_space) return computeSpaceViewport(graph);
   const focusId = graph.current_entity;
-  if (!focusId) return { nodes: graph.nodes, edges: graph.edges };
-
-  const children = graph.edges.filter(e => e.source === focusId);
-  const parentEdges = graph.edges.filter(e => e.target === focusId && e.source !== focusId);
-  const parentIds = parentEdges.map(e => e.source);
-
-  // Siblings: other children of the same parent(s) as focus, shown as context
-  // (same tier as the parent, not as focus's own children) so the user can see
-  // "Transmission has siblings Generation/Distribution under Electric Grid"
-  // without those siblings being mistaken for Transmission's own structure.
-  const siblingEdges = graph.edges.filter(e => parentIds.includes(e.source) && e.target !== focusId);
-
-  const contextIds = new Set([...parentIds, ...siblingEdges.map(e => e.target)]);
-  const visibleIds = new Set([focusId, ...children.map(e => e.target), ...contextIds]);
-
-  return {
-    nodes: graph.nodes.filter(n => visibleIds.has(n.id)),
-    edges: [...children, ...parentEdges, ...siblingEdges],
-    focusId,
-    contextIds,
-    parentIds,
-  };
+  if (!focusId) return { nodes: graph.nodes, edges: graph.edges, truncation: new Map() };
+  return computeFocusViewport(graph, focusId);
 }
 
 // docs/Architecture.md §0.27: user-facing projection name -> the relation
@@ -2009,6 +2067,15 @@ function renderGraph(graph) {
       if (connType) data.label = n.label + '\n(' + connType + ')';
     }
     if (boundaryKindById.has(n.id)) data.boxColor = colorForBox(n.id);
+    // docs/Architecture.md §0.31/§0.32: disclose, never imply completeness --
+    // a node with real edges leading outside this bounded view gets a count
+    // baked into its own label plus the dashed-amber style above, anchored to
+    // exactly where more exists rather than a vague page-level counter.
+    const hiddenCount = view.truncation && view.truncation.get(n.id);
+    if (hiddenCount) {
+      data.truncated = hiddenCount;
+      data.label = data.label + '\n⋯+' + hiddenCount;
+    }
     eles.push({ data, classes: isFocus ? 'focus' : (isContext ? 'context' : '') });
   }
   // A box already IS the connection between its owner and whatever it

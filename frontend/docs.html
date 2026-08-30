@@ -809,6 +809,21 @@ flowchart LR
 
         <div class="report-card">
           <div class="report-head">
+            <span class="report-title">Bounded reachability — Focus/Enter Space unification</span>
+            <span class="report-verdict pass">Implemented &amp; verified</span>
+          </div>
+          <p class="report-row"><b>Method:</b> rebuilt Focus and Enter Space on one shared primitive
+            (bounded search + a strictly separate edge-inclusion pass), specified and prototype-tested first,
+            then implemented with the same radius Focus always had — and regression-tested against the full
+            topology matrix, live, after deploying.</p>
+          <p class="report-row"><b>Result:</b> a cycle now fully survives Focus with zero information loss;
+            a mesh or DAG that genuinely can't fit in a small view now says so — a visible marker on exactly
+            the node with more beyond it — instead of silently pretending to be complete. Verified
+            deterministic: the same graph and parameters always produce the same view.</p>
+        </div>
+
+        <div class="report-card">
+          <div class="report-head">
             <span class="report-title">Abstraction levels — model validation</span>
             <span class="report-verdict pass">No new schema needed</span>
           </div>

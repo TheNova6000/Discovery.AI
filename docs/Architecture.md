@@ -1531,6 +1531,56 @@ genuinely exists among whatever nodes it already shows, and (b) say so when some
 prototype lives only in an ephemeral browser console session, deliberately kept out of the codebase until the
 spec is accepted. §0.32 is scoped as implementation + full topology regression against this exact contract.
 
+## 0.32 Bounded reachability, implemented — Focus and Enter Space rebuilt on one primitive (2026-08-30)
+
+**[VERIFIED], deployed and live-tested against the real app, not just the §0.31 prototype.** Full detail and
+every test result are in `docs/Memory.md`'s entry of the same name; this is the pointer. §0.31's contract was
+implemented exactly as specified, with the explicit constraint honored: the contract itself was not
+redesigned during implementation. `frontend/chat.html` gained `reach(graph, seeds, maxDepth, familyFilter,
+direction)` (BFS over nodes, bounded by depth/family/direction), `edgesAmong` (every edge in the full graph
+with both ends in a node set — a pass kept strictly separate from the traversal that found those nodes, the
+actual fix for the cycle/mesh edge-drop bug), and `truncationByNode` (per-node counts of real edges leading
+outside the current view). `computeSpaceViewport` and a new `computeFocusViewport` are now both built from
+these three functions instead of two independently hand-rolled traversals; `computeViewport` dispatches
+between them unchanged. A disclosure badge (`data.truncated`, a dashed amber border, and a `⋯+N` suffix baked
+into the node's own label — anchored to the specific node with hidden structure, not a page-level counter)
+renders whenever `truncationByNode` reports a nonzero count.
+
+**Every acceptance criterion named for this pass, verified live against the deployed app (not the prototype)
+in a real Chrome tab:**
+
+- Whole-graph rendering: still 10/10 on the full §0.28 synthetic topology corpus, zero regression.
+- Cycle under Focus: **3/3 edges, zero truncation** — fully recovered at Focus's unchanged radius, matching
+  §0.31's prototype result exactly.
+- DAG under Focus, root or sink: same 3/4 nodes shown either way (irreducible at a small bounded depth), but
+  now correctly discloses 2 hidden edges on the two intermediate nodes in both directions — symmetric,
+  honest, no longer silent.
+- Mesh under Focus, low-degree node: same 4/8 edges shown, now with `+1` badges on exactly the three nodes
+  that have a real hidden connection to the unseen node. Mesh under Focus, high-degree node: full recovery,
+  **zero** false-positive truncation badges — the contract only ever reports real hidden structure, never
+  flags a genuinely complete view.
+- Hub under Focus on a leaf: full recovery, zero boxes formed (interaction ≠ composition, unchanged).
+- Enter Space on a nested workflow (`Authorization`, nested inside `Payment Process`): box correctly formed
+  over its 5 compositional children, the cross-boundary `Capture` correctly shown as context, and the exact
+  predicted disclosure from §0.31 — `Authorization` and `Capture` together accounting for the 2 hidden nodes
+  / 3 hidden edges one hop past what's shown.
+- Enter Space on a doubly-nested box (`Payment Stages`, nested inside `Payment`): correctly shows only its
+  own internal chain, correctly excludes the outer siblings (`PayPal`, `Mastercard`), correctly discloses its
+  own incoming parent edge as 1 hidden edge.
+- Cross-space edges: unchanged — both boxes form, both boundary-crossing interaction edges survive, and the
+  nodes reached only as context now honestly disclose that their own containing structure isn't shown either.
+- Projection composed with an entered Space (`Authorization`, `flow` projection): still correctly filters to
+  the temporal chain within scope — §0.27's behavior unaffected by the underlying rewrite.
+- World Model: `graph.nodes`/`graph.edges` array identity and length confirmed unchanged across every single
+  test above — navigation causes zero graph mutation, by construction (`reach`/`edgesAmong`/`truncationByNode`
+  only ever read).
+- Determinism: the same graph and parameters, called twice, produced byte-identical node and edge sets both
+  times — `V = f(G, root, depth, family, direction, mode)` holds as a real property of the shipped code, not
+  an aspiration.
+
+No new Node type, no new graph type, no stored topology field, no duplicate graph — the standard held from
+§0.29 through this pass.
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |
