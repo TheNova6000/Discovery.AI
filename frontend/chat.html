@@ -187,9 +187,15 @@
   main {
     flex: 1;
     display: grid;
-    grid-template-columns: 200px minmax(340px, 440px) 1fr;
+    grid-template-columns: 200px 400px 1fr;
     min-height: 0;
+    position: relative;
+    transition: grid-template-columns 0.2s ease;
   }
+  main.resizing { transition: none; }
+  /* grid-template-columns itself is set inline by JS (applyChatWidth) --
+     collapsing the rail column width is handled there too, so its actual
+     numeric value stays in one place instead of duplicated in CSS. */
 
   /* ---------- session rail ---------- */
   #session-rail {
@@ -198,6 +204,48 @@
     border-right: 1px solid var(--border);
     min-height: 0;
     padding: 14px 10px;
+    overflow: hidden;
+  }
+  main.rail-collapsed #session-rail { padding: 14px 0; opacity: 0; pointer-events: none; }
+  #rail-toggle {
+    position: absolute;
+    top: 50%;
+    left: 200px;
+    transform: translate(-50%, -50%);
+    width: 18px;
+    height: 34px;
+    background: #000;
+    border: 1px solid var(--border-strong);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    transition: left 0.2s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  main.rail-collapsed #rail-toggle { left: 0px; }
+  #rail-toggle:hover { color: #fff; border-color: #fff; }
+  #chat-resize-handle {
+    position: absolute;
+    top: 0; bottom: 0; right: -4px;
+    width: 8px;
+    cursor: col-resize;
+    z-index: 4;
+  }
+  #chat-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 0; bottom: 0; left: 3px;
+    width: 1px;
+    background: var(--border);
+    transition: background 0.15s ease, width 0.15s ease;
+  }
+  #chat-resize-handle:hover::after, #chat-resize-handle.active::after {
+    background: var(--hud);
+    width: 2px;
   }
   #new-chat-btn {
     position: relative;
@@ -264,6 +312,8 @@
     flex-direction: column;
     border-right: 1px solid var(--border);
     min-height: 0;
+    position: relative;
+    min-width: 0;
   }
   #messages {
     flex: 1;
@@ -882,7 +932,9 @@
     <button id="new-chat-btn" onclick="newChat()">+ New chat<span class="btn-corner tl"></span><span class="btn-corner br"></span></button>
     <div id="session-list"></div>
   </div>
+  <button id="rail-toggle" title="Toggle session list">&#171;</button>
   <div id="chat-panel">
+    <div id="chat-resize-handle"></div>
     <div id="messages"></div>
     <div class="examples" id="examples">
       <div class="section-label" style="margin-bottom:8px"><span>try</span><span class="line"></span></div>
@@ -1252,6 +1304,60 @@ function toggleMobilePanel(panelEl) {
 document.getElementById('mobile-menu-btn').addEventListener('click', () => toggleMobilePanel(mobileSessionRailEl));
 document.getElementById('mobile-graph-btn').addEventListener('click', () => toggleMobilePanel(mobileGraphPanelEl));
 mobileBackdropEl.addEventListener('click', closeMobilePanels);
+
+// ---------- desktop layout: collapsible session rail + resizable chat panel ----------
+// Pure view-state convenience, same status as everything else that reads/writes
+// localStorage in this file -- never sent to the backend, never affects what
+// session/graph data exists, only how much screen the user has given each panel.
+const mainEl = document.querySelector('main');
+const railToggleEl = document.getElementById('rail-toggle');
+const chatResizeHandleEl = document.getElementById('chat-resize-handle');
+const CHAT_WIDTH_MIN = 300;
+const CHAT_WIDTH_MAX = 720;
+
+function applyChatWidth(px) {
+  const clamped = Math.max(CHAT_WIDTH_MIN, Math.min(CHAT_WIDTH_MAX, px));
+  const railWidth = mainEl.classList.contains('rail-collapsed') ? '0px' : '200px';
+  mainEl.style.gridTemplateColumns = `${railWidth} ${clamped}px 1fr`;
+  return clamped;
+}
+
+const savedChatWidth = parseInt(localStorage.getItem('discoveryai_chat_width'), 10);
+applyChatWidth(Number.isFinite(savedChatWidth) ? savedChatWidth : 400);
+if (localStorage.getItem('discoveryai_rail_collapsed') === '1') {
+  mainEl.classList.add('rail-collapsed');
+  railToggleEl.innerHTML = '&#187;';
+  applyChatWidth(savedChatWidth || 400);
+}
+
+railToggleEl.addEventListener('click', () => {
+  const collapsed = mainEl.classList.toggle('rail-collapsed');
+  railToggleEl.innerHTML = collapsed ? '&#187;' : '&#171;';
+  localStorage.setItem('discoveryai_rail_collapsed', collapsed ? '1' : '0');
+  const currentWidth = parseInt(localStorage.getItem('discoveryai_chat_width'), 10) || 400;
+  applyChatWidth(currentWidth);
+});
+
+let resizing = false;
+chatResizeHandleEl.addEventListener('mousedown', (e) => {
+  resizing = true;
+  mainEl.classList.add('resizing');
+  chatResizeHandleEl.classList.add('active');
+  e.preventDefault();
+});
+window.addEventListener('mousemove', (e) => {
+  if (!resizing) return;
+  const railWidth = mainEl.classList.contains('rail-collapsed') ? 0 : 200;
+  applyChatWidth(e.clientX - railWidth);
+});
+window.addEventListener('mouseup', () => {
+  if (!resizing) return;
+  resizing = false;
+  mainEl.classList.remove('resizing');
+  chatResizeHandleEl.classList.remove('active');
+  const width = mainEl.style.gridTemplateColumns.split(' ')[1];
+  localStorage.setItem('discoveryai_chat_width', parseInt(width, 10));
+});
 
 const messagesEl = document.getElementById('messages');
 const inputEl = document.getElementById('input');
