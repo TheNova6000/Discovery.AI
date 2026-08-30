@@ -4,6 +4,563 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-08-30 (continued) — §0.28: topology-preserving extraction — the renderer was never the bug
+
+After §0.27 shipped, the user watched the live UI and reported the tree "coming back," and asked for a
+graph-topology test suite before touching anything: "don't fix anything yet... isolate the question: can our
+visualization system actually render arbitrary graph topology?" Built a synthetic 10-topology corpus (tree,
+network, DAG, cycle, nested box, box+network crossing a boundary, workflow with a retry cycle, nested
+workflow, hub, mesh) and fed each directly into the deployed `renderGraph` in a live Chrome tab tunneled to
+the VM — no LLM, no Neo4j, no intent parser, exactly as asked. All 10 passed: correct nesting where
+composition edges existed, zero invented boxes for interaction-only graphs, DAG convergence preserved
+without duplicating the converging node, full cycles preserved with no root invented, cross-boundary edges
+surviving in both single- and double-nested cases. The box/edge rendering logic §0.22 built turned out to
+already be topology-agnostic.
+
+Then tested `computeViewport`'s focus/zoom windowing specifically (the code path real navigation uses,
+distinct from `renderGraph`'s box logic) and found a real, separate limitation: focusing on a cycle's node
+silently dropped its back-edge (a 3-cycle rendered as a 2-edge chain, no indication anything was hidden);
+focusing on a low-degree mesh node dropped an entire node and 5/8 edges, collapsing to what visually reads as
+a 3-star; focusing on the SAME mesh's highest-degree node happened to recover the whole thing by accident
+(the "sibling of parent" recovery rule only works when the parent is highly connected) — meaning the same
+graph's apparent shape depends on which node the user happens to click, not on the graph itself. Documented,
+not fixed — the user's explicit sequencing was to isolate this from the extraction question, which turned
+out to be the more urgent one.
+
+**The real test: does the actual product pipeline (natural language -> LLM investigation -> graph
+construction -> intent-parsed navigation) preserve topology, not just the renderer in isolation.** Ran three
+fresh Chrome sessions (each genuinely isolated — caught and fixed my own test-harness bug along the way: an
+early `window.newChat = function() {...}` helper shadowed the page's real `newChat()`, which is what
+`new-chat-btn`'s onclick calls, silently turning "start a new chat" into a no-op and contaminating Test 2's
+first attempt with Test 1's leftover graph; fixed by never overriding page globals and verifying via
+`/sessions` that a new session_id actually appeared before proceeding). Test 1 ("how is a computer organized
+from hardware to software") produced a genuine, correct tree. Test 2 ("how do PayPal, Mastercard, Visa,
+banks, merchants interact") produced a genuine network — this doubled as an unplanned live regression test of
+the exact original §0.22 PayPal/Mastercard containment bug, with fresh LLM-generated content instead of a
+manual reproduction: `PayPal -[USES]-> Mastercard` rendered as a crossing edge, Mastercard stayed outside
+PayPal's box, and the result held under focus on both PayPal (the hub) and Mastercard (a leaf) — the earlier
+fix generalizes. Test 3 ("the complete lifecycle of an online payment... show where branches converge") is
+where it broke: the stored graph was `decomposes_into` from the root to Capture/Authorization/Risk
+checks/"Capture & Settlement Process" (Clearing quietly disappeared, folded into that last node), with
+**zero** temporal edges anywhere, despite the master agent's own reasoning text explicitly stating "All
+constituent parts of the lifecycle (risk checks, authorization, capture, clearing, settlement) have already
+been provided" and describing where they converge — the agent *knew* the sequence and said so in prose, but
+never turned it into a graph edge.
+
+Root-caused by reading the actual code, not guessing: `GroundDecision` (`backend/questions/models.py`)
+already supports a non-compositional `relationship_type` for decompose, but only for a new-child-to-its-
+current-parent edge — decompose is sequential (one sub-question per call, "not a batch covering several
+unknowns at once," by explicit docstring), so it structurally has no way to relate two siblings it discovered
+on different turns. The only mechanism that COULD express "Risk checks precedes Authorization" is
+`extract_relations`, and its system prompt (`backend/questions/relation_extraction.py`) asked for "actor,
+causal, or functional" relationships and listed detects/causes/enables/depends on/routes to/regulates as
+examples — temporal/sequential relations were never mentioned as a category at all, even though `precedes`/
+`follows` already exist as real TEMPORAL-family entries in §0.25's own registry. This precisely explains the
+Test 2 vs. Test 3 asymmetry: Test 2's question was actor/interaction-shaped, squarely inside what the prompt
+already asked for; Test 3's was sequence-shaped, entirely outside it.
+
+**Fix, exactly as scoped and no more:** added one paragraph to `extract_relations`'s system prompt naming
+temporal/sequential/process relationships as explicitly in scope (precedes/follows, happens_before/after,
+branch/convergence), with worked examples ("Risk checks precede authorization" -> `PRECEDES`, "streams
+converge during clearing" -> `CONVERGES_AT`). Did not touch decompose, the relation registry, box assignment,
+the renderer, viewport, or projections — a single-variable change so a topology improvement could be
+attributed to this one thing and nothing else. Redeployed, restarted uvicorn, re-ran Test 3 from a
+completely fresh Chrome session with the identical question. Mid-run, all three LLM providers hit
+simultaneous exhaustion (Groq's daily token cap; Gemini's actual 20-requests/day free tier ceiling, not just
+a per-minute limit; Cerebras's 402 billing-required) before the investigation reached a final synthesized
+answer, so the in-memory session mirror (`/graph`) never refreshed and the live UI never got to render a
+result — but Neo4j had already received the writes from the ground-level sub-questions that DID complete
+before the exhaustion hit. Queried Neo4j directly (`scripts/verify_test3_extraction.py`, deliberately
+bypassing both the LLM and the in-memory mirror) and confirmed a genuine temporal chain now exists where zero
+existed before the fix: `Risk checks -[PRECEDES]-> Authorization -[PRECEDES]-> Payment Capture
+-[PRECEDES]-> Clearing`, plus a root-level `-[precedes]-> Authorization` edge. The fix works; a full
+end-to-end UI render of the complete chain (through Settlement) is the natural follow-up once provider quota
+resets — not yet observed, and not claimed as observed.
+
+## 2026-08-30 (continued) — §0.27: Semantic Graph Projections, and a real backend/frontend scope bug caught by live verification
+
+The user reframed the research question before any code: not "how to make flow graphs" but "how can one
+world model produce multiple semantically correct graph projections without changing the underlying
+knowledge," explicitly naming who must NOT decide a projection's contents — "not the LLM" — and giving the
+anti-pattern to avoid outright: user says "show payment as a flow," LLM says "okay, I'll investigate payment
+again" is exactly the architecture this project has been escaping since §0.22's box-nesting fix. §0.25's
+`PROJECTION_FAMILIES` registry (added this pass) is the deterministic answer: a fixed name→family table
+(`structure`→COMPOSITION, `flow`→TEMPORAL, `causal`→CAUSAL, `dependency`→DEPENDENCY, `network`→INTERACTION),
+consulted by a new `set_projection` intent and `handle_set_projection` handler that makes zero Neo4j writes
+and zero LLM calls — it only re-filters `session.to_payload()`'s already-known edges by their `family`
+field. The hard invariant the user demanded (`G_after == G_before` — literally the same nodes/edges after a
+view switch) holds by construction: the handler never calls `create_relationship`/`find_or_create_entity`/
+`_run_investigation`, only reads. A projection with zero matching relations reports an honest gap
+("the model doesn't currently contain any precedes/follows relationships for what's in view... try
+investigating further") rather than silently triggering a new investigation or rendering a misleadingly
+empty view with no explanation.
+
+**Live verification (backend, `scripts/verify_projections.py`, direct against the real
+`SessionState`/`handle_set_projection` code — no LLM in the loop, since the code under test makes none by
+design, sidestepping that day's Groq TPD exhaustion and a broken Gemini instructor mode entirely) caught a
+real consistency bug before it shipped:** the backend's gap-check originally scanned the WHOLE accumulated
+session graph (`session.to_payload()["edges"]`, unscoped), while the frontend's `applyProjection` was applied
+on top of `computeViewport`'s tight 1-hop focus neighborhood. Confirmed live in Chrome via direct
+`renderGraph`/`applyProjection` calls with a synthetic graph: a "network" projection with an interaction
+edge between two of the focus entity's own children reported "0 nodes visible" in the browser because
+neither endpoint was the focus entity itself — while the backend, checking the whole graph, would have
+reported the match as found. Reply and render would have disagreed. Fixed by giving both layers the exact
+same scope rule instead of duplicating ad-hoc logic: if `current_space` is set, scope to that space's own
+compositional-BFS-reachable subgraph (`_space_reachable_ids` in `backend/api/app.py`, a direct Python mirror
+of `computeSpaceViewport`'s reachability walk in `chat.html` — the same "don't hand-duplicate a traversal
+across two languages and hope they stay in sync" lesson §0.25's registry already existed to prevent, applied
+here to a second traversal); otherwise scope to the whole known graph. Re-verified after the fix, in both
+places: Python (`scripts/verify_projections.py`, 8 checks — structure/causal/network showing correct
+relations, flow/dependency producing honest gaps, `all` resetting cleanly, `to_payload` family-tagging
+correct, and the new space-scoping case: an interaction edge outside the entered space is correctly hidden,
+the same edge becomes visible once the encompassing space is entered) and the live browser (direct
+`renderGraph` calls reproducing the exact same PayPal/Mastercard/Visa-Network space-scoping scenario,
+confirming the two layers now agree pixel-for-pixel with what the chat reply says). `graph.nodes`/
+`graph.edges` arrays were confirmed byte-identical in length and content before and after every projection
+switch in both the Python and JS tests — the `G_after == G_before` invariant holds in practice, not just in
+the architecture description.
+
+## 2026-08-30 (continued) — §0.26: relations get their own evidence, additively, no migration
+
+The user pushed one design question before any code: "what exactly is a relationship in this system?"
+Answered by reading the actual code rather than theorizing: **relation identity — (source, type,
+target) — was already correct**, before any of this session's work. `create_relationship`'s own Cypher
+was already `MERGE (a)-[r:RELATES_TO {relationship_type: $relationship_type}]->(b)` — re-discovering the
+same relation across investigations was already reusing the same edge, not duplicating it. What was
+missing was evidence: neither of the two `create_relationship` call sites in `ground_agent.py` ever
+passed `properties`, so every relation's `justification` text (already being computed for
+`resolve_entity`'s own use) was printed to a log line and thrown away.
+
+**The real fork this pass had to resolve:** Neo4j relationships can't be the source/target of another
+edge — only nodes can. Attaching a Claim to a relation therefore means either (a) reifying every
+relationship as its own node (the "correct" answer per this project's own much older §0.6-§0.9
+conclusion that Node/Relation collapse to one primitive, Wikidata's statement-node precedent already
+cited there) — a real migration touching every existing traversal function
+(`get_decomposition`/`get_neighbors`/`zoom_in`/§0.22's box logic/§0.24's space logic), or (b) an additive
+side-channel that leaves every existing native edge and every existing traversal function completely
+untouched. Chose (b) deliberately, explicit about the tradeoff: `attach_relation_claim` (new,
+`backend/graph/interface.py`) creates an ordinary `Claim` node (the exact same shape already used for
+Questions) and connects it via a new `HAS_RELATION_CLAIM` edge from the source entity, carrying
+`relationship_type`/`target_id`/`stance` as edge properties — the native `RELATES_TO` edge this is
+evidence FOR is never modified. Zero regression risk to anything §0.17-§0.25 already verified live.
+
+**Confidence is a stated simple heuristic, not a fabricated rigor:** `get_relation_confidence` starts at
+0.5, +0.15 per supporting claim, -0.25 per contradicting one, clamped to [0.05, 0.95] — named honestly in
+the docstring as "not a rigorous Bayesian update." Deliberately NOT asking the LLM to self-report a
+confidence number on `CandidateRelation` (would reopen the exact schema-flakiness class of failure just
+stabilized earlier this same session) — every extraction-sourced claim gets a fixed baseline (0.7) and
+every decompose-structural claim gets a lower one (0.6), honestly distinguishing "text-sourced evidence"
+from "the agent's own structural reasoning" as different provenance kinds.
+
+**Live-verified against the user's own acceptance table** (`scripts/verify_relation_claims.py`, run
+twice against the VM's real Neo4j — the second run's doubled counts are just because the first
+timed-out SSH connection had actually completed in the background, not a bug): the native `RELATES_TO`
+edge count stayed at exactly 1 no matter how many claims were attached or how many times the script ran
+— the additive design holds. Confidence arithmetic matched the formula exactly (4 supports/1 contradict
+→ 0.85; 4 supports/2 contradicts → 0.60). A second target's claims never leaked into the first's count.
+A never-evidenced relation correctly reported `confidence: None`, not a fabricated default.
+
+**Named, not resolved — a real tension in the user's own acceptance table:** "no evidence -> never enters
+world model" is right for extraction-sourced interaction relations (already true: `is_relation_worthy`/
+`resolve_entity` already gate what gets persisted), but taken literally it would break decompose's own
+structural relations, which are this system's entire backbone and were never meant to require citation-
+style evidence the same way. Resolved by treating "the agent's own decompose reasoning" as a real,
+distinct, lower-confidence evidence kind rather than forcing decompose to either fabricate false
+citations or stop attaching evidence at all — not a workaround, a genuine acknowledgment that structural
+and evidentiary provenance are different things.
+
+## 2026-08-30 (continued) — §0.25: one relation-type registry replacing three hand-synced hardcoded lists
+
+Direct follow-on from §0.24: the user asked to move to "Relation Semantics" but explicitly wanted it
+researched, not invented ("the exact taxonomy should be researched and tested, not invented casually").
+Grounded the design in real prior art rather than adopting the user's own suggested family list uncritically:
+Winston, Chaffin & Herrmann's 1987 taxonomy of part-whole relations (*Cognitive Science*, foundational to
+WordNet's own part-of treatment) shows "composition" is actually six distinct meronymic subtypes with
+**non-uniform transitivity** — justifies keeping this project's single COMPOSITION bucket as a documented
+simplification, not an oversight, since nothing here yet reasons across chained compositional edges. OWL/RDF
+property characteristics (transitive/symmetric/inverse-of, W3C OWL Reference) are the established,
+better-than-guessed vocabulary for "what does this relation type let you infer" — used directly instead of inventing
+bespoke behavior flags.
+
+**The actual forcing bug this section fixes, found while writing the research up:** §0.24's own code had
+already accumulated a hardcoded "is this compositional" set duplicated in THREE places (chat.html's box
+logic, chat.html's space-viewport logic, app.py's `handle_enter_space`), with a comment on the newest copy
+admitting it "must stay in sync with that JS copy" by hand. That is exactly the kind of drift risk this
+project's own `_RELATIONSHIP_TYPE_SYNONYMS`/`_BANNED_RELATIONSHIP_TYPES` tables were already trying to avoid
+in one place at a time — now unified.
+
+**Built:** `backend/questions/relation_types.py` — one `RELATION_TYPES` registry keyed by canonical
+relationship_type, carrying `family` (composition/causal/temporal/dependency/interaction/classification)
+plus OWL-grounded `transitive`/`symmetric`/`inverse_of` fields (declared now, consumed by nothing yet, on
+purpose — no traversal/inference code reads them this pass). `is_compositional()`/`get_family()` are the
+only two functions anything else calls. Rewired: `relation_extraction.py`'s worthiness check,
+`app.py`'s `handle_enter_space`, and — the one that actually eliminates the duplication —
+`SessionState.to_payload()` now computes `family` per edge server-side, so `chat.html`'s box and
+space-viewport logic both call one `isCompositionalEdge(e)` reading `e.family` instead of maintaining
+their own copy of the type list. Verified end-to-end on the VM (not just unit-level): a live
+`SessionState` round-trip confirmed `decomposes_into → family: "composition"` and `USES → family:
+"interaction"` — the exact two relationship types today's live PayPal/Payment tests actually produced.
+
+Temporal relations (`precedes`/`follows`, transitive, mutually inverse) were seeded in the registry
+specifically because §0.23 named "most relationship_type values don't carry enough structure to
+auto-derive a flow ordering" as the concrete blocker for a future flow/causal View projection (the
+user's own proposed §0.27) — not building that projection now, just making sure the data model isn't
+still missing this when that pass starts.
+
+**Named but explicitly not fixed this pass** (a precise gap, not a vague aspiration): relation evidence.
+Checked against the real code: `attach_claim` attaches a Claim to a Question, never to a Relation — a
+`create_relationship` call (from decompose or from `extract_relations`) has zero provenance of its own
+today, unlike a ground-level answer's Claims. `extract_relations` already produces a `justification`
+field per candidate (§0.22) that today only gets printed to a log line and thrown away. The scoped future
+slice is attaching that existing field to the created Relationship as real provenance — not decided or
+built here, per the user's own "first make this reliable, then reasoning becomes interesting" ordering.
+
+## 2026-08-30 (continued) — §0.24 built and live-verified: Focus vs. Enter Space, with a real acceptance matrix
+
+Direct implementation of §0.23's named "smallest real slice": two genuinely different navigation
+actions the system was conflating under `zoom_in`. **Focus** (existing `zoom_in`/`computeViewport`
+behavior, unchanged) shows a 1-hop neighborhood while keeping surrounding context (parent/siblings)
+visible. **Enter Space** (new) re-roots the rendered view at an entity's own compositional subgraph,
+dropping that surrounding context — while cross-space relations stay visible, per §0.23's "a box is a
+navigational boundary, not a wall."
+
+Built exactly to the user's own acceptance matrix, verified live against each testable row rather than
+assumed:
+
+- New `Intent` actions `enter_space`/`exit_space` (backend/questions/intent.py), clearly distinguished
+  from `zoom_in` in the prompt ("enter/go into/step into" vs. "show/open/focus/where is").
+- `SessionState` gained `current_space`/`space_history` (backend/api/session.py), persisted the same
+  additive-migration way `pending_action` was (backend/api/db.py: `alter table ... add column if not
+  exists`).
+- `handle_enter_space` (backend/api/app.py): resolves the entity, syncs its decomposition, and checks
+  for COMPOSITIONAL children only (`_COMPOSITIONAL_TYPES`, the same set §0.22's box fix uses) before
+  entering — a leaf reports gracefully and changes nothing. `handle_exit_space` pops `space_history`.
+- `chat.html` gained `computeSpaceViewport`, a genuinely different computation from focus-mode
+  `computeViewport`: BFS outward from the entered space following only compositional edges to find
+  what's "inside," then separately collecting every non-compositional edge touching that set as visible
+  cross-space context — never folded into containment.
+
+**Live-verified on a real "How does payment work?" investigation** (fresh, since the VM's in-memory
+session store doesn't survive a restart): `Enter payment` correctly replied "Entered payment. Its own
+space contains: Payment Methods, Payment network, ... Payment flow" and produced a compound box with 13
+children AND a genuinely nested sub-box (`Authorization`, itself containing `Authorization Enforcement`/
+`Engine`/`Policies` from earlier-accumulated Neo4j history) — while `Payment network -[ROUTES_TO]->
+payment`, `-[TRANSFERS_FUNDS_TO]-> acquiring institution`, `-[ROUTES_DATA_BETWEEN]-> customer's bank`,
+and `Authorization Policies -[EXPRESS_IN]-> Rego` all rendered as real, visible edges crossing the box
+boundary, confirmed via direct Cytoscape state inspection, not just a screenshot. `go back` correctly
+replied "Back to the top level," restoring the original focus-mode view. `Enter XACML` (a leaf, reached
+only via a non-compositional `EXPRESS` relation) correctly declined — "XACML has no deeper compositional
+space to enter yet... Try 'go deeper into XACML'... or 'zoom in'" — and left `current_space` and the
+rendered graph completely unchanged, exactly matching the acceptance matrix's leaf row.
+
+## 2026-08-30 (continued) — Graph Spaces: a research pass, not a rewrite
+
+The user asked for a dedicated design pass on "Graph Spaces" (their term) before building further —
+formal semantics for scoped subgraphs, overlap, cross-space relations, and multi-projection views over
+one World Model. Researched real prior art rather than designing from first principles: modular
+ontology architecture (the "root-thematic-foundations" pattern — modules as "conceptually coherent
+subparts of a domain," topic-centered subgraph extraction) is the direct precedent for Graph Space
+itself; Overlapping Stochastic Block Models + BubbleSets/KelpFusion (already surveyed in §0.22) confirm
+overlapping group membership is a well-studied, real phenomenon with an established rendering fix, not
+an edge case being invented; multiple-view/multiform visualization ("no single projection method yields
+universally optimal layouts") is the formal grounding for "one world, many projections" instead of
+maintaining separate graph types.
+
+**The load-bearing finding: Graph Space isn't a new primitive.** It's what already falls out of
+`boundary_kind` (§0.21) plus the compositional-vs-interactional distinction on `relationship_type` just
+fixed this same day (§0.22) — a Node with `boundary_kind` set, plus whatever it reaches via purely
+compositional edges, computed on read. No new schema, no new storage — this settles as a View-layer
+concept, exactly where §0.15 already drew that line. The four questions the user posed all got real,
+grounded (not guessed) answers, documented in full in `docs/Architecture.md` §0.23: spaces CAN overlap
+in the World Model today (rendering can't yet — bubblesets, still deferred, now for a precise reason);
+relations crossing spaces is no longer theoretical, it's what §0.22's own live fix already demonstrated;
+and "open node" turns out to conflate two real, different operations (neighborhood focus vs. entering a
+space as the new top-level scope) that the system should eventually distinguish, not two names for the
+same thing. The multi-projection half (flow/causal/dependency/timeline views) surfaced one concrete,
+named gap: most `relationship_type` values today don't carry enough structure to auto-derive an
+ordering — a real open question for the NEXT pass, not solved here.
+
+No code this pass, per the user's own explicit instruction — design and citations only.
+
+## 2026-08-30 (continued) — Composition vs. interaction: the real bug behind the Mastercard-in-PayPal's-box problem
+
+The user's response to the PayPal/Mastercard screenshot named the actual architectural bug precisely,
+not just its symptom: the box-assignment logic treated ANY edge out of a bounded entity as containment,
+when containment and interaction are a genuine semantic distinction the pipeline already records and
+had simply stopped checking. Their stated rule, worth keeping verbatim: **"Investigation may discover
+knowledge. It may not determine the topology of that knowledge."** A box is a navigational boundary,
+not a claim about what's inside it — relations should cross box boundaries freely when that's what the
+evidence says, not get swallowed into containment just because one endpoint happens to be boxed.
+
+Confirmed the exact live instance before fixing anything: `GET /graph` showed `PayPal -[USES]->
+Mastercard` and `PayPal -[uses_network]-> Mastercard` sitting right next to `Payment System
+-[decomposes_into]-> Mastercard` — genuine, correctly-typed relations from §0.17/§0.18/§0.22's own
+extraction work, which the renderer was blindly treating as compositional just because their source
+(`PayPal`) had `boundary_kind` set. The data was already right; only `chat.html`'s box-assignment
+logic was wrong. Fix: box/compound-parent assignment now checks the edge's actual `relationship_type`
+against a small compositional set (`decomposes_into`, `is_part_of`, `part_of`, `component_of`,
+`consists_of`, `contains`) before treating it as containment — every other relationship_type (`uses`,
+`routes_to`, `serves`, `connects_to`, ...) renders as an ordinary visible edge, crossing box boundaries
+freely, exactly as the user specified. Zero backend changes needed — this was purely a frontend
+rendering bug, since the correct semantic distinction was already present in the data the whole time.
+
+Verified on the SAME live PayPal/Mastercard graph, no new investigation needed (a pure rendering fix
+against already-persisted data): Mastercard's Cytoscape `parent` changed from `"PayPal"` (wrong) back
+to `"Payment System"` (its real compositional parent) after the fix, `isParent: false` (no longer
+wrongly absorbing containment), and the `USES`/`uses_network` edges now render as real, visible
+cross-box connections instead of being silently dropped.
+
+**Named, not built, per the user's own explicit scope** (a large accompanying architecture proposal —
+formal Graph Space objects, a View-projection layer decoupled from a single World Model, multiple
+simultaneous graph "shapes" — hierarchy/flow/network/causal/dependency/timeline/state-transition/
+bipartite — all as projections over the same underlying nodes+relations): this is a real, coherent
+direction and consistent with §0.15's already-designed View/Investigation/World-Model split, but it's
+a substantial reconceptualization, not a bug fix. The concrete, immediately-buildable piece of it (the
+compositional-vs-interactional distinction actually driving box topology) is what got built and
+verified this pass; the larger View-Generator/multi-projection architecture remains a documented
+direction for a dedicated design pass, not something built blind in the same turn as a live bug fix.
+
+## 2026-08-30 (continued) — Relation-extraction field-name drift fixed, nested colored boxes verified live
+
+Direct continuation of the box work above. Two more user requests, both chased to a real conclusion:
+
+**Relation-extraction schema flakiness, root-caused.** The recurring `RelationExtraction` schema
+failures (Groq rejecting the tool call outright) traced to a specific, confirmed cause: the model
+kept emitting `{subject, predicate/relation, object}` instead of `CandidateRelation`'s actual
+`source_entity`/`relationship_type`/`target_entity` fields — a strong, consistent bias toward RDF
+triple terminology, observed across many independent calls all session. Tried `instructor.Mode
+.JSON_SCHEMA` first (Groq and Cerebras both have it registered) on the theory that constrained
+decoding would force conformance — empirically did NOT stop the drift; Groq still rejected the same
+malformed shape under that mode. The fix that actually worked, confirmed by direct before/after
+comparison of the schema-validation error text: **renamed the schema instead of fighting the model** —
+`CandidateRelation` now declares `Field(alias="subject"/"object")`, `Field(validation_alias=
+AliasChoices("predicate","relation"))`, so the JSON schema sent to the model (Pydantic's
+`model_json_schema(by_alias=True)`, confirmed empirically to use aliases) already asks for the exact
+field names the model wants to produce anyway — zero changes needed anywhere else in the codebase,
+since `populate_by_name=True` keeps every existing `.source_entity`/`.target_entity` access working
+unchanged. Also made `justification` optional with a default (observed live: sometimes omitted
+entirely), removing a second, independent failure cause. Verified: the "missing properties" error
+list shrank from four fields to two, then to one, across successive fixes — a live, measured
+reduction, not just a plausible-sounding change. One separate, smaller residual surfaced during the
+live PayPal test: a long, many-relation extraction can hit a response-length limit and truncate valid
+JSON mid-string — a different failure class (token budget, not field naming) than what this pass
+targeted; not fixed here, named for later.
+
+**Nested, colored semantic boxes — verified live, not just built.** Ran a real investigation ("How do
+PayPal and Mastercard fit into how payment works?"), which surfaced `payment_system`
+(`boundary_kind: subject`) containing PayPal and Mastercard as siblings. Then used the existing
+`investigate_deeper` flow ("Investigate deeper into PayPal") to trigger a real, fresh investigation of
+PayPal specifically — confirmed via direct Cytoscape data inspection (`cy.nodes().filter(n =>
+n.isParent())`) that the result is a genuine NESTED compound structure: "Payment System"
+(`boundary_kind: subject`, amber `#ffb454`) containing "PayPal" (`boundary_kind: entity`, green
+`#7ee787`) as its own sub-box, which itself contains 12 real discovered children (Payment Processing
+Engine, PayPal Credit, risk engine, Stripe, ...) — two visually distinct colors for two different
+abstractions, exactly as asked, falling out of the existing per-node `parentOf`/`boxColor` logic with
+no extra nesting-specific code needed (Cytoscape compound nodes support arbitrary nesting natively).
+Each child correctly shows its connection-type subtitle (e.g. "(decomposes_into)"). One organic,
+unplanned detail worth naming honestly: Mastercard ended up re-parented as a child of PayPal's own box
+rather than staying a sibling under Payment System, because PayPal's own deeper investigation related
+to Mastercard again — real agent behavior, not a bug in the box-assignment logic, but worth knowing
+when reading the resulting graph.
+
+## 2026-08-30 (continued) — Semantic boxes shipped, and a real graph-sync gap found and fixed along the way
+
+Direct continuation of §0.22's deferred item: the user asked to build the "abstraction and box" system
+and test it live. Building it surfaced a real, previously-invisible bug: `_sync_decomposition`
+(backend/api/app.py) — the function that pulls Neo4j's real graph structure into the session's
+in-memory mirror the chat UI actually renders — only ever synced ONE level for the top-level entity
+being investigated, and hardcoded every edge's label to the literal string `"decomposes_into"`
+regardless of what relationship_type was actually stored. Two consequences, both real: (1) every
+§0.17/§0.18/§0.22 typed relationship (routes_to, forwards_funds_to, ...) was silently displayed as
+"decomposes_into" in the live UI even though Neo4j had the correct label all along, and (2) a sibling-
+to-sibling relation attached to a CHILD entity (not the top-level one) would never reach the session
+mirror at all, since the sync never looked past one hop — meaning §0.22's sibling-relation fix could be
+working perfectly in Neo4j and still never appear in the chat graph. Fixed with a new
+`get_decomposition_typed()` (backend/graph/interface.py, returns `(relationship_type, node)` pairs
+instead of dropping the type) and a bounded recursive BFS in `_sync_decomposition` (depth ≤3, ≤40
+nodes — Neo4j accumulates across every investigation ever run for a name, so this has to be bounded
+independent of how large that history has grown, not just this session's own depth/step budget).
+
+Semantic boxes: `GraphNodeOut` gained `boundary_kind`, threaded through `_sync_decomposition` into the
+session payload. `chat.html`'s `renderGraph` assigns each node to at most one compound-box parent — the
+nearest bounded ancestor edge in the current viewport (Cytoscape compound nodes require a strict tree,
+so this is deliberately the non-overlapping default case from §0.22's plan; `cytoscape.js-bubblesets`
+for the overlapping case is still deferred, not built). New CSS (`node:parent`) renders a bounded entity
+as a labeled dashed (Subject) or solid (Entity) container instead of a plain pill, per §0.21's theory.
+
+Live mid-build feedback from the user, applied immediately: a box already IS the connection between
+its owner and whatever it contains, so drawing an arrow on top of that containment is pure redundancy
+— fixed by dropping any edge whose (source, target) pair matches an already-assigned box parent,
+regardless of the edge's relationship_type (not just decomposes_into ones).
+
+**Verified live** on the VM with a real "How does payment work?" investigation (~4 minutes, several
+provider retries en route, degrading gracefully throughout): master-level decompose correctly judged
+`payment` as `boundary_kind: "entity"`; the chat UI rendered a single clean labeled box titled "payment"
+containing its 10 discovered children, with zero redundant per-child arrows, while the separate
+`payment_system -[contains]-> payment` abstraction edge (genuinely outside any box) still rendered
+normally — confirming the box/suppression logic distinguishes the two cases correctly, not just
+suppressing everything. Two things observed live, NOT fixed this pass, named precisely rather than
+glossed over: (1) `extract_relations` failed schema validation on every provider attempt during this
+specific run (Groq's smaller model repeatedly returned a malformed tool-call shape for the
+multi-candidate `RelationExtraction` schema), so zero sibling relations actually persisted this time —
+the mechanism was already isolated-function-verified working earlier the same day
+(`Client Bank -[forwards_funds_to]-> Merchant Bank`), so this reads as the schema's existing
+reliability flakiness on larger candidate lists, not a regression, but it means the box feature and the
+sibling-relation feature haven't yet been jointly observed producing a real non-decompose edge INSIDE a
+box in the same live run. (2) Neo4j has visibly accumulated near-duplicate entities for "payment" across
+past test runs (Authorization / Authorization Process / Payment Authorization, etc.) — pre-existing,
+newly VISIBLE now that recursive sync shows more of Neo4j's real accumulated state than the old
+one-level sync ever revealed, not something this pass introduced.
+
+## 2026-08-30 (continued) — Redesigned cursor-flow from an aggregate grid to real recorded-and-looped paths
+
+Same day, immediate follow-up once the WASM fluid background (below) was live: the user proposed a
+more literal mechanism than the coarse spatial-average grid — record each visitor's own cursor path
+(with real timestamps) for their first two minutes on the HOME PAGE ONLY, store it, and loop it back
+as ambient motion for later visitors, rather than collapsing everyone's motion into one blurred
+average field. Researched session-replay privacy practice specifically (this is a materially heavier
+data posture than aggregate heatmap binning — a stored path is a real, if anonymous, movement trace)
+before building: industry guidance (Mouseflow/Heap/Sentry writeups) centers on anonymization, PII
+exclusion, retention limits, and consent for tools that also capture DOM/keypresses/form data. This
+feature captures none of that — only (t_ms, nx, ny) motion geometry, no identity, no cross-session
+link — so it's categorically lighter than commercial session replay, but the retention bound was set
+deliberately stricter anyway: a rolling cap of 60 stored paths by COUNT (not the 30-90 day windows
+typical of session-replay retention), enforced on every insert.
+
+Replaced (not added alongside) the grid-aggregate system: `backend/telemetry/flow_store.py` deleted,
+`backend/telemetry/path_store.py` added (`add_path`/`get_random_paths`, same `aiosqlite` pattern),
+`init_path_db()` also drops the old `cursor_flow` table on startup rather than leaving it as unused
+dead weight. Endpoints became `POST /telemetry/path` (one visitor's own recorded path, clamped and
+sorted server-side) and `GET /telemetry/paths?limit=N` (a random sample of previously-stored paths).
+`frontend/wasm/fluid-bg.js` rewritten: records the current visitor's own path client-side, sends it
+once (2-minute mark, or on tab-hide/pagehide if they leave sooner, via `sendBeacon`), and on load
+fetches a handful of others' recorded paths and loops each one forever (`elapsed % duration`, binary-
+searched and linearly interpolated between bracketing samples) as a "ghost" cursor injecting into the
+same WASM fluid sim as the visitor's own live cursor — so the field is built from real recorded human
+motion, not a synthesized or averaged pattern, and never looks the same twice. Scoped to the home page
+only via a `window.FLUID_HISTORY_ENABLED` flag `index.html` sets and `docs.html` deliberately leaves
+unset (docs.html keeps only the local live-cursor fluid effect, no recording, no fetch, no ghosts) —
+exactly the user's stated scope. Verified end-to-end on the VM: `POST` a real path, `GET` reflects it
+back byte-for-byte, and a fresh page load's `GET /telemetry/paths` fetch visibly renders that path's
+traced route in the live fluid background.
+
+## 2026-08-30 (continued) — A real WebAssembly fluid sim driven by aggregate cross-visitor cursor data
+
+Direct continuation of the node-network pass below: the user rejected the dots-and-lines network
+outright ("different background not this") and asked for something much more ambitious instead — a
+flow-field background where the flow itself is shaped by real, aggregated data of how every visitor's
+cursor has moved across the site over time, combined with the current visitor's own live cursor, the
+whole thing computed as an actual fluid simulation in WebAssembly. Built and shipped, not just
+designed:
+
+- **Backend** (`backend/telemetry/`, new package): a coarse 48x27 grid (`GRID_W`/`GRID_H`), aggregated
+  in a small SQLite file (same `aiosqlite` pattern as `backend/runtime/state_store.py`) via pure
+  addition (`vx_sum += `, `vy_sum += `, `count += `) — commutative/associative, so concurrent anonymous
+  clients need no coordination. `GET /telemetry/flow` returns per-cell averages only, never raw sums;
+  `POST /telemetry/flow` accepts the CALLER'S OWN already-locally-aggregated cell deltas (the client
+  bins its own pointer samples before ever sending anything — the server never sees a raw per-pixel
+  trace) and clamps every field defensively (this is a public, unauthenticated boundary). Privacy
+  research (VWO/Hotjar/LiveSession heatmap-tooling writeups, a behavioral-biometric-privacy survey)
+  confirmed aggregate-only + anonymize is the standard practice this follows; full consent-banner
+  machinery was judged disproportionate for anonymous, non-identifying, aggregate-only movement sums
+  on a personal project, but worth remembering if this ever needs a compliance pass.
+- **The fluid solver** (`frontend/wasm-fluid/`, new Rust crate): a real port of Jos Stam's "Stable
+  Fluids" (SIGGRAPH 1999) — historical-bias -> project (Poisson pressure solve, Gauss-Seidel) ->
+  semi-Lagrangian self-advect -> project again, each frame. Diffusion deliberately omitted (a common
+  real-time simplification, confirmed against several reference Stable Fluids implementations found
+  while researching). Two independent forces drive it: the aggregate field from `/telemetry/flow` (a
+  slow, shared, ever-present "current") and the current visitor's own cursor, injected live — the
+  field never looks the same to two visitors because it's the same shared history perturbed by a
+  different live hand.
+- **Real build obstacle, fixed, not routed around**: `wasm-pack build` failed outright — this machine
+  has no Visual Studio / MSVC Build Tools installed at all (confirmed: no `vswhere`, no VS directory),
+  so `wasm-bindgen`'s proc-macro dependencies (`proc-macro2`/`quote`) couldn't compile their own build
+  scripts for the HOST target, regardless of which target the crate itself was being built for. Fix:
+  dropped `wasm-bindgen` entirely and rewrote the crate as raw `extern "C"` exports moving flat `f32`
+  buffers across the boundary (`wasm_alloc` for JS-side scratch buffers, direct pointer+length exports
+  for the velocity field) — bindgen's JS-marshalling was never needed here since nothing but numbers
+  crosses the boundary. `cargo build --target wasm32-unknown-unknown` alone (no wasm-pack) then
+  compiles cleanly with zero host-side linking, using only `rust-lld` (already present with the
+  `wasm32-unknown-unknown` target). Output: a 28KB `.wasm`, functionally verified in a standalone Node
+  harness (instantiate, seed historical field, inject, step 10x, inspect output) before ever touching
+  a browser.
+- **Frontend** (`frontend/wasm/fluid-bg.js`, new shared file — extracted rather than duplicated inline
+  like this project's simpler per-page background scripts, since the WASM-loading/telemetry logic here
+  is complex enough that duplication risked drift): samples `pointermove` at ~14/s (in line with
+  standard mouse-tracking practice), locally bins deltas into the same 48x27 grid, injects live force
+  into the WASM sim every sample, flushes accumulated deltas to the backend every 6s and via
+  `navigator.sendBeacon` on `pagehide`/tab-hide, and renders by bilinearly sampling the velocity field
+  each frame to advect ~100-170 canvas "dye" particles with a fading trail. Wired into `index.html` and
+  `docs.html` only — `chat.html` deliberately excluded, unchanged, per the user's explicit instruction
+  (it already has the real live investigation graph). Skips entirely under `prefers-reduced-motion`.
+- **Live-tuned, not shipped on first guess**: the first working version (nearest-cell velocity
+  sampling, higher particle count/opacity, weaker historical decay) looked "scratchy" rather than
+  fluid once actually tested live in Chrome with real cursor movement — diagnosed as the coarse grid's
+  cell boundaries being visible without interpolation. Fixed with bilinear sampling across the four
+  nearest cells plus reduced particle count/opacity and faster historical-decay, then re-verified live
+  (both scripted drag/hover paths and dispatched `PointerEvent`s) before calling it done.
+- **Deployed and verified end-to-end on the VM**, not just designed: new backend files copied, new
+  `init_flow_db()` call added to the FastAPI startup hook, `CONFIG.BACKEND_URL` blanked to `''` in
+  `index.html`/`docs.html` for the VM's same-origin demo mode (same discipline this project already
+  applies to `chat.html`), uvicorn restarted, and the full loop confirmed live: `GET /telemetry/flow`
+  empty -> `POST` a delta -> `GET` reflects the exact aggregated average -> static `.wasm`/`.js` assets
+  served correctly via the existing `StaticFiles(directory=FRONTEND_DIR)` mount (no new route needed)
+  -> visible, reactive fluid motion in an actual browser tab against the deployed VM.
+
+Not yet done: none of this has touched production (Vercel + Render) yet, only the VM. The MSVC
+toolchain gap this session hit is a real, standing constraint on this machine for any FUTURE
+wasm-bindgen-dependent work (not just this pass) — worth fixing properly (install VS Build Tools, or
+standardize on the raw-`extern "C"` pattern this pass already proved out) before the next WASM feature
+assumes wasm-pack "just works" here.
+
+## 2026-08-30 (continued) — Researched background-animation UX, added an on-brand node-network to home/docs
+
+While waiting on provider quota to reset (all three LLM providers hit simultaneously — Groq's daily
+token cap, Gemini's daily free-tier request cap, and Cerebras's free tier ending 2026-08-17 and now
+needing a card added for its $5 credit), the user asked for a frontend polish pass: first a visual/UX
+comparison pass across `/`, `/chat`, `/docs` (found and fixed a real inconsistency — `/docs` was
+missing the ambient blob glow and pulsing footer dots that `/` and `/chat` both already had), then
+explicitly asked for more background animation on `/` and `/docs` specifically, not `/chat`, and for
+real research behind the choice rather than an arbitrary pick. Researched: canvas-based particle/node-
+network backgrounds are a well-established, actively-used technique for exactly this ambient-dark-
+theme use case; `prefers-reduced-motion` is a real WCAG-relevant requirement for persistent background
+motion with no pause control (WCAG 2.2.2), not just a nice-to-have. Chose a hand-rolled vanilla-canvas
+drifting node network over a particle library specifically because it's *literally* a small knowledge
+graph — on-brand for this exact product in a way generic particles wouldn't be — and because it needs
+zero new dependencies, consistent with the project's own "no framework, no build step" frontend
+choice already recorded in Architecture.md's stack table. Implemented identically in `index.html` and
+`docs.html` (each self-contained, matching this project's existing per-page-inline convention, e.g.
+the blob CSS duplication); explicitly left `chat.html` untouched per the user's instruction, since it
+already carries the real live Cytoscape graph and a second decorative one would compete with it. The
+script exits immediately under `prefers-reduced-motion: reduce` — no motion, no static leftover
+clutter either. Note: `index.html` was previously zero-JavaScript; this is the first script added to
+it, a deliberate small trade made explicit to the user rather than assumed.
+
+## 2026-08-30 (continued) — Literature survey, then a live-verified fix for "the graph is always a tree"
+
+Same day, next problem the user raised directly: real investigations only ever produce parent→child
+`decomposes_into` edges — siblings discovered under the same parent (e.g. Client, Client Bank,
+Merchant Bank, Merchant while investigating a payment) never get edges to each other, even when the
+real relationship (forwards funds to) is exactly what a graph should show. The user also set a new
+standing rule this session: real research before every decision from now on. A literature survey ran
+first — DocRED and document-level relation extraction as the established task name for this problem;
+a real, multi-source-confirmed LLM bias toward relations anchored on the one named "topic" entity
+(entity-salience/primacy-bias literature, GraphRAG's own documented hub-and-spoke failure, a formal
+causal-bias paper, and NAACL 2025's entity-pair-guided DocRE fix); GraphRAG's and LightRAG's actual
+production prompts fetched and read, both using the same two-pass "identify entities, then all-pairs
+among them" shape; Graphusion (arXiv:2410.17600) naming this exact failure as its own motivation, with
+a measured +9.2% fix. Root cause confirmed at the code level: `_finish()` called
+`extract_relations(entity_name, result.answer)` — one entity, one entity's own text, siblings never
+in view. Fix: `_investigate_loop` now accumulates every entity `decompose` discovers under the same
+parent (`discovered_entity_names`), threads it into `extract_relations` as `sibling_entity_names`, and
+the extraction prompt now explicitly asks for all-pairs relations among the known set, not just pairs
+touching the named entity. Live-verified with a real provider call (`scripts/verify_sibling_relations.py`,
+no mocking): given a client-pays-merchant-through-two-banks passage, the call correctly returned
+`Client Bank -[forwards_funds_to]-> Merchant Bank` — a genuine sibling-to-sibling edge. Full detail
+and citations: `docs/Architecture.md` §0.22. Deferred, not built this pass: the "semantic boxes"
+visualization idea (Cytoscape.js compound nodes for the non-overlapping case, `cytoscape.js-bubblesets`
+for overlapping actor scopes — both surveyed and named in §0.22, neither implemented).
+
 ## 2026-08-30 — Subject/Entity, re-derived from memory, turned out to already be the plan
 
 The user restated the project's own original abstraction vocabulary unprompted, months in —

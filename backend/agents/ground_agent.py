@@ -7,6 +7,7 @@ from backend.evidence import gather_evidence
 from backend.graph import (
     attach_claim,
     attach_question,
+    attach_relation_claim,
     create_relationship,
     find_or_create_entity,
     resolve_entity,
@@ -217,6 +218,11 @@ class GroundAgent:
         # happens to be the terminal one.
         latest_boundary_kind: str | None = None
         latest_boundary_solves_question: str | None = None
+        # docs/Architecture.md §0.22: every entity discovered while decomposing
+        # THIS question (siblings under the same parent) — threaded into
+        # extract_relations at _finish() so it can look for relations directly
+        # between them, not just relations anchored on this entity alone.
+        discovered_entity_names: list[str] = []
 
         while True:
             budget_exhausted = self.depth >= self.max_depth or len(children_ids) >= self.max_sequential_steps
@@ -263,6 +269,7 @@ class GroundAgent:
                     children=children_ids,
                     boundary_kind=latest_boundary_kind,
                     boundary_solves_question=latest_boundary_solves_question,
+                    sibling_entity_names=discovered_entity_names,
                 )
 
             if decision.action == "decompose" and decision.sub_question_texts and not budget_exhausted:
@@ -295,7 +302,33 @@ class GroundAgent:
                     # string; this was the only call site, and it was hardcoded.
                     relationship_type = decision.relationship_type or "decomposes_into"
                     await create_relationship(parent_entity.id, child_entity.id, relationship_type)
+                    # docs/Architecture.md §0.26: a structural/decompose relation's
+                    # "evidence" is the agent's own reasoning for the split, not an
+                    # external citation -- a genuinely different provenance kind
+                    # than extract_relations' sourced claims below, given a lower
+                    # baseline confidence (0.6) to reflect that honestly rather
+                    # than treating a reasoning-based judgment as equally certain
+                    # as independently corroborated evidence. Never fatal: this is
+                    # enrichment, same tolerance as every other _finish()-adjacent
+                    # persistence step in this file.
+                    try:
+                        await attach_relation_claim(
+                            parent_entity.id,
+                            child_entity.id,
+                            relationship_type,
+                            claim_id=str(uuid.uuid4()),
+                            evidence=decision.reasoning or f"Decomposed while investigating {self.question.entity_name}.",
+                            reasoning="Master-level structural decomposition judgment, not sourced evidence.",
+                            confidence=0.6,
+                            source_title="Agent reasoning",
+                            source_url="",
+                            source_type="reasoning",
+                            valid_from=datetime.now(timezone.utc).isoformat(),
+                        )
+                    except Exception as exc:  # noqa: BLE001 - enrichment, must not break decompose
+                        print(f"[relations] attach_relation_claim (decompose) failed, degrading silently: {exc}")
                     child_entity_name = decision.discovered_entity_name
+                    discovered_entity_names.append(decision.discovered_entity_name)
                     print(
                         f"[graph] {parent_entity.name!r} -[{relationship_type}]-> {child_entity.name!r}"
                     )
@@ -380,6 +413,7 @@ class GroundAgent:
                     children=children_ids,
                     boundary_kind=latest_boundary_kind,
                     boundary_solves_question=latest_boundary_solves_question,
+                    sibling_entity_names=discovered_entity_names,
                 )
 
             return await self._finish(
@@ -395,6 +429,7 @@ class GroundAgent:
         children: list[str] | None = None,
         boundary_kind: str | None = None,
         boundary_solves_question: str | None = None,
+        sibling_entity_names: list[str] | None = None,
     ) -> GroundResult:
         await self._save(
             AgentState(
@@ -458,9 +493,18 @@ class GroundAgent:
                 # produced the correct "spots" actor relation). Degrades to zero
                 # relations on total provider failure, same tolerance as
                 # gather_evidence's retrievers — an enrichment step failing must
-                # never take down the answer it was enriching.
+                # never take down the answer it was enriching. docs/Architecture.md
+                # §0.22: also passes every sibling entity discovered while
+                # decomposing this question, so extraction can find relations
+                # directly between them (e.g. Client Bank -> Merchant Bank) instead
+                # of only ever radiating from this one entity — the documented fix
+                # for LLM extraction's bias toward the named "topic" entity.
                 try:
-                    candidates = await extract_relations(self.question.entity_name, result.answer)
+                    candidates = await extract_relations(
+                        self.question.entity_name,
+                        result.answer,
+                        sibling_entity_names=sibling_entity_names,
+                    )
                 except Exception as exc:  # noqa: BLE001 - enrichment, must not break _finish
                     print(f"[relations] extract_relations failed, degrading to zero results: {exc}")
                     candidates = []
@@ -518,6 +562,36 @@ class GroundAgent:
                         f"[relations] {source_entity.name!r} -[{relationship_type}]-> "
                         f"{target_entity.name!r}"
                     )
+                    # docs/Architecture.md §0.26: `candidate.justification` was
+                    # already being computed (used above for resolve_entity's own
+                    # context) and then discarded once the edge was written --
+                    # attached here as real evidence instead, under this exact
+                    # relation identity (source, relationship_type, target). Five
+                    # independent discoveries of the same relation now accumulate
+                    # as five claims, not five identical printed log lines.
+                    # Confidence is a fixed baseline (0.7, higher than a
+                    # structural decompose judgment's 0.6 above, since this is
+                    # text-sourced rather than pure agent reasoning) -- not
+                    # LLM-self-reported, deliberately: adding a confidence field
+                    # to CandidateRelation's own schema would reopen exactly the
+                    # schema-flakiness class of failure just stabilized this
+                    # session (docs/Memory.md).
+                    try:
+                        await attach_relation_claim(
+                            source_entity.id,
+                            target_entity.id,
+                            relationship_type,
+                            claim_id=str(uuid.uuid4()),
+                            evidence=candidate.justification or "No justification text was extracted.",
+                            reasoning=f"Extracted while investigating {self.question.entity_name}.",
+                            confidence=0.7,
+                            source_title="Extracted from investigation text",
+                            source_url="",
+                            source_type="extraction",
+                            valid_from=datetime.now(timezone.utc).isoformat(),
+                        )
+                    except Exception as exc:  # noqa: BLE001 - enrichment, must not break _finish
+                        print(f"[relations] attach_relation_claim failed, degrading silently: {exc}")
         if self.bus is not None and result.status == AgentStatus.BOUNDARY_HIT:
             # Escalation (Rules.md rule 5) — never skipped or short-circuited: a
             # boundary hit is always posted to the bus when one exists, regardless

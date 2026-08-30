@@ -18,6 +18,7 @@ from .relation_extraction import (
     is_relation_worthy,
     normalize_relationship_type,
 )
+from .relation_types import PROJECTION_FAMILIES, RelationFamily, get_family, get_relation_info, is_compositional
 from .relationships import ClaimPairRelationship, RelationshipAnalysis, analyze_claim_relationships
 from .synthesis import synthesize_answer
 
@@ -38,6 +39,11 @@ __all__ = [
     "CandidateRelation",
     "CanonicalRelation",
     "RelationExtraction",
+    "RelationFamily",
+    "PROJECTION_FAMILIES",
+    "get_family",
+    "get_relation_info",
+    "is_compositional",
     "parse_intent",
     "Intent",
     "SessionContext",

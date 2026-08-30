@@ -29,7 +29,10 @@ create table if not exists sessions (
     nodes jsonb not null default '[]'::jsonb,
     edges jsonb not null default '[]'::jsonb,
     messages jsonb not null default '[]'::jsonb,
-    pending_action jsonb
+    pending_action jsonb,
+    current_space text,
+    space_history jsonb not null default '[]'::jsonb,
+    current_projection text
 );
 create index if not exists idx_sessions_user on sessions (user_id, created_at desc);
 -- docs/Architecture.md §0.20: additive migration for databases that already had
@@ -37,6 +40,12 @@ create index if not exists idx_sessions_user on sessions (user_id, created_at de
 -- has no effect on an already-existing table, so an already-provisioned
 -- deployment (e.g. Render) needs this to actually get the new column.
 alter table sessions add column if not exists pending_action jsonb;
+-- docs/Architecture.md §0.24: Focus vs. Enter Space -- same additive-migration
+-- reasoning as pending_action above.
+alter table sessions add column if not exists current_space text;
+alter table sessions add column if not exists space_history jsonb not null default '[]'::jsonb;
+-- docs/Architecture.md §0.27: same additive-migration reasoning.
+alter table sessions add column if not exists current_projection text;
 
 -- Per-user, bring-your-own LLM provider keys, so one user's investigations are
 -- never blocked by another user (or the shared server pool) hitting a rate
@@ -80,8 +89,9 @@ async def upsert_session(row: dict) -> None:
             insert into sessions (
                 session_id, user_id, title, current_entity, current_abstraction,
                 current_dimension_name, current_dimension_description,
-                known_entities, nodes, edges, messages, pending_action
-            ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                known_entities, nodes, edges, messages, pending_action,
+                current_space, space_history, current_projection
+            ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             on conflict (session_id) do update set
                 title = excluded.title,
                 current_entity = excluded.current_entity,
@@ -92,7 +102,10 @@ async def upsert_session(row: dict) -> None:
                 nodes = excluded.nodes,
                 edges = excluded.edges,
                 messages = excluded.messages,
-                pending_action = excluded.pending_action
+                pending_action = excluded.pending_action,
+                current_space = excluded.current_space,
+                space_history = excluded.space_history,
+                current_projection = excluded.current_projection
             """,
             row["session_id"],
             row["user_id"],
@@ -106,6 +119,9 @@ async def upsert_session(row: dict) -> None:
             row["edges"],
             row["messages"],
             row["pending_action"],
+            row["current_space"],
+            row["space_history"],
+            row["current_projection"],
         )
 
 

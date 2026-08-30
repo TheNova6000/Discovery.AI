@@ -69,12 +69,55 @@ named), `dimension_name` (a short label, e.g. "Economic"), and \
 - "compare": the user wants to understand how two entities relate or differ \
 (e.g. "Compare PayPal and Mastercard," "Is PayPal solving the same problem as \
 Mastercard?"). Set `entity_name` and `entity_b_name`.
+- "enter_space" (docs/Architecture.md §0.24): the user wants to make an entity's \
+OWN compositional subgraph the current view — re-rooting into its region of the \
+world, not just glancing at it from outside (e.g. "Enter PayPal," "Go into \
+PayPal," "Step into Payment Stages," "Open PayPal's own graph," "Take me inside \
+PayPal"). This is a genuinely different request from "zoom_in": zoom_in shows an \
+entity WITHIN its surrounding context (its parent/siblings still visible); \
+enter_space drops that surrounding context and shows the entity's own \
+composition as the new root, though relations to things outside it stay visible. \
+If the user's phrasing could just as easily mean "show me PayPal" (no sense of \
+stepping inside), prefer "zoom_in" — "enter"/"go into"/"step into"/"inside" are \
+the actual signal for this action, not merely naming an entity. Set `entity_name`.
+- "exit_space": the user wants to leave the currently entered space and return to \
+wherever they were before (e.g. "Go back," "Exit," "Back to where I was," a bare \
+"back"). Do NOT set `entity_name` for this — unlike "zoom_in"'s "go back to \
+PayPal" (which NAMES a destination and is zoom_in), this is an undirected \
+"leave the current space," with no entity named.
+- "set_projection" (docs/Architecture.md §0.27): the user wants to see the SAME \
+already-known subject through a different relation lens, without asking to learn \
+anything new (e.g. "Show it as a flow," "Now show dependencies," "Show me the \
+causal view," "Show how things connect," "Go back to the normal view"). Set \
+`projection`: "flow" for process/sequence language ("as a flow," "in order," \
+"what happens after"), "causal" for cause/effect language, "dependency" for \
+"depends on"/"requires" language, "structure" for composition/hierarchy language \
+("what's X made of"), "network" for interaction/connection language ("what does \
+X connect to/use"), "all" for "show everything"/"normal view"/"reset the view." \
+This is a VIEW change only — it must NEVER trigger investigation, even if the \
+resulting view would be sparse or empty; a sparse result is itself information \
+(the model doesn't have much of that kind of relation yet), not a reason to go \
+learn more. Do not set `entity_name` — the projection applies to whatever is \
+currently focused/entered, not a new destination.
 
-CRITICAL distinction, easy to get wrong: "show/open/focus/where is/go back to" is \
-ALWAYS "zoom_in" (navigation, free, no investigation). "Go deeper/explore/dig \
-into/investigate further" is ALWAYS "investigate_deeper" (actively spends effort \
-learning more), REGARDLESS of whether the entity already has known children — \
-"go deeper" means investigate again, not "show me what's already there."
+Disambiguating a bare "back"/"go back"/"reset" using CONTEXT: if \
+`current_projection` is set to something other than "all"/None, prefer \
+"set_projection" with `projection="all"` (the user more likely means "stop \
+filtering the view"). If `current_projection` is already "all"/None but \
+`current_space` is set, prefer "exit_space" (there's nothing to reset, but \
+somewhere to leave). If neither is set, there's nothing to go back to —this is \
+likely "no_action".
+
+CRITICAL distinctions, easy to get wrong: "show/open/focus/where is/go back to \
+<named entity>" is ALWAYS "zoom_in" (navigation, free, no investigation). \
+"Go deeper/explore/dig into/investigate further" is ALWAYS "investigate_deeper" \
+(actively spends effort learning more), REGARDLESS of whether the entity already \
+has known children — "go deeper" means investigate again, not "show me what's \
+already there." "Enter/go into/step into <entity>" is "enter_space" — re-rooting \
+into that entity's own region, never investigation, never merely "zoom_in" \
+either (they render differently: zoom_in keeps surrounding context, enter_space \
+doesn't). A bare "go back"/"back"/"exit" with NO entity named is "exit_space," \
+not "zoom_in".
 
 Always resolve references using CONTEXT rather than asking for clarification — \
 if the message says "this" and CONTEXT has a current entity, use it. If the \
@@ -108,11 +151,31 @@ Always give `reasoning` — one sentence on why this action and these arguments.
 
 class Intent(BaseModel):
     action: Literal[
-        "new_investigation", "zoom_in", "investigate_deeper", "explain", "change_dimension", "compare", "no_action"
+        "new_investigation",
+        "zoom_in",
+        "investigate_deeper",
+        "explain",
+        "change_dimension",
+        "compare",
+        "enter_space",
+        "exit_space",
+        "set_projection",
+        "no_action",
     ]
     question_text: Optional[str] = Field(default=None, description="Required for 'new_investigation'.")
     entity_name: Optional[str] = Field(
         default=None, description="The primary/resolved entity for zoom_in, explain, change_dimension, compare."
+    )
+    projection: Optional[Literal["structure", "flow", "causal", "dependency", "network", "all"]] = Field(
+        default=None,
+        description=(
+            "Required for 'set_projection': which relation family to filter the CURRENT view down to "
+            "(docs/Architecture.md §0.27) -- 'structure' (composition/decomposes_into/contains), "
+            "'flow' (temporal/precedes/follows), 'causal' (causes/enables/prevents), "
+            "'dependency' (requires/depends_on), 'network' (interaction: uses/routes_to/serves/...), "
+            "or 'all' to clear back to the unfiltered default. This NEVER investigates or changes what's "
+            "known -- it only changes which already-known relations are currently shown."
+        ),
     )
     entity_b_name: Optional[str] = Field(default=None, description="Required for 'compare' — the second entity.")
     scope_hint: Optional[str] = Field(
@@ -149,13 +212,27 @@ class SessionContext(BaseModel):
     current_entity: Optional[str] = None
     current_abstraction: Optional[str] = None
     known_entities: list[str] = Field(default_factory=list)
+    current_space: Optional[str] = None
+    """docs/Architecture.md §0.24: which entity's own compositional subgraph is
+    currently entered, if any -- None means "not inside any entered space."
+    Lets the model tell "exit_space" ("back" while inside a space) apart from
+    an undirected "back" with nothing to leave."""
+    current_projection: Optional[str] = None
+    """docs/Architecture.md §0.27: which relation-family lens is currently
+    applied, if any -- None/"all" means the unfiltered default. A bare "go
+    back" while a non-default projection is active more likely means "reset
+    the view" (set_projection, projection="all") than "leave the entered
+    space" (exit_space); this field is what lets the model tell those apart
+    instead of guessing."""
 
 
 def _build_user_prompt(message: str, context: SessionContext) -> str:
     lines = [
         f"CONTEXT: current_entity={context.current_entity!r}, "
         f"current_abstraction={context.current_abstraction!r}, "
-        f"known_entities={context.known_entities!r}",
+        f"known_entities={context.known_entities!r}, "
+        f"current_space={context.current_space!r}, "
+        f"current_projection={context.current_projection!r}",
         "",
         f"User message: {message}",
     ]

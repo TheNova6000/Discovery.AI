@@ -39,3 +39,16 @@ SUPERSEDES = "SUPERSEDES"
 """Claim -> Claim: the source claim supersedes the target claim (Graphiti-inspired
 valid-time/superseded temporal pattern) — the old claim is kept, not deleted, just
 marked non-current via its `superseded_by` property."""
+
+HAS_RELATION_CLAIM = "HAS_RELATION_CLAIM"
+"""docs/Architecture.md §0.26: GraphNode -> Claim, evidence for a specific RELATION
+identity (source_id, relationship_type, target_id) rather than for a Question.
+Deliberately additive and separate from the native RELATES_TO edge it's evidence
+FOR — Neo4j relationships can't be the source/target of another edge, so this
+reuses the existing Claim node shape (ClaimNode/attach_claim) rather than
+reifying every relationship as its own node, which would touch every existing
+traversal function (get_decomposition, get_neighbors, zoom_in, box/space
+rendering). The edge's own `relationship_type`/`target_id`/`stance` properties
+say WHICH relation this claim is evidence for and whether it supports or
+contradicts it -- multiple claims naturally accumulate under the same identity
+via repeated MERGE, they never create a duplicate RELATES_TO edge."""

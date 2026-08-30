@@ -1310,6 +1310,49 @@ const cy = cytoscape({
         'opacity': 0.45,
         'border-style': 'dashed',
     }},
+    // "Semantic boxes" (docs/Architecture.md §0.22's deferred item, built
+    // here): a compound parent is just an ordinary node that other nodes
+    // reference via data.parent -- Cytoscape auto-computes its bounding box
+    // from its children's positions and renders it as a labeled container.
+    // Distinguishes Subject (dashed -- a boundary around domains only, no
+    // single problem it solves) from Entity (solid -- also solves one
+    // nameable problem) per §0.21's theory, rather than treating both the
+    // same visually.
+    { selector: 'node:parent', style: {
+        'shape': 'round-rectangle',
+        'background-color': '#ffffff',
+        'background-opacity': 0.05,
+        'border-width': 1.5,
+        'border-color': '#ffffff',
+        'border-opacity': 0.4,
+        'label': 'data(label)',
+        'text-valign': 'top',
+        'text-halign': 'center',
+        'text-margin-y': -6,
+        'font-size': 10,
+        'font-weight': 'bold',
+        'letter-spacing': '0.06em',
+        'color': '#ffffff',
+        'padding': '26px',
+    }},
+    { selector: 'node:parent[boundary_kind = "subject"]', style: {
+        'border-style': 'dashed',
+    }},
+    { selector: 'node:parent[boundary_kind = "entity"]', style: {
+        'border-style': 'solid',
+        'border-opacity': 0.6,
+    }},
+    // Per-box color (data.boxColor, hashed from the box's own id in
+    // renderGraph) -- layered on top of the dashed/solid Subject-vs-Entity
+    // distinction above, not replacing it, so several boxes present at once
+    // (e.g. Payment containing PayPal containing its own handled nodes) read
+    // as visually distinct abstractions, not just "some outlined region."
+    { selector: 'node:parent[boxColor]', style: {
+        'background-color': 'data(boxColor)',
+        'background-opacity': 0.08,
+        'border-color': 'data(boxColor)',
+        'color': 'data(boxColor)',
+    }},
     { selector: 'edge', style: {
         'width': 1.4,
         'line-color': '#ffffff',
@@ -1771,7 +1814,60 @@ async function switchSession(sessionId) {
 // computes a 1-hop viewport around the current focus instead — the underlying
 // graph.nodes/edges passed in is never mutated, so nothing is lost, duplicated,
 // or destroyed by focusing; only what gets DRAWN changes.
+// docs/Architecture.md §0.25: "composition or not" now comes from the single
+// backend relation-type registry (backend/questions/relation_types.py) via
+// each edge's own `family` field, computed server-side in SessionState
+// .to_payload() -- no more hand-synced copy of the compositional-type list
+// here. `isCompositionalEdge` is the one place that reads it, applied both
+// here (deciding what's IN a space) and in renderGraph's box logic below.
+function isCompositionalEdge(e) { return e.family === 'composition'; }
+
+// "Enter Space" re-roots the view at current_space's own compositional
+// subgraph -- unlike computeViewport's focus mode below, it does NOT show the
+// space's own parent/siblings as context (that surrounding context is exactly
+// what's being dropped by stepping inside). Cross-space relations (any
+// non-compositional edge touching something inside the space) stay visible,
+// rendered as context nodes -- a box is a navigational boundary, not a wall.
+function computeSpaceViewport(graph) {
+  const spaceId = graph.current_space;
+  const insideIds = new Set([spaceId]);
+  const compositionalEdges = [];
+  let frontier = [spaceId];
+  while (frontier.length) {
+    const next = [];
+    for (const id of frontier) {
+      for (const e of graph.edges) {
+        if (e.source === id && isCompositionalEdge(e) && !insideIds.has(e.target)) {
+          insideIds.add(e.target);
+          next.push(e.target);
+          compositionalEdges.push(e);
+        }
+      }
+    }
+    frontier = next;
+  }
+
+  const nonCompositionalEdges = graph.edges.filter(e =>
+    (insideIds.has(e.source) || insideIds.has(e.target)) && !isCompositionalEdge(e)
+  );
+  const contextIds = new Set();
+  for (const e of nonCompositionalEdges) {
+    if (!insideIds.has(e.source)) contextIds.add(e.source);
+    if (!insideIds.has(e.target)) contextIds.add(e.target);
+  }
+
+  const visibleIds = new Set([...insideIds, ...contextIds]);
+  return {
+    nodes: graph.nodes.filter(n => visibleIds.has(n.id)),
+    edges: [...compositionalEdges, ...nonCompositionalEdges],
+    focusId: spaceId,
+    contextIds,
+    parentIds: [],
+  };
+}
+
 function computeViewport(graph) {
+  if (graph.current_space) return computeSpaceViewport(graph);
   const focusId = graph.current_entity;
   if (!focusId) return { nodes: graph.nodes, edges: graph.edges };
 
@@ -1797,16 +1893,132 @@ function computeViewport(graph) {
   };
 }
 
+// docs/Architecture.md §0.27: user-facing projection name -> the relation
+// family it filters to. Mirrors backend/questions/relation_types.py's
+// PROJECTION_FAMILIES -- that Python dict is the actual source of truth (it's
+// what handle_set_projection in app.py checks before ever setting
+// graph.current_projection), this is just the same small table restated in JS
+// since the frontend has no way to import it directly.
+const PROJECTION_FAMILIES = {
+  structure: 'composition',
+  flow: 'temporal',
+  causal: 'causal',
+  dependency: 'dependency',
+  network: 'interaction',
+};
+
+// Applied AFTER computeViewport/computeSpaceViewport, never instead of it --
+// a projection re-filters whatever's already in view, it doesn't replace the
+// focus/space logic above. Only touches what gets DRAWN: graph.nodes/edges
+// (the actual known world model) are never read or written here, which is
+// the G_after == G_before invariant §0.27 exists to prove -- this function
+// can only ever produce a subset of `view`, never add anything `view` didn't
+// already contain. The focus/space root stays visible even with zero
+// matching edges, so an empty projection reads as "nothing of this kind
+// here yet" against a recognizable anchor, not a blank canvas.
+function applyProjection(view, projection) {
+  if (!projection || projection === 'all') return view;
+  const family = PROJECTION_FAMILIES[projection];
+  const edges = view.edges.filter(e => e.family === family);
+  const keepIds = new Set(edges.flatMap(e => [e.source, e.target]));
+  if (view.focusId) keepIds.add(view.focusId);
+  return {
+    ...view,
+    nodes: view.nodes.filter(n => keepIds.has(n.id)),
+    edges,
+  };
+}
+
+// A projection is a relation-family LENS on the whole known subject, not the
+// tight 1-hop focus neighborhood computeViewport draws for plain browsing --
+// intersecting the two would let the chat reply (backend/api/app.py's
+// handle_set_projection, scoped to the entered space or the whole graph) name
+// a relationship that then fails to render because it sits outside the
+// current focus window. So a projection bypasses the focus-neighborhood
+// narrowing entirely and matches its backend counterpart's own scope:
+// the entered space's reachable subgraph if inside one, else everything.
+function projectionScope(graph) {
+  if (graph.current_space) return computeSpaceViewport(graph);
+  return { nodes: graph.nodes, edges: graph.edges, focusId: graph.current_entity };
+}
+
 function renderGraph(graph) {
   cy.elements().remove();
-  const view = computeViewport(graph);
+  const hasProjection = graph.current_projection && graph.current_projection !== 'all';
+  const view = hasProjection
+    ? applyProjection(projectionScope(graph), graph.current_projection)
+    : computeViewport(graph);
   const eles = [];
+
+  // Semantic boxes: assign each node to at most one compound "box" parent --
+  // the nearest bounded ancestor edge in the currently-visible viewport
+  // (docs/Architecture.md §0.22). Cytoscape compound nodes require a strict
+  // tree (one parent per node), so this is deliberately first-come-first-
+  // served -- the non-overlapping default case; a node governed by two boxes
+  // at once would need cytoscape.js-bubblesets instead, not built here.
+  // Nesting falls out for free: a node can simultaneously be a child of one
+  // box and the parent of its own (e.g. PayPal boxed inside Payment, while
+  // itself boxing the nodes it handles) since parentOf/connTypeOf are keyed
+  // per-node, not depth-limited.
+  // Composition vs. interaction is NOT a rendering choice -- it's the actual
+  // semantic difference the extraction pipeline already records in the edge's
+  // own relationship_type (§0.17/§0.18/§0.22). "Investigation may discover
+  // knowledge; it may not determine the topology of that knowledge" -- a live
+  // PayPal/Mastercard test surfaced the exact bug this guards against: PayPal
+  // -[USES]-> Mastercard was being treated as containment purely because it
+  // was AN edge from a boxed entity, nesting an independent network inside
+  // PayPal's own box. Only genuinely compositional types make a box; every
+  // other relationship_type (uses, routes_to, serves, connects_to, ...)
+  // renders as an ordinary visible edge, crossing box boundaries freely --
+  // a box is a navigational boundary, not a claim about what's inside it.
+  const boundaryKindById = new Map();
+  for (const n of view.nodes) {
+    if (n.boundary_kind) boundaryKindById.set(n.id, n.boundary_kind);
+  }
+  const parentOf = new Map();
+  const connTypeOf = new Map();
+  for (const e of view.edges) {
+    if (isCompositionalEdge(e) && boundaryKindById.has(e.source) && e.source !== e.target && !parentOf.has(e.target)) {
+      parentOf.set(e.target, e.source);
+      connTypeOf.set(e.target, e.label);
+    }
+  }
+
+  // A stable color per box, not just dashed/solid, so several simultaneous
+  // boxes/abstractions (e.g. Payment, PayPal, Mastercard all boxed at once)
+  // read as visually distinct at a glance -- same box id always gets the same
+  // color across re-renders (hashed, not random) so it doesn't flicker on
+  // every graph update.
+  const BOX_PALETTE = ['#5ee7ff', '#ffb454', '#ff6b9d', '#7ee787', '#c792ea', '#f97583', '#79c0ff', '#ffd479'];
+  function colorForBox(id) {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+    return BOX_PALETTE[hash % BOX_PALETTE.length];
+  }
+
   for (const n of view.nodes) {
     const isFocus = n.id === view.focusId;
     const isContext = view.contextIds && view.contextIds.has(n.id);
-    eles.push({ data: { id: n.id, label: n.label, kind: n.kind }, classes: isFocus ? 'focus' : (isContext ? 'context' : '') });
+    const data = { id: n.id, label: n.label, kind: n.kind, boundary_kind: n.boundary_kind || null };
+    if (parentOf.has(n.id)) {
+      data.parent = parentOf.get(n.id);
+      // The box already IS the connection, but the TYPE of that connection
+      // (decomposes_into, routes_to, ...) would otherwise vanish along with
+      // the suppressed edge -- shown as a subtitle on the node itself instead.
+      const connType = connTypeOf.get(n.id);
+      if (connType) data.label = n.label + '\n(' + connType + ')';
+    }
+    if (boundaryKindById.has(n.id)) data.boxColor = colorForBox(n.id);
+    eles.push({ data, classes: isFocus ? 'focus' : (isContext ? 'context' : '') });
   }
+  // A box already IS the connection between its owner and whatever it
+  // contains -- decomposition or any other relationship type, it doesn't
+  // matter which. Drawing an arrow on top of that containment is pure
+  // redundancy (the user's own framing: "a box is a form of connection...
+  // so we don't need connection"), so any edge that duplicates a
+  // containment relationship gets dropped, not just decomposes_into ones.
   for (const e of view.edges) {
+    if (parentOf.get(e.target) === e.source) continue;
     eles.push({ data: { id: e.source + '->' + e.target + ':' + e.label, source: e.source, target: e.target, label: e.label } });
   }
   cy.add(eles);

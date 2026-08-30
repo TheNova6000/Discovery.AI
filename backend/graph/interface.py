@@ -26,6 +26,7 @@ from .schema import (
     ANSWERED_BY,
     CLAIM_LABEL,
     HAS_QUESTION,
+    HAS_RELATION_CLAIM,
     MEMBER_OF,
     NODE_LABEL,
     QUESTION_LABEL,
@@ -420,6 +421,122 @@ async def create_relationship(
             )
     except Neo4jError as exc:
         raise GraphInterfaceError(f"create_relationship failed: {exc}") from exc
+
+
+async def attach_relation_claim(
+    source_id: str,
+    target_id: str,
+    relationship_type: str,
+    *,
+    claim_id: str,
+    evidence: str,
+    reasoning: str,
+    confidence: float,
+    source_title: str,
+    source_url: str,
+    source_type: str,
+    valid_from: str,
+    stance: str = "supports",
+) -> ClaimNode:
+    """docs/Architecture.md §0.26: evidence for a RELATION identity --
+    (source_id, relationship_type, target_id), not confidence/wording/evidence
+    itself, which are properties OF that identity, not part of it (already
+    true today: `create_relationship`'s own MERGE key is exactly this triple,
+    confirmed by reading it rather than assumed — re-discovering the same
+    relation already reuses the same edge, it just previously discarded
+    whatever evidence justified it).
+
+    Deliberately additive: the native RELATES_TO edge this is evidence FOR is
+    never touched here, so every existing traversal (get_decomposition,
+    get_neighbors, zoom_in, §0.22/§0.24's box/space rendering) keeps working
+    unchanged. Reuses the exact Claim node shape already used for Questions
+    (`attach_claim`) rather than inventing a parallel evidence structure --
+    only the connecting edge differs. `stance` ("supports" or "contradicts")
+    lets a later, disconfirming discovery attach as competing evidence under
+    the SAME relation identity instead of fragmenting into a new edge --
+    §0.26's "contradictions become evidence, not new topology" test.
+    """
+    query = (
+        f"MATCH (a:{NODE_LABEL} {{id: $source_id}}), (b:{NODE_LABEL} {{id: $target_id}}) "
+        f"MERGE (c:{CLAIM_LABEL} {{id: $claim_id}}) "
+        "ON CREATE SET c.evidence=$evidence, c.reasoning=$reasoning, c.confidence=$confidence, "
+        "c.source_title=$source_title, c.source_url=$source_url, c.source_type=$source_type, "
+        "c.valid_from=$valid_from "
+        f"MERGE (a)-[r:{HAS_RELATION_CLAIM} "
+        "{relationship_type: $relationship_type, target_id: $target_id, stance: $stance}]->(c) "
+        "RETURN c"
+    )
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            result = await session.run(
+                query,
+                source_id=source_id,
+                target_id=target_id,
+                relationship_type=relationship_type,
+                claim_id=claim_id,
+                evidence=evidence,
+                reasoning=reasoning,
+                confidence=confidence,
+                source_title=source_title,
+                source_url=source_url,
+                source_type=source_type,
+                valid_from=valid_from,
+                stance=stance,
+            )
+            record = await result.single()
+            if record is None:
+                raise GraphInterfaceError(
+                    f"attach_relation_claim: source {source_id!r} or target {target_id!r} not found"
+                )
+            return _record_to_claim(record["c"])
+    except Neo4jError as exc:
+        raise GraphInterfaceError(f"attach_relation_claim failed: {exc}") from exc
+
+
+async def get_relation_claims(source_id: str, target_id: str, relationship_type: str) -> list[tuple[str, ClaimNode]]:
+    """All evidence attached to one relation identity, each paired with its
+    stance -- the accumulation §0.26 exists for: five independent discoveries
+    of the same (source, type, target) return five entries here, not five
+    edges in the graph.
+    """
+    query = (
+        f"MATCH (a:{NODE_LABEL} {{id: $source_id}})"
+        f"-[r:{HAS_RELATION_CLAIM} {{relationship_type: $relationship_type, target_id: $target_id}}]->"
+        f"(c:{CLAIM_LABEL}) "
+        "RETURN c, r.stance AS stance"
+    )
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            result = await session.run(
+                query, source_id=source_id, target_id=target_id, relationship_type=relationship_type
+            )
+            return [(record["stance"], _record_to_claim(record["c"])) async for record in result]
+    except Neo4jError as exc:
+        raise GraphInterfaceError(f"get_relation_claims failed: {exc}") from exc
+
+
+async def get_relation_confidence(source_id: str, target_id: str, relationship_type: str) -> dict:
+    """A simple, honest heuristic, not a rigorous Bayesian update (§0.26 names
+    this explicitly as a deliberate simplification): confidence rises with
+    each supporting claim and falls with each contradicting one, clamped to
+    [0.05, 0.95] so accumulated evidence is never treated as absolute
+    certainty OR absolute impossibility. Returns zero-claim defaults rather
+    than raising when nothing has been attached yet -- "no evidence" is a
+    normal, common state for most relations today, not an error.
+    """
+    claims = await get_relation_claims(source_id, target_id, relationship_type)
+    supports = sum(1 for stance, _ in claims if stance == "supports")
+    contradicts = sum(1 for stance, _ in claims if stance == "contradicts")
+    confidence = 0.5 + 0.15 * supports - 0.25 * contradicts
+    confidence = max(0.05, min(0.95, confidence))
+    return {
+        "claim_count": len(claims),
+        "supports": supports,
+        "contradicts": contradicts,
+        "confidence": confidence if claims else None,
+    }
 
 
 async def get_neighbors(node_id: str, relationship_type: Optional[str] = None) -> list[GraphNode]:
@@ -867,6 +984,35 @@ async def get_decomposition(entity_id: str) -> list[GraphNode]:
             return [_record_to_node(record["b"]) async for record in result]
     except Neo4jError as exc:
         raise GraphInterfaceError(f"get_decomposition failed: {exc}") from exc
+
+
+async def get_decomposition_typed(entity_id: str) -> list[tuple[str, GraphNode]]:
+    """Same outward-edge query as `get_decomposition`, but also returns each
+    edge's real `relationship_type` property instead of dropping it. Added for
+    `_sync_decomposition` (backend/api/app.py) -- the session's in-memory graph
+    mirror was hardcoding every edge label to "decomposes_into" regardless of
+    what was actually stored, which silently hid every §0.17/§0.18/§0.22 typed
+    relationship (routes_to, forwards_funds_to, ...) from the live chat UI even
+    though Neo4j had them correct all along. `get_decomposition` itself is left
+    unchanged since its other callers (zoom_in, explain_entity, /node_detail)
+    only need the node, not the edge label.
+    """
+    await get_node(entity_id)
+    query = (
+        f"MATCH (a:{NODE_LABEL} {{id: $entity_id}})"
+        f"-[r:{RELATES_TO}]->(b:{NODE_LABEL}) "
+        "RETURN DISTINCT b, r.relationship_type AS relationship_type"
+    )
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            result = await session.run(query, entity_id=entity_id)
+            return [
+                (record["relationship_type"] or "decomposes_into", _record_to_node(record["b"]))
+                async for record in result
+            ]
+    except Neo4jError as exc:
+        raise GraphInterfaceError(f"get_decomposition_typed failed: {exc}") from exc
 
 
 async def _find_abstraction_by_name(name: str) -> Optional[Abstraction]:

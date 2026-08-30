@@ -114,8 +114,24 @@ async def structured_call(
     user_prompt: str,
     response_model: type[T],
     model_chain: list[str],
+    mode: "instructor.Mode | None" = None,
 ) -> T:
     """Shared Instructor call-with-fallback used by every LLM call in this module.
+
+    `mode` (docs/Memory.md's relation-extraction schema-flakiness chase): an
+    opt-in override of Instructor's per-provider default tool-calling mode --
+    e.g. `instructor.Mode.JSON_SCHEMA`, which maps to a provider's actual
+    constrained-decoding structured-output path where one exists (confirmed
+    registered for Groq and Cerebras), unlike the default `Mode.TOOLS` (plain
+    function-calling, which a smaller model can and did drift away from --
+    observed live, repeatedly, emitting `{subject, predicate, object}` instead
+    of `RelationExtraction`'s actual `source_entity`/`target_entity`/
+    `relationship_type`/`justification` fields). Deliberately best-effort per
+    provider, not blanket: not every provider in a chain supports every mode
+    (Google's registry has none of Instructor's v2 modes at all), so
+    constructing the client with the requested mode is tried first and falls
+    back to that provider's own default silently on any failure -- a caller
+    that doesn't pass `mode` gets byte-for-byte the original behavior.
 
     Extracted from what was `generate_question`'s inline loop so the Ground Agent's
     decision call (docs/Phases.md Phase 3) can reuse the exact same fallback-chain
@@ -176,7 +192,13 @@ async def structured_call(
                 if key is not None and env_var is not None:
                     os.environ[env_var] = key
                 try:
-                    client = instructor.from_provider(model, async_client=True)
+                    if mode is not None:
+                        try:
+                            client = instructor.from_provider(model, async_client=True, mode=mode)
+                        except Exception:  # noqa: BLE001 - unsupported mode for this provider, not a real failure
+                            client = instructor.from_provider(model, async_client=True)
+                    else:
+                        client = instructor.from_provider(model, async_client=True)
                     result = await asyncio.wait_for(
                         client.chat.completions.create(
                             response_model=response_model,

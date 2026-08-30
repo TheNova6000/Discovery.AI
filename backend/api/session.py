@@ -7,6 +7,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from backend.questions import get_family
+
 from . import db
 
 
@@ -14,6 +16,11 @@ class GraphNodeOut(BaseModel):
     id: str
     label: str
     kind: Literal["abstraction", "entity"] = "entity"
+    boundary_kind: Optional[Literal["subject", "entity"]] = None
+    """docs/Architecture.md §0.21/§0.22: the agent's own Subject-vs-Entity
+    judgment, when it made one -- distinct from `kind` above (session-mirror
+    plumbing: abstraction vs. entity NODE type), carried through so the
+    frontend can render a compound "box" around what this boundary governs."""
 
 
 class GraphEdgeOut(BaseModel):
@@ -71,12 +78,40 @@ class SessionState:
         self.known_entities: list[str] = []
         self.messages: list[ChatMessage] = []
         self.pending_action: Optional[PendingAction] = None
+        # docs/Architecture.md §0.24 (Focus vs. Enter Space): `current_entity`
+        # above is FOCUS -- a 1-hop neighborhood shown within whatever context
+        # it was found in. `current_space` is a genuinely different thing --
+        # which entity's own compositional subgraph is currently the rendered
+        # root, dropping outside context but still showing cross-space
+        # relations. None means "not inside any entered space," the default,
+        # unchanged rendering behavior. `space_history` is the stack "Back"
+        # pops -- entering a new space pushes the previous one (or None).
+        self.current_space: Optional[str] = None
+        self.space_history: list[Optional[str]] = []
+        # docs/Architecture.md §0.27: which relation-family lens is applied to
+        # the CURRENT view -- None/"all" means unfiltered (today's default).
+        # Setting this NEVER touches Neo4j or triggers investigation; it's
+        # pure view state, same status as current_space -- the architectural
+        # invariant §0.27 exists to prove (G_after == G_before across a view
+        # switch) depends on this never becoming anything more than that.
+        self.current_projection: Optional[str] = None
         self._nodes: dict[str, GraphNodeOut] = {}
         self._edges: list[tuple[str, str, str]] = []
 
-    def add_node(self, name: str, kind: Literal["abstraction", "entity"] = "entity") -> None:
+    def add_node(
+        self,
+        name: str,
+        kind: Literal["abstraction", "entity"] = "entity",
+        boundary_kind: Optional[Literal["subject", "entity"]] = None,
+    ) -> None:
         if name not in self._nodes:
-            self._nodes[name] = GraphNodeOut(id=name, label=name, kind=kind)
+            self._nodes[name] = GraphNodeOut(id=name, label=name, kind=kind, boundary_kind=boundary_kind)
+        elif boundary_kind is not None:
+            # A node is often first added via add_edge (default kind, no
+            # boundary_kind known yet) before _sync_decomposition later learns
+            # its real boundary_kind from Neo4j -- update in place rather than
+            # requiring callers to add nodes and edges in a particular order.
+            self._nodes[name].boundary_kind = boundary_kind
         if kind == "entity" and name not in self.known_entities:
             self.known_entities.append(name)
 
@@ -106,10 +141,16 @@ class SessionState:
             "session_id": self.session_id,
             "title": self.title,
             "nodes": [n.model_dump() for n in self._nodes.values()],
-            "edges": [{"source": s, "target": t, "label": l} for s, t, l in self._edges],
+            # "family" (docs/Architecture.md §0.25): computed from the single
+            # relation-type registry, not stored -- lets chat.html check
+            # `edge.family === "composition"` instead of keeping its own
+            # hardcoded copy of what used to be a hand-synced compositional set.
+            "edges": [{"source": s, "target": t, "label": l, "family": get_family(l)} for s, t, l in self._edges],
             "current_entity": self.current_entity,
             "current_abstraction": self.current_abstraction,
             "current_dimension": self.current_dimension_name,
+            "current_space": self.current_space,
+            "current_projection": self.current_projection,
             "messages": [m.model_dump() for m in self.messages],
         }
 
@@ -131,6 +172,9 @@ class SessionState:
             "edges": json.dumps([{"source": s, "target": t, "label": l} for s, t, l in self._edges]),
             "messages": json.dumps([m.model_dump() for m in self.messages]),
             "pending_action": json.dumps(self.pending_action.model_dump()) if self.pending_action else None,
+            "current_space": self.current_space,
+            "space_history": json.dumps(self.space_history),
+            "current_projection": self.current_projection,
         }
 
     @classmethod
@@ -150,6 +194,10 @@ class SessionState:
         state.messages = [ChatMessage(**m) for m in json.loads(row["messages"])]
         raw_pending = row.get("pending_action")
         state.pending_action = PendingAction(**json.loads(raw_pending)) if raw_pending else None
+        state.current_space = row.get("current_space")
+        raw_space_history = row.get("space_history")
+        state.space_history = json.loads(raw_space_history) if raw_space_history else []
+        state.current_projection = row.get("current_projection")
         return state
 
 
@@ -275,3 +323,13 @@ class SettingsUpdateRequest(BaseModel):
     gemini_api_key: Optional[str] = None
     cerebras_api_key: Optional[str] = None
     cohere_api_key: Optional[str] = None
+
+
+class CursorPathIn(BaseModel):
+    """A visitor's own recorded cursor path from their first ~2 minutes on the
+    home page -- (t_ms, nx, ny) triples, nx/ny normalized to [0,1]. No PII, no
+    DOM/keypress/identity data, no cross-session linkage: purely an anonymous
+    motion trace, stored so it can be looped back as ambient background motion
+    for later visitors (docs/Memory.md's cursor-flow redesign)."""
+
+    samples: list[list[float]] = Field(default_factory=list)

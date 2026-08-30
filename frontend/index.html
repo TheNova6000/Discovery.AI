@@ -49,6 +49,7 @@
     background-size: 42px 42px;
     mask-image: radial-gradient(ellipse 90% 70% at 50% 20%, black 40%, transparent 100%);
   }
+  .bg-network { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .blob { position: absolute; border-radius: 50%; filter: blur(100px); background: #fff; will-change: transform; }
   .blob.b1 { width: 520px; height: 520px; top: -200px; left: -140px; opacity: 0.06; animation: drift1 26s ease-in-out infinite; }
   .blob.b2 { width: 460px; height: 460px; bottom: -220px; right: -120px; opacity: 0.05; animation: drift2 32s ease-in-out infinite; }
@@ -319,7 +320,7 @@
 </style>
 </head>
 <body>
-<div class="bg-layer"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
+<div class="bg-layer"><canvas class="bg-network" aria-hidden="true"></canvas><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
 <div class="page-corner tl"></div><div class="page-corner tr"></div><div class="page-corner bl"></div><div class="page-corner br"></div>
 
 <header>
@@ -543,5 +544,19 @@
   <div class="dots"><span></span><span></span><span></span></div>
   <div>DISCOVERY.AI · WEBSITE</div>
 </footer>
+
+<script>
+  // Backend origin for the two API calls this page makes (telemetry only --
+  // this page still renders with zero API calls if both fail). Same pattern
+  // as chat.html's CONFIG.BACKEND_URL; blanked to '' on the VM deploy so it
+  // resolves same-origin there instead of cross-origin to Render.
+  const CONFIG = { BACKEND_URL: 'https://discovery-ai-bosm.onrender.com' };
+  // Recording + looped playback of real cursor paths is home-page-only, by
+  // explicit design (docs/Memory.md's cursor-flow redesign) -- docs.html
+  // loads the same fluid-bg.js but leaves this unset, so it only ever gets
+  // the local live-cursor fluid effect, never records or fetches paths.
+  window.FLUID_HISTORY_ENABLED = true;
+</script>
+<script src="/wasm/fluid-bg.js"></script>
 </body>
 </html>

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, Field
+import instructor
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from .exceptions import QuestionEngineError
 from .llm_client import structured_call
 from .llm_config import GROUND_MODEL_CHAIN
+from .relation_types import is_compositional
 
 # docs/Architecture.md §0.18: a candidate relation named by this call is NOT
 # necessarily written to the graph — `is_relation_worthy` still has to pass it
@@ -16,14 +18,13 @@ from .llm_config import GROUND_MODEL_CHAIN
 # model toward composition even when the content describes something else
 # (the IDS/Privilege-Escalation miss). The fix was never better wording on that
 # field — it was asking the question outside that framing entirely.
-_BANNED_RELATIONSHIP_TYPES = {
-    # Compositional — belongs to the decompose branch (ground_agent.py), not here.
-    "decomposes_into",
-    "is_part_of",
-    "part_of",
-    "component_of",
-    "consists_of",
-    "contains",
+#
+# Compositional types are banned here for a DIFFERENT reason than the generic/
+# symmetric ones below (they belong to the decompose branch in
+# ground_agent.py, not here) — that check is now `is_compositional()`
+# (docs/Architecture.md §0.25), the single registry replacing what used to be
+# three separately-hardcoded compositional-type lists across this codebase.
+_UNINFORMATIVE_RELATIONSHIP_TYPES = {
     # Generic/symmetric — discards exactly the acting-direction information that
     # makes a relation worth having (§0.18's relation-worthiness test, point 4).
     "relates_to",
@@ -35,17 +36,45 @@ _BANNED_RELATIONSHIP_TYPES = {
 
 
 class CandidateRelation(BaseModel):
-    source_entity: str = Field(description="The entity that acts, causes, or is the subject of the relation.")
-    target_entity: str = Field(description="The entity being acted on, caused, or affected.")
+    # docs/Memory.md's relation-extraction schema-flakiness chase: aliased to
+    # the subject/predicate/object names the model already reaches for
+    # naturally (observed live, repeatedly -- Groq's smaller model kept
+    # emitting exactly these field names instead of the ones below, even
+    # under Instructor's JSON_SCHEMA mode, which didn't stop the drift).
+    # `populate_by_name=True` means Python code everywhere else keeps using
+    # `.source_entity`/`.target_entity`/`.relationship_type` completely
+    # unchanged -- only the JSON SCHEMA SENT TO THE MODEL uses the aliases
+    # (Pydantic's `model_json_schema(by_alias=True)` default, confirmed
+    # empirically), so this is a schema-level fix with zero call-site churn.
+    model_config = ConfigDict(populate_by_name=True)
+
+    source_entity: str = Field(
+        alias="subject", description="The entity that acts, causes, or is the subject of the relation."
+    )
+    target_entity: str = Field(alias="object", description="The entity being acted on, caused, or affected.")
     relationship_type: str = Field(
+        # AliasChoices, not a single alias: the model's natural word choice for
+        # the middle slot of a subject/?/object triple split between
+        # "predicate" and "relation" across observed live failures -- accept
+        # either rather than betting on one.
+        validation_alias=AliasChoices("predicate", "relation"),
+        serialization_alias="predicate",
         description=(
             "Short verb-phrase naming the actual relation (e.g. 'spots', 'exploits', "
             "'routes_to', 'depends_on', 'regulates'). Never a compositional relation "
             "('decomposes_into', 'is_part_of', ...) and never a generic symmetric one "
             "('relates_to', 'connected_to', ...) — name the specific acting direction."
-        )
+        ),
     )
-    justification: str = Field(description="One short sentence: where in the text this relation is stated.")
+    # Optional with a default (docs/Memory.md's schema-flakiness chase): observed
+    # live, the model sometimes omits this field entirely from an otherwise
+    # perfectly usable triple. Nothing downstream requires a non-empty
+    # justification for a relation to be persisted (is_relation_worthy doesn't
+    # check it) -- it exists for human interpretability, same rationale as
+    # GroundDecision.reasoning being optional for the identical reason.
+    justification: str = Field(
+        default="", description="One short sentence: where in the text this relation is stated."
+    )
 
 
 class RelationExtraction(BaseModel):
@@ -64,16 +93,39 @@ _SYSTEM_PROMPT = """\
 You extract real-world relationships between distinct entities mentioned in a passage, \
 for a knowledge graph. You are NOT deciding what to investigate next, and you are NOT \
 deciding how to decompose a topic into parts — a separate part of the system already \
-handles that. Your only job here: given text about one entity, name any actor, causal, \
-or functional relationships between two entities that are each independently a "thing" \
+handles that. Your only job here: name any actor, causal, functional, or temporal/\
+sequential relationships between two entities that are each independently a "thing" \
 (not adjectives or sub-facts describing one entity).
 
 Skip purely compositional relationships (X is a component, phase, or part of Y) — those \
 are out of scope for this call. Focus on: who acts on what, what detects/causes/enables/ \
-depends on/routes to/regulates what. Only include a relation if BOTH ends could \
-reasonably be their own entity elsewhere in a graph about this domain, and the relation \
-would still hold regardless of how this particular question happened to be phrased — not \
-an incidental detail true only of this one sentence.
+depends on/routes to/regulates what, and what comes before/after what. Only include a \
+relation if BOTH ends could reasonably be their own entity elsewhere in a graph about \
+this domain, and the relation would still hold regardless of how this particular question \
+happened to be phrased — not an incidental detail true only of this one sentence.
+
+Temporal / sequential / process relationships are just as much in scope as actor and \
+causal ones — do not skip a step just because it's ordering rather than acting. When the \
+text describes a process, workflow, or lifecycle, extract the ordering between its \
+named stages, not only what each stage does: precedes/follows, happens_before/ \
+happens_after, occurs_before/occurs_after, and branch/convergence points (multiple \
+paths rejoining at a later stage). Examples:
+- "Risk checks precede authorization." -> Risk checks -[PRECEDES]-> Authorization
+- "Authorization is followed by capture." -> Authorization -[PRECEDES]-> Capture
+- "Multiple capture streams converge during clearing." -> Capture -[CONVERGES_AT]-> Clearing
+A described sequence of N stages should usually yield N-1 (or more, if it branches or \
+converges) ordering relations between consecutive stages — not just relations about what \
+each stage individually does.
+
+When a list of "Entities discovered together" is given below, treat it as the full \
+candidate set to check — actively look for relationships directly BETWEEN those entities, \
+not only relationships anchored on whichever one is named "entity under discussion." A \
+real-world process usually involves several of them acting on each other in sequence or in \
+parallel (e.g. a client pays its own bank, which forwards the payment to a second bank, \
+which credits the recipient) — extract those direct links between the co-discovered \
+entities too. Do not default to routing every relation through a single hub entity just \
+because it was named first or most often; check every pair in the list against the text, \
+not just pairs that include the first-named entity.
 
 Return an empty list rather than forcing a relation that doesn't clearly fit.
 """
@@ -95,7 +147,7 @@ def is_relation_worthy(candidate: CandidateRelation) -> bool:
         return False
     if source.casefold() == target.casefold():
         return False
-    if relationship_type in _BANNED_RELATIONSHIP_TYPES:
+    if is_compositional(relationship_type) or relationship_type in _UNINFORMATIVE_RELATIONSHIP_TYPES:
         return False
     return True
 
@@ -104,21 +156,56 @@ async def extract_relations(
     entity_name: str,
     known_text: str,
     *,
+    sibling_entity_names: list[str] | None = None,
     model_chain: list[str] | None = None,
 ) -> list[CandidateRelation]:
     """The standalone relation-discovery call (docs/Architecture.md §0.18) — a
     genuinely separate decision from `decide_next_step`, not a field on
     `GroundDecision`. Returns raw candidates; callers still need
     `is_relation_worthy` before persisting any of them.
+
+    `sibling_entity_names` (docs/Architecture.md §0.22): entities discovered
+    under the SAME parent as `entity_name` during decomposition (e.g. "Client
+    Bank", "Merchant Bank" discovered while investigating a payment). Passing
+    them explicitly and asking for all-pairs relations among the set — not just
+    pairs involving `entity_name` — is the documented fix (GraphRAG's and
+    LightRAG's own production prompts both do this) for LLM extraction's
+    well-documented bias toward relations anchored on the one named "topic"
+    entity, which is exactly why this call previously only ever produced edges
+    radiating from the current entity and never sibling-to-sibling edges.
     """
     chain = model_chain or GROUND_MODEL_CHAIN
-    user_prompt = f"Entity under discussion: {entity_name}\n\nKnown text:\n{known_text}\n\nExtract relations."
+    entities_line = ""
+    if sibling_entity_names:
+        seen = {entity_name.casefold()}
+        all_names = [entity_name]
+        for name in sibling_entity_names:
+            if name and name.casefold() not in seen:
+                seen.add(name.casefold())
+                all_names.append(name)
+        if len(all_names) > 1:
+            entities_line = (
+                "\nEntities discovered together (check every pair, not just ones "
+                f"involving the entity under discussion): {', '.join(all_names)}"
+            )
+    user_prompt = (
+        f"Entity under discussion: {entity_name}{entities_line}\n\n"
+        f"Known text:\n{known_text}\n\nExtract relations."
+    )
     try:
         result = await structured_call(
             system_prompt=_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             response_model=RelationExtraction,
             model_chain=chain,
+            # docs/Memory.md's relation-extraction schema-flakiness chase:
+            # observed live, repeatedly, on this specific call -- the default
+            # Mode.TOOLS lets a smaller model drift onto its own field names
+            # (subject/predicate/object) instead of RelationExtraction's real
+            # schema. JSON_SCHEMA maps to actual constrained decoding where a
+            # provider supports it (Groq, Cerebras); falls back silently to
+            # default mode for providers that don't (Google).
+            mode=instructor.Mode.JSON_SCHEMA,
         )
     except Exception as exc:  # noqa: BLE001 - collapse into this layer's typed boundary
         raise QuestionEngineError(f"extract_relations failed on every provider in {chain}: {exc}") from exc

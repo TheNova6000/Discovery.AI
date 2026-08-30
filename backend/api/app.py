@@ -16,17 +16,35 @@ from backend.graph import (
     find_or_create_entity,
     get_claims_for_question,
     get_decomposition,
+    get_decomposition_typed,
     get_questions_for_entity,
 )
-from backend.questions import Intent, Question, QuestionLevel, SessionContext, parse_intent
+from backend.questions import (
+    PROJECTION_FAMILIES,
+    Intent,
+    Question,
+    QuestionLevel,
+    SessionContext,
+    get_family,
+    is_compositional,
+    parse_intent,
+)
 from backend.questions.llm_client import get_provider_status
 from backend.questions.llm_config import set_current_user_keys
+from backend.telemetry import (
+    MAX_PATH_DURATION_MS,
+    MAX_SAMPLES_PER_PATH,
+    add_path,
+    get_random_paths,
+    init_path_db,
+)
 
 from . import db
 from .auth import get_current_user_id
 from .session import (
     ChatRequest,
     ChatResponse,
+    CursorPathIn,
     PendingAction,
     SessionState,
     SettingsUpdateRequest,
@@ -47,6 +65,7 @@ app = FastAPI(title="Recursive Knowledge Graph — Demo", docs_url="/api/docs", 
 @app.on_event("startup")
 async def _startup() -> None:
     await db.init_pool()
+    await init_path_db()
 
 # CORS_ORIGINS is a comma-separated allowlist (e.g. the Vercel frontend's URL)
 # for the deployed split-origin setup; unset defaults to "*", matching the
@@ -155,6 +174,41 @@ async def provider_status() -> dict:
     """
     return get_provider_status()
 
+
+@app.get("/telemetry/paths")
+async def telemetry_paths_get(limit: int = 6) -> dict:
+    """A random sample of previously-recorded, anonymous cursor paths from the
+    home page -- see CursorPathIn's docstring for exactly what is and isn't
+    captured. No auth, no per-visitor identity anywhere in this path: this is
+    a shared decorative resource (looped "ghost" motion in the background
+    fluid sim), not a lookup on any individual visitor.
+    """
+    return {"paths": await get_random_paths(max(1, min(limit, 20)))}
+
+
+@app.post("/telemetry/path")
+async def telemetry_path_post(body: CursorPathIn) -> dict:
+    """Accepts the CALLER'S OWN recorded path from their first ~2 minutes on
+    the home page. Clamped defensively since this is an unauthenticated
+    public boundary: capped sample count, capped timestamp range, and every
+    (nx, ny) clamped into [0,1] before storage, so a single malformed or
+    adversarial request can't inject an oversized or out-of-range path into
+    the shared pool. Silently accepts-and-drops a too-short recording rather
+    than erroring (see MIN_SAMPLES_PER_PATH in add_path) -- a visitor who
+    bounced immediately isn't a failure case, just not a useful sample.
+    """
+    accepted: list[tuple[float, float, float]] = []
+    for s in body.samples[:MAX_SAMPLES_PER_PATH]:
+        if len(s) != 3:
+            continue
+        t_ms, nx, ny = s
+        t_ms = max(0.0, min(t_ms, MAX_PATH_DURATION_MS))
+        nx = max(0.0, min(nx, 1.0))
+        ny = max(0.0, min(ny, 1.0))
+        accepted.append((t_ms, nx, ny))
+    stored = await add_path(accepted)
+    return {"stored": stored, "samples": len(accepted)}
+
 # Raised back from depth=1/steps=1 (docs/Memory.md — the Amazon investigation
 # diagnosis): that cut was bundled with the real latency fix (routing
 # master-level decisions to MASTER_MODEL_CHAIN) under time pressure, but it was
@@ -170,21 +224,60 @@ DEMO_MAX_DEPTH = 2
 DEMO_MAX_STEPS = 3
 
 
+# Bounded BFS depth/node caps for _sync_decomposition below -- Neo4j persists
+# across every investigation ever run for an entity name, potentially far more
+# than any ONE session's own depth/step budget (DEMO_MAX_DEPTH/DEMO_MAX_STEPS,
+# defined further down); these bound how much of that accumulated history one
+# sync pulls into the live UI per call, independent of how large the entity's
+# full graph has grown over time.
+_SYNC_MAX_DEPTH = 3
+_SYNC_MAX_NODES = 40
+
+
 async def _sync_decomposition(session: SessionState, entity_name: str, scope_hint: str | None = None) -> None:
-    """Pull the real `decomposes_into` children Neo4j already has for this entity
+    """Pull the real relationship structure Neo4j already has for this entity
     (written by `persist_to_graph=True`) into the session's fast in-memory graph
     mirror, so the live UI reflects genuinely discovered structure, not a guess.
 
-    `scope_hint` (Pass 3, docs/Architecture.md §0.14): without it, this call could
-    resolve to a different same-named node than the one the investigation itself
-    just used — the session's displayed graph would look wrong even though Neo4j
-    is correct, exactly the kind of false negative Pass 3's acceptance test needs
-    to rule out.
+    Recursive (bounded by _SYNC_MAX_DEPTH/_SYNC_MAX_NODES), not single-level —
+    docs/Architecture.md §0.22's sibling-to-sibling relations (e.g. "Client
+    Bank" -[forwards_funds_to]-> "Merchant Bank") live on an edge whose SOURCE
+    is a CHILD entity, not the top-level `entity_name` this function is called
+    with, so a single-level sync would never surface them in the chat UI even
+    though Neo4j has them correct. Also uses `get_decomposition_typed` instead
+    of `get_decomposition` so the real relationship_type reaches the UI —
+    every edge was previously hardcoded to the literal label "decomposes_into"
+    regardless of what was actually discovered, silently hiding every
+    §0.17/§0.18/§0.22 typed relationship from the live graph view.
+
+    `scope_hint` (Pass 3, docs/Architecture.md §0.14): applied only to the root
+    lookup, same as before — a newly-discovered child has no scope of its own
+    from this mechanism. Without it, this call could resolve to a different
+    same-named node than the one the investigation itself just used — the
+    session's displayed graph would look wrong even though Neo4j is correct,
+    exactly the kind of false negative Pass 3's acceptance test needs to rule
+    out.
     """
-    entity = await find_or_create_entity(entity_name, scope_hint=scope_hint)
-    children = await get_decomposition(entity.id)
-    for child in children:
-        session.add_edge(entity_name, child.name, "decomposes_into")
+    root = await find_or_create_entity(entity_name, scope_hint=scope_hint)
+    session.add_node(root.name, boundary_kind=root.boundary_kind)
+    visited = {root.id}
+    frontier = [root]
+    depth = 0
+    while frontier and depth < _SYNC_MAX_DEPTH and len(visited) < _SYNC_MAX_NODES:
+        next_frontier = []
+        for node in frontier:
+            for relationship_type, child in await get_decomposition_typed(node.id):
+                session.add_edge(node.name, child.name, relationship_type)
+                session.add_node(child.name, boundary_kind=child.boundary_kind)
+                if child.id not in visited:
+                    visited.add(child.id)
+                    next_frontier.append(child)
+                if len(visited) >= _SYNC_MAX_NODES:
+                    break
+            if len(visited) >= _SYNC_MAX_NODES:
+                break
+        frontier = next_frontier
+        depth += 1
 
 
 async def _run_investigation(session: SessionState, question: Question, *, persist_to_graph: bool = True) -> str:
@@ -213,6 +306,13 @@ async def _run_investigation(session: SessionState, question: Question, *, persi
 
 
 async def handle_new_investigation(session: SessionState, intent: Intent) -> str:
+    # A brand-new topic makes any previously-entered space (§0.24) stale --
+    # "enter PayPal" then asking an unrelated new question shouldn't leave the
+    # user silently still "inside" PayPal for a topic that has nothing to do
+    # with it.
+    session.current_space = None
+    session.space_history = []
+    session.current_projection = None
     entity_name = intent.entity_name or (intent.question_text or "Subject").split("?")[0][:60]
     abstraction_name = intent.abstraction_name or "Exploration"
     question = Question(
@@ -289,6 +389,124 @@ async def handle_zoom_in(session: SessionState, intent: Intent) -> str:
         return f"Focused on {entity_name}{boundary_phrase}. No further sub-components yet — want me to go deeper into it? (Or ask \"why is {entity_name} here\" to see what's already known about it.)"
     names = ", ".join(c.name for c in children)
     return f"Focused on {entity_name}{boundary_phrase}. Known components: {names}."
+
+
+async def handle_enter_space(session: SessionState, intent: Intent) -> str:
+    """§0.24's "Enter Space" -- re-roots the rendered view at this entity's own
+    compositional subgraph, dropping surrounding context (unlike zoom_in,
+    which keeps it). Never investigates on its own, same as zoom_in -- entering
+    a space is navigation, not a request to learn something new. A leaf (no
+    compositional children found) reports that gracefully WITHOUT changing
+    `current_space` -- there's nowhere to step into, so nothing about the
+    current view should change out from under the user.
+
+    `is_compositional` (docs/Architecture.md §0.25) is the single relation-type
+    registry that replaced what used to be a hardcoded set here duplicated by
+    hand against chat.html's own JS copy -- see relation_types.py.
+    """
+    entity_name = intent.entity_name or session.current_entity
+    if not entity_name:
+        return "I don't have an entity in focus yet — ask a question first."
+
+    entity = await find_or_create_entity(entity_name, scope_hint=intent.scope_hint)
+    await _sync_decomposition(session, entity_name, intent.scope_hint)
+    typed_children = await get_decomposition_typed(entity.id)
+    compositional_children = [c for rel, c in typed_children if is_compositional(rel)]
+
+    if not compositional_children:
+        return (
+            f"{entity_name} has no deeper compositional space to enter yet — it isn't made up of "
+            f"discovered parts, just relations to other things. Try \"go deeper into {entity_name}\" "
+            "to investigate it further, or \"zoom in\" to see what it connects to."
+        )
+
+    session.space_history.append(session.current_space)
+    session.current_space = entity_name
+    session.current_entity = entity_name
+    names = ", ".join(c.name for c in compositional_children)
+    return f"Entered {entity_name}. Its own space contains: {names}."
+
+
+async def handle_exit_space(session: SessionState, intent: Intent) -> str:
+    """Pops `space_history` -- returns to whatever space (or no space) was
+    current before the most recent `enter_space`. Undirected on purpose (no
+    `entity_name`): "back" means "wherever I was," not a named destination
+    (that's zoom_in's job, e.g. "go back to PayPal").
+    """
+    if not session.space_history:
+        return "Already at the top level — there's no entered space to leave."
+    previous_space = session.space_history.pop()
+    session.current_space = previous_space
+    if previous_space:
+        session.current_entity = previous_space
+        return f"Back to {previous_space}."
+    return "Back to the top level."
+
+
+def _space_reachable_ids(edges: list[dict], space_id: str) -> set[str]:
+    """The same compositional-BFS reachability computeSpaceViewport uses in
+    chat.html (docs/Architecture.md §0.24), mirrored here so §0.27's
+    honest-gap check is scoped to the space actually on screen rather than
+    the whole accumulated graph -- otherwise "network view: 1 relationship"
+    could be reported for a relationship the user can't currently see because
+    it lives outside the space they're inside, contradicting what renders.
+    """
+    ids = {space_id}
+    frontier = [space_id]
+    while frontier:
+        nxt = []
+        for i in frontier:
+            for e in edges:
+                if e["source"] == i and e["family"] == "composition" and e["target"] not in ids:
+                    ids.add(e["target"])
+                    nxt.append(e["target"])
+        frontier = nxt
+    return ids
+
+
+async def handle_set_projection(session: SessionState, intent: Intent) -> str:
+    """docs/Architecture.md §0.27: switches which relation family the CURRENT
+    view is filtered to. This function is the architectural invariant §0.27
+    exists to prove made concrete: it never calls `_run_investigation`, never
+    calls `find_or_create_entity`/`create_relationship`, never touches Neo4j
+    at all -- it can't discover anything, only re-filter what `to_payload()`
+    already knows, using the family each edge already carries (§0.25's
+    registry). A projection with zero matching edges is reported honestly
+    (docs/Architecture.md §0.27's "beautiful failure mode") rather than
+    silently switching to an empty-looking view with no explanation.
+    """
+    if intent.projection is None:
+        return "Which view — structure, flow, causal, dependency, or network?"
+    if intent.projection == "all":
+        session.current_projection = None
+        return "Back to the full view."
+    if not (session.current_space or session.current_entity):
+        return "Ask a question or focus on something first — there's nothing in view yet to project."
+
+    family = PROJECTION_FAMILIES[intent.projection].value
+    edges = session.to_payload()["edges"]
+    if session.current_space:
+        reachable = _space_reachable_ids(edges, session.current_space)
+        edges = [e for e in edges if e["source"] in reachable or e["target"] in reachable]
+    matching = [e for e in edges if e["family"] == family]
+    session.current_projection = intent.projection
+
+    if not matching:
+        family_examples = {
+            "structure": "decomposes_into/contains",
+            "flow": "precedes/follows",
+            "causal": "causes/enables/prevents",
+            "dependency": "requires/depends_on",
+            "network": "uses/routes_to/serves",
+        }[intent.projection]
+        return (
+            f"Switched to the {intent.projection} view, but the model doesn't currently contain any "
+            f"{family_examples} relationships for what's in view — nothing will show. That's a real gap "
+            f"in what's been discovered, not a rendering problem; try investigating further."
+        )
+    names = ", ".join(f"{e['source']} → {e['target']}" for e in matching[:6])
+    more = f" (+{len(matching) - 6} more)" if len(matching) > 6 else ""
+    return f"Showing the {intent.projection} view: {len(matching)} relationship(s) — {names}{more}."
 
 
 async def handle_investigate_deeper(session: SessionState, intent: Intent) -> str:
@@ -443,6 +661,9 @@ _HANDLERS = {
     "explain": handle_explain,
     "change_dimension": handle_change_dimension,
     "compare": handle_compare,
+    "enter_space": handle_enter_space,
+    "exit_space": handle_exit_space,
+    "set_projection": handle_set_projection,
     "no_action": handle_no_action,
 }
 
@@ -598,6 +819,8 @@ async def _process_message(session: SessionState, message: str, user_id: str) ->
         current_entity=session.current_entity,
         current_abstraction=session.current_abstraction,
         known_entities=session.known_entities,
+        current_space=session.current_space,
+        current_projection=session.current_projection,
     )
     # `parse_intent` itself is just as capable of hitting total provider
     # exhaustion as any handler it dispatches to (confirmed live, 2026-08-30:
