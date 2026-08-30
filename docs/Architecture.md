@@ -1343,6 +1343,63 @@ successful UI render this same run only because Groq's daily token quota, Gemini
 cap, and Cerebras's billing all became exhausted simultaneously mid-run (an external operational constraint,
 not a code defect) — a full end-to-end UI observation is the natural follow-up once quota resets.
 
+## 0.29 Abstraction levels — a model-validation pass, no new schema (2026-08-30)
+
+**[RESEARCH CONCLUSION — design-only, no code].** Full detail and the empirical trace are in
+`docs/Memory.md`'s entry of the same name; this is the pointer. Prompted by §0.28's own closing question
+("investigation discovers entities → relations give them semantics → relation families determine
+topology → topology determines representation... how does an investigator move through that graph without
+losing the topology that makes it meaningful?"), this pass asked one precise question before writing any
+code: **can one entity have different valid relational structures at different abstraction levels, while
+remaining the same entity in one world model** — and if so, does expressing that need a new primitive?
+
+> **Discovery.AI does not store different graphs for different abstraction levels. It stores one world
+> model; scope selects which compositional region is being examined, projection selects which relation
+> families are emphasized, and topology emerges from the resulting subgraph.**
+
+The answer, checked against the actual code and a live empirical trace rather than assumed: **no new schema
+is required.** Eight conclusions, framed as findings about the *current* model rather than universal claims
+(kept falsifiable on purpose):
+
+1. **Abstraction is currently represented through scope, within this model** — not a universal claim that
+   abstraction *is* scope in general. `Node.kind` (`abstraction`/`entity`) is a binary tag, not a scale;
+   `current_space` selects a compositional-reachability closure. No third, independent "abstraction level"
+   field exists or is needed for what's been observed so far.
+2. **Relationship families are independent of abstraction/scope** — proven, not assumed: the real §0.28 Test
+   3 investigation already has `Authorization` carrying coarse `PRECEDES`/`CAN_DECLINE` relations to its
+   siblings (Risk checks, Payment Capture) alongside `QUERIES`/`EVALUATES`/`EXPRESS` interaction relations
+   among its own decomposed children (Authorization Enforcement/Engine/Policies, XACML, Rego) — same entity,
+   two families, zero duplication, discovered by the existing pipeline with no special-casing.
+3. **World Model vs. View remains strict**: nodes/typed relationships/evidence in Neo4j; `current_entity`/
+   `current_space`/`current_projection` in session state only. No view operation may mutate the world model —
+   the same invariant §0.27 already proved for projections holds here too.
+4. **Projection is independent of scope** — already true in running code: `handle_set_projection`
+   (`backend/api/app.py`) scopes its match-check to `session.current_space`'s reachable subgraph when one is
+   entered, so a space and a projection already compose as two independent settings on one session, not two
+   competing graphs.
+5. **Entering a space is scope reassignment**, defined concretely as
+   `scope(node) = compositional-reachability-closure(node)` (`computeSpaceViewport` in `chat.html`) — one
+   operation, not three bundled effects. No new persistent "abstraction level" field was added to represent
+   it.
+6. **Topology remains derived, not stored**: `topology = f(scope, projection, relationship families)`. Tree,
+   DAG, cycle, network, mesh are properties of whatever subgraph is currently exposed, recomputed on demand —
+   never a `topology` field attached to a node or graph.
+7. **Navigation is an operation, not a data dimension.** Focus/enter/exit/back manipulate the scope pointer
+   (with `space_history` as its undo stack, §0.24) — they are verbs over state, not additional World Model
+   axes.
+8. **No new schema or code was added in this pass.** The remaining known gap — `computeViewport`'s plain
+   focus mode is a cruder, less consistent 1-hop scope mechanism than `computeSpaceViewport` (§0.28's own
+   documented limitation) — is a navigation/view convergence problem for a future pass, explicitly not
+   evidence that the World Model needs another primitive.
+
+**Empirical basis** (`scripts/verify_test3_extraction.py`'s real Neo4j output, replayed through the live
+`computeSpaceViewport`/`renderGraph` in Chrome, zero new code, zero LLM calls): entering `Authorization`
+against the actual Test 3 graph exposed its own internal interaction graph (`Enforcement -QUERIES->
+Engine -EVALUATES-> Policies -EXPRESS-> XACML`) as the space's own structure, while the coarse temporal
+chain (`Risk checks -PRECEDES-> Authorization -PRECEDES-> Payment Capture`) remained visible as cross-space
+context — from the same nodes and edges, `graph.nodes`/`graph.edges` confirmed byte-identical before and
+after the scope switch.
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |

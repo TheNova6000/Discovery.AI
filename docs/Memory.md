@@ -77,6 +77,68 @@ existed before the fix: `Risk checks -[PRECEDES]-> Authorization -[PRECEDES]-> P
 end-to-end UI render of the complete chain (through Settlement) is the natural follow-up once provider quota
 resets — not yet observed, and not claimed as observed.
 
+## 2026-08-30 (continued) — §0.29: abstraction levels — a model-validation pass, no new schema needed
+
+Direct follow-on from §0.28's own closing question: once topology was proven to emerge correctly from
+relation family rather than investigation order, the harder question became navigation — "how does an
+investigator move through that graph without losing the topology that makes it meaningful?" The user
+explicitly refused to let this become an implementation task before it was validated as a *model* question
+first: "§0.29 should therefore be a model-validation pass, not an implementation pass. No code until we know
+whether the existing primitives are sufficient." The precise question posed: can one entity have different
+valid relational structures at different abstraction levels, while remaining the same entity in one world
+model — and does answering yes require new schema?
+
+Answered by reading the actual code and replaying real data, not by design from first principles. Five
+findings, deliberately framed as conclusions about the *current* model rather than universal claims — the
+user's own refinement, made explicitly to keep the architecture falsifiable rather than let "abstraction =
+scope" harden into an assumption nothing could ever contradict:
+
+1. **Abstraction reduces to scope in the current model.** Tracing `computeSpaceViewport` (`chat.html`,
+   §0.24): entering a space is exactly `scope(node) = compositional-reachability-closure(node)`. There is no
+   separate stored "abstraction level" — `Node.kind` (`abstraction`/`entity`) is a binary tag, not a scale.
+   Nothing here claims abstraction *must* be scope in every possible future model, only that no evidence so
+   far requires them to be different things.
+2. **Relation family is independent of scope — proven with real data, not assumed.** The exact live Test 3
+   investigation from §0.28 already has `Authorization` carrying coarse `PRECEDES`/`CAN_DECLINE` relations to
+   its siblings (Risk checks, Payment Capture) *and* `QUERIES`/`EVALUATES`/`EXPRESS`/`EXPRESS_IN` interaction
+   relations among its own decomposed children (Authorization Enforcement/Engine/Policies, XACML, Rego) — in
+   the same Neo4j graph, same entity, zero duplication, discovered organically by the existing pipeline with
+   no abstraction-aware code written for it. Family lives on the edge, not the entity or the level, which is
+   exactly why this fell out for free.
+3. **World Model vs. View discipline holds without modification** — the same boundary §0.27 already proved
+   (Neo4j never mutated by a view operation) applies unchanged to scope/abstraction: `current_space` and
+   `current_projection` are both session-only.
+4. **Scope and projection already compose**, confirmed by re-reading `handle_set_projection`
+   (`backend/api/app.py`, written during §0.27): it already scopes its honest-gap check to
+   `session.current_space`'s reachable subgraph when one is entered. "Enter Authorization, show its
+   dependency relations" and "stay at Payment System, show temporal flow" are two independent settings on
+   one session today, not two competing graphs.
+5. **Topology is a derived read, never stored** — `topology = f(scope, projection, relation family)`,
+   recomputed from whatever subgraph is currently exposed. Navigation (focus/enter/exit/back) is the verb set
+   that moves the scope pointer over time (with `space_history` as its undo stack), not an additional World
+   Model axis.
+
+The user's own proposed axis list (abstraction / topology / projection / scope / navigation, floated as
+possibly five independent dimensions) was directly challenged rather than accepted: abstraction and scope
+collapse into one axis in the current model; topology isn't an axis at all, it's a derived view; navigation
+is an operation set, not a data dimension. That leaves exactly two independent stored axes — scope and
+projection — which is a sharper, smaller model than the one proposed, and the standard used throughout ("if
+existing primitives already express this, don't add a primitive") is what forced that reduction rather than
+a stylistic preference for minimalism.
+
+**Live empirical proof, zero new code, zero LLM calls:** replayed the real Test 3 Neo4j data (captured by
+`scripts/verify_test3_extraction.py`) through the already-deployed `computeSpaceViewport`/`renderGraph` in a
+live Chrome tab. Entering `Authorization` correctly exposed its own internal interaction graph
+(`Authorization Enforcement -QUERIES-> Authorization Engine -EVALUATES-> Authorization Policies -EXPRESS->
+XACML`) as the space's own structure, while the coarse temporal chain (`Risk checks -PRECEDES-> Authorization
+-PRECEDES-> Payment Capture`) remained visible as cross-space context, exactly matching what the model
+predicted before the test ran — not adjusted after the fact. `graph.nodes`/`graph.edges` were confirmed
+identical in content before and after the scope switch.
+
+**Verdict: no schema change, no code change this pass.** The one gap this surfaced — `computeViewport`'s
+plain focus mode being a cruder, less consistent scope mechanism than `computeSpaceViewport` — is explicitly
+named as a future convergence/cleanup pass, not treated as evidence the World Model itself is incomplete.
+
 ## 2026-08-30 (continued) — §0.27: Semantic Graph Projections, and a real backend/frontend scope bug caught by live verification
 
 The user reframed the research question before any code: not "how to make flow graphs" but "how can one
