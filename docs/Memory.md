@@ -77,6 +77,68 @@ existed before the fix: `Risk checks -[PRECEDES]-> Authorization -[PRECEDES]-> P
 end-to-end UI render of the complete chain (through Settlement) is the natural follow-up once provider quota
 resets — not yet observed, and not claimed as observed.
 
+## 2026-08-30 (continued) — §0.34: predicate identity is the missing layer, not "canonicalization"
+
+Direct follow-on from §0.33's 28%-unmapped finding, with the user's explicit instruction against the obvious
+shortcut: don't patch the 71 relation names into the registry one at a time — "that would make today's graph
+look cleaner while making the underlying problem worse... First understand relation identity."
+
+**The first move was reading the actual code rather than theorizing about "canonicalization" as if it were
+one thing.** It isn't. `canonicalize_relation` (`backend/questions/relation_extraction.py`) is an LLM call
+that does direction normalization only — passive/modal voice to active voice, explicitly documented as never
+touching which verb gets used ("If the triple is already active/canonical, return it unchanged").
+`normalize_relationship_type` is a small, deterministic, hand-curated dict doing spelling/format
+normalization only, built from variants actually observed in real runs, explicitly commented "unmapped !=
+unworthy." `get_family` maps one canonical predicate string to one family. All three are real, all three
+work, and none of them is or was ever meant to be the thing §0.33 actually found missing: a stage that
+decides whether two *different* verb strings denote the *same real-world relationship* before family lookup
+ever runs. Conflating these three under one "canonicalization" label — as an earlier draft of this exact
+research pass did — would have obscured exactly where the gap is. Corrected before being written up.
+
+One concrete piece of evidence surfaced while re-reading the code, worth recording precisely: `is_an_example_of`
+already has a `_RELATIONSHIP_TYPE_SYNONYMS` entry mapping it to `IS_EXAMPLE_OF`, yet §0.33's mining pass found
+it stored unmapped in Neo4j. That specific pair of edges predates that table entry (or `normalize_relationship_type`
+itself) being added to the code — historical residue from earlier in this same session's own investigations,
+not proof that today's code would fail on a fresh extraction. Some real fraction of the 28% figure is stale
+data rather than a live, currently-reproducible gap — named explicitly so the finding isn't overstated.
+
+**The corrected pipeline, naming the actually-missing stage:**
+
+```
+Extraction -> Direction normalization -> Predicate normalization -> Identity resolution -> Family classification -> World Model
+```
+
+**Ten principles agreed as the checklist future passes get measured against**, condensed: surface form is not
+predicate identity; predicate identity is not relation family; family is deliberately coarse, predicate
+identity is fine-grained; equivalence between two surface forms requires checking real examples, never
+string/embedding similarity alone; unknown relations are preserved, never force-merged; normalization is
+curated and deterministic, never decided by an LLM judging its own output at extraction time; unknown is not
+unworthy; a wrong merge is strictly worse than an unmapped relation, because a merge silently and permanently
+changes what the graph claims while an unmapped edge stays honestly recoverable; registry growth stays
+incremental and observable, with the mining script itself as the observation mechanism.
+
+**One real correction accepted mid-pass, not smoothed over:** the first draft concluded predicate-identity
+decisions should carry no confidence at all, full stop, by direct analogy to `_RELATIONSHIP_TYPE_SYNONYMS`
+having no confidence field. The correction sharpens rather than reverses this: the *decision* stays
+deterministic yes/no at the registry level (that part was right), but the *evidence supporting* a curation
+decision can and should be recorded without becoming a runtime confidence score —
+`{alias, reason, verified_examples, status}` per entry, not a number. This preserves exactly the distinction
+§0.26 already established for relation evidence: knowledge about the world can be probabilistic; decisions
+about what a predicate *is* should not be.
+
+**A concrete design named for a future pass, not built now:** an `unknown` pseudo-family in
+`PROJECTION_FAMILIES`, so a user can deliberately ask to see exactly the relations with no registered family
+— the same "honest gap over silent invention" principle §0.27/§0.31 already proved for topology, extended
+here to vocabulary. The relation model this points toward keeps `surface_predicate` and `canonical_predicate`
+as genuinely separate fields, with evidence attached to the actual assertion rather than to the canonical
+predicate string — valuable once multiple sources express the same fact differently, which hasn't happened
+yet in this project's own data and isn't being built ahead of that need.
+
+**Not implemented.** No registry change, no new projection, no schema change. The named next experiment is
+explicitly *not* hand-picked toy examples: run this theory against the real 71 unmapped `relationship_type`
+strings already sitting in the actual 253-edge graph from §0.33, to see whether the ten principles hold
+against the mess the system has already produced rather than against clean illustrative cases.
+
 ## 2026-08-30 (continued) — §0.33 Pass A: mining the real World Model, zero LLM calls
 
 §0.30-§0.32 had proven the renderer and navigation aren't forcing a tree onto arbitrary graphs. The next,

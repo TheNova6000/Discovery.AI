@@ -1619,6 +1619,83 @@ graph look cleaner while leaving the actual problem — an ever-growing, ad hoc 
 when two surface relations are the same thing — completely unaddressed. §0.34 is scoped to research relation
 identity/canonicalization properly before touching the registry at all.
 
+## 0.34 Predicate identity & relation vocabulary — a research pass, no code (2026-08-30)
+
+**[RESEARCH CONCLUSION — design-only, no code].** Full detail is in `docs/Memory.md`'s entry of the same
+name; this is the pointer. §0.33's mining pass found 28% of all extracted edges outside the relation-type
+registry, with a clear instruction not to patch it name-by-name: "First understand relation identity. Then
+let the registry become the consequence of that model, rather than a growing dictionary of whatever verbs the
+LLM happened to produce."
+
+**Research question:** how can arbitrary linguistic relation expressions be mapped into a small, stable
+semantic vocabulary without letting the LLM silently redefine the ontology?
+
+**The first, necessary correction: "canonicalization" was never one operation — the code already has two
+genuinely orthogonal mechanisms, and treating them as one thing obscures where the real gap is.**
+`canonicalize_relation` (an LLM call) does *direction normalization* — passive/modal voice to active voice,
+never touching which verb is used. `normalize_relationship_type` (deterministic, hand-curated) does *spelling/
+format normalization* — a small synonym table, explicitly scoped to variants already observed in real runs.
+`get_family` does *family classification* — one canonical predicate string to one coarse family bucket. None
+of these three is, or was ever meant to be, *predicate identity resolution*: deciding whether two different
+verb strings (`routes_to`, `forwards_request_to`, `sends_to`) denote the same real-world relationship before
+family lookup even runs. That missing layer is the actual gap §0.33 found — not a canonicalization bug, a
+genuinely absent pipeline stage:
+
+```
+Extraction → Direction normalization → Predicate normalization → Identity resolution → Family classification → World Model
+```
+
+**Ten principles, kept as a checklist rather than prose so future passes can be checked against them
+directly:**
+
+1. Surface form ≠ predicate identity.
+2. Predicate identity ≠ relation family.
+3. Family is intentionally coarse (a rendering/projection bucket).
+4. Predicate identity is fine-grained (a real-world-relationship-preserving distinction).
+5. Equivalence between two surface forms requires verified semantic equivalence, checked against real
+   examples — never assumed from string or embedding similarity alone.
+6. Unknown relations remain preserved, never silently dropped or force-merged.
+7. Normalization is deterministic and conservative — decided by curation, not by an LLM asked at extraction
+   time whether two things it just said mean the same thing.
+8. Unknown ≠ unworthy (already the standing rule in `relation_extraction.py`; extended here to the vocabulary
+   layer, not just the worthiness layer).
+9. A wrong merge is strictly worse than an unmapped relation — a merge silently and permanently changes what
+   the graph claims; an unmapped edge only says "this hasn't been classified yet," which is recoverable and
+   honest.
+10. Registry growth is incremental and observable (the mining script *is* the observation mechanism — run it
+    periodically, review new unmapped verbs in small batches, exactly as `_RELATIONSHIP_TYPE_SYNONYMS`'s own
+    documented discipline already states: built from variants actually observed, never a speculative ontology
+    populated up front).
+
+**One refinement to the "conservative, no confidence score" conclusion from the prior draft of this
+research, per direct correction:** predicate-identity decisions stay deterministic yes/no at the registry
+level — that part holds. But the *evidence supporting* a given yes/no decision can and should be recorded
+during curation, without becoming a runtime confidence score:
+
+```
+alias: FORWARDS_REQUEST_TO -> ROUTES_TO
+reason: same argument roles, same operational meaning
+verified_examples: [...]
+status: verified
+```
+
+This preserves the distinction the whole project has maintained since §0.26: knowledge about the world can be
+probabilistic (relation evidence, confidence); ontology decisions about what a predicate *is* should not be.
+
+**A concrete design worth naming for a future implementation pass, not built now:** an `unknown` pseudo-family
+in `PROJECTION_FAMILIES`, surfacing exactly the relations with no registered family — turning the 28% gap
+from an invisible blind spot into something a user can deliberately go inspect, the same "honest gap over
+silent invention" principle §0.27/§0.31 already established for topology, applied here to vocabulary. The
+relation model this points toward keeps `surface_predicate` and `canonical_predicate` as genuinely separate
+fields (evidence attaches to the assertion, never to the canonical predicate string itself) — valuable later
+once multiple sources express the same fact in different surface forms, which hasn't been built and isn't
+needed yet.
+
+**Not done in this pass:** no registry change, no new pseudo-projection, no schema change. The named next
+step is a small adversarial test — not of hand-picked toy examples, but of the actual 71 unmapped
+relationship_type strings already sitting in the real 253-edge graph from §0.33 — to check whether this
+theory holds against the mess the system has already produced, before any of it is implemented.
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |
