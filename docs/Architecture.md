@@ -1400,6 +1400,79 @@ chain (`Risk checks -PRECEDES-> Authorization -PRECEDES-> Payment Capture`) rema
 context — from the same nodes and edges, `graph.nodes`/`graph.edges` confirmed byte-identical before and
 after the scope switch.
 
+## 0.30 Focus and Enter Space are one operation, not two — a research conclusion, no code (2026-08-30)
+
+**[RESEARCH CONCLUSION — design-only, no code, evidence-verified].** Full detail and the live test traces are
+in `docs/Memory.md`'s entry of the same name; this is the pointer. Direct follow-on from §0.28's own
+documented limitation (`computeViewport`'s plain focus mode silently drops real structure — a cycle's
+back-edge, most of a mesh — depending on which node gets clicked) and §0.29's closing question about
+navigation. The question was posed narrowly and falsifiably, exactly as instructed: **are Focus and Enter
+Space actually the same semantic operation with different bounds, or genuinely different operations that
+happen to look similar** — checked against the real code and live tests, not assumed either way.
+
+**Finding: they are the same operation.** Both `computeViewport`'s focus branch and `computeSpaceViewport`
+turn out to be instances of one general primitive:
+
+```
+closure(node, maxDepth, familyFilter, direction)
+```
+
+with **Enter Space** = `closure(node, ∞, {composition}, forward)` and **Focus** ≈
+`closure(node, 1–2, all-families, bidirectional)` — two named parameterizations on the same three axes
+(depth, family, direction), not two unrelated algorithms. This falsifies the naive assumption the user
+explicitly warned against adopting uncritically ("do not make `computeSpaceViewport()` the answer merely
+because it already works") in the opposite direction from expected: the two mechanisms turned out to be
+*more* unifiable than assumed, not less — the architecture got simpler after testing, not more complicated.
+
+**Live re-tests of the previously-undocumented cases** (DAG, hub-leaf, nested-workflow under Focus — none of
+these had been run under focus mode before, only under whole-graph mode in §0.28) surfaced the sharpest new
+evidence: focusing a DAG's root makes its convergence node disappear; focusing the convergence node makes the
+root disappear — the same two-branch structure gives a *different, mutually exclusive* partial view depending
+on which end gets clicked, despite the underlying graph never changing. One initial prediction in this pass
+(that a nested workflow's outer box would vanish entirely under focus) was checked live and found **wrong**
+— Focus's parent+sibling rule happened to recover the immediate box because the focused node's direct parent
+was richly connected — and corrected before being written up, rather than reported as originally guessed.
+Space, entering the same nested node's own compositional parent, was shown to be strictly more complete in
+that case (its context step reaches one hop past the compositional boundary; Focus's fixed depth does not) —
+but Space isn't available at all for a compositionally-flat topology (`enter_space` explicitly refuses a leaf
+with no compositional children), so "just use Space" is not a general fix; Focus's own bounded behavior at
+`(small depth, all families)` has to become honest on its own terms.
+
+**The disclosure principle, elevated to an explicit architectural rule:** a viewport is allowed to be
+incomplete; it is not allowed to imply completeness when it is bounded. Neither mechanism discloses
+truncation today — Space is complete along its one guaranteed dimension (compositional depth) but silently
+truncates its own context step at one hop past the boundary; Focus silently truncates at its fixed radius
+with no signal either way. For a system whose stated purpose is building an accurate mental model from
+evidence, an unmarked missing edge is not a cosmetic gap — a viewer forming a belief from `Risk Checks →
+Authorization → Capture` with `Clearing → Settlement` invisible and undisclosed has been taught something
+false by omission, not merely shown an incomplete picture.
+
+**Closing shape, no code this pass:**
+
+```
+One World Model
+       ↓
+One General Reachability Primitive: closure(node, maxDepth, familyFilter, direction)
+       ↓
+┌────────────────────┬─────────────────────┐
+│ Focus               │ Enter Space         │
+│ bounded depth       │ compositional depth │
+│ all families        │ unbounded           │
+│ bidirectional        │ forward             │
+└────────────────────┴─────────────────────┘
+       ↓
+Bounded View
+       ↓
+Explicit Truncation Disclosure
+```
+
+No new Node type, no new graph type, no new stored topology field, no duplicate graph — consistent with
+§0.29's own standard of not adding a primitive the existing model can already express. §0.31 is scoped as the
+natural next pass: design the bounded-reachability contract and disclosure semantics precisely (what a
+truncation message says, what "more relations available" means as a UI affordance) *before* touching
+`computeViewport`'s implementation — not started yet, per the same one-section-at-a-time discipline every
+prior pass in this project has followed.
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |

@@ -77,6 +77,80 @@ existed before the fix: `Risk checks -[PRECEDES]-> Authorization -[PRECEDES]-> P
 end-to-end UI render of the complete chain (through Settlement) is the natural follow-up once provider quota
 resets — not yet observed, and not claimed as observed.
 
+## 2026-08-30 (continued) — §0.30: Focus and Enter Space are one operation, not two
+
+Direct follow-on from §0.29, which closed by naming the actual remaining gap precisely: `computeViewport`'s
+plain focus mode is a cruder, less consistent scope mechanism than `computeSpaceViewport`, documented but not
+yet investigated. The user narrowed the question sharply before any research began — not "how do we make
+navigation topology-aware" in the abstract, but "can plain Focus be reconciled with the already-proven Space
+scope mechanism without losing the useful 1-hop readability Focus currently provides" — and set an explicit
+guardrail against the obvious trap: "Do not make `computeSpaceViewport()` the answer merely because it
+already works. The research must first establish whether Focus and Enter Space are actually the same
+semantic operation with different bounds." Six precise questions were given to answer, no code allowed.
+
+**Answered by reading the exact current code, not by design from first principles.** Tracing
+`computeSpaceViewport` (`chat.html`) line by line: its "inside" walk is family-restricted (only
+`composition`-family edges), depth-unbounded (walks however many compositional hops exist), and
+direction-restricted (only forward/downward from the space root); its separate "context" step then surfaces
+any edge of any family touching that inside set, one hop out. Tracing `computeViewport`'s focus branch:
+"children" (edges FROM focus, any family), "parentEdges" (edges TO focus, any family), and "siblingEdges"
+(other children of focus's own parents) — family-blind throughout, depth fixed at roughly 1–2 hops,
+bidirectional (forward for children, backward for parents) by construction. First answer, before empirical
+testing: these looked like genuinely different graph-theoretic operations (containment-membership vs.
+ego-network), not the same operation at different radii.
+
+**That first answer was revised after formalizing both as one primitive.** Reframed as
+`closure(node, maxDepth, familyFilter, direction)`, Enter Space and Focus resolved into two named points on
+the *same* three-parameter space — Enter Space = `(∞, {composition}, forward)`, Focus ≈
+`(1–2, all families, bidirectional)` — not two unrelated algorithms that happen to produce similar-looking
+views. This is the user's own sharper framing, adopted because it survived the falsification test the
+guardrail demanded: the two mechanisms are *more* unifiable than the initial code-reading suggested, not
+less. The architecture simplifies after being tested, rather than needing a new primitive to reconcile the
+two — consistent with §0.29's own standard.
+
+**Live re-tests filled in the one real gap in the evidence: the previously-undocumented cases had never been
+run under Focus mode specifically**, only under whole-graph mode in §0.28's synthetic corpus. Run live,
+zero LLM calls, same technique as every prior pass this session:
+- **DAG**, focus on the root (`Request→FraudCheck→Capture`, `Request→Auth→Capture`): `Capture` (the
+  convergence node) vanishes entirely. Focus on `Capture` instead: `Request` (the root) vanishes entirely.
+  Same graph, mutually exclusive partial views depending only on which node was clicked — a new, sharper
+  demonstration of exactly the failure mode this whole line of research exists to name.
+- **Hub**, focus on a leaf node: fully recovers the whole star (consistent with the earlier finding — a
+  richly-connected parent lets the "siblings" rule reconstruct the missing structure by coincidence, not by
+  design).
+- **Nested workflow**, focus on a node three levels deep (`Decide`, inside `Authorization`, inside
+  `Payment Process`): the FIRST prediction made in this pass — that the immediate box context would
+  disappear entirely under Focus — was checked against real output and found **wrong**. It was corrected
+  before being written up rather than reported as guessed: `Authorization`'s box actually survives in the
+  live result, because `Decide`'s direct parent (`Authorization`) happens to have rich compositional
+  structure that Focus's parent+sibling rule picks up. What does NOT survive, in any case: `Payment Process`
+  (the outer box) and everything past it (`Capture`, `Settlement`), since Focus never walks more than one
+  level up regardless of what's found there. Entering `Authorization` as a Space on the identical graph was
+  then shown to be strictly *more* complete — its context step reaches `Capture` via the boundary-crossing
+  `Approve→Capture` edge, which Focus's fixed depth cannot reach at all. But Space is not a general
+  substitute: `enter_space` explicitly refuses a leaf with no compositional children (confirmed by re-reading
+  `handle_enter_space` in `app.py`), so a compositionally-flat topology (a pure DAG, cycle, or mesh with no
+  `boundary_kind` structure at all) has no Space to enter — Focus is the *only* navigation available there,
+  which is exactly why its own bounded behavior has to become honest on its own terms rather than being
+  replaced.
+
+**The disclosure principle, elevated explicitly:** neither mechanism discloses truncation today, and Space
+is not fully complete either — a fact this pass surfaced precisely by checking, not by assuming Space was
+already correct because §0.24/§0.29 had verified it for other properties. Space's context step reaches one
+hop past its compositional boundary and no further (`Capture` shows, `Settlement` does not); Focus truncates
+at its fixed radius with no signal in either direction. The user's framing of why this matters more than an
+ordinary rendering gap, kept verbatim because it's the sharpest statement of the stakes: "A viewport is
+allowed to be incomplete; it is not allowed to imply completeness when it is bounded... If Clearing →
+Settlement happens to be outside the viewport and the UI gives no indication, the visualization has silently
+taught something false." For a system whose entire premise is building an accurate model from evidence, an
+undisclosed missing edge is a correctness defect, not a cosmetic one.
+
+**Verdict, no code written:** consolidate at the primitive level — one general `closure(node, maxDepth,
+familyFilter, direction)` function, with today's Space and Focus becoming two honestly-bounded named
+instances of it, plus truncation disclosure added to both. No new Node type, no new graph type, no new stored
+topology field, no duplicate graph. §0.31 is queued as the next pass: design the bounded-reachability
+contract and disclosure semantics precisely before touching `computeViewport`'s implementation — not started.
+
 ## 2026-08-30 (continued) — §0.29: abstraction levels — a model-validation pass, no new schema needed
 
 Direct follow-on from §0.28's own closing question: once topology was proven to emerge correctly from
