@@ -1,0 +1,22 @@
+[package]
+name = "fluid-flow"
+version = "0.1.0"
+edition = "2021"
+description = "Stable-Fluids-style velocity field, seeded by an aggregate cross-visitor cursor field and forced by the live cursor, compiled to WASM for Discovery.Ai's home/docs background."
+
+[lib]
+crate-type = ["cdylib"]
+
+# Deliberately zero dependencies (no wasm-bindgen) -- see lib.rs's top comment.
+# This crate only ever moves flat f32 buffers across the JS/WASM boundary, so
+# bindgen's JS-type-marshalling machinery has nothing to buy here, and every
+# dependency it pulls in (proc-macro2/quote/syn) needs a working HOST MSVC
+# linker just to build its own proc-macro build script -- which this machine
+# doesn't have. Raw `extern "C"` exports need only rust-lld (bundled with the
+# wasm32-unknown-unknown target) and sidestep the host-linker requirement
+# entirely.
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "abort"
