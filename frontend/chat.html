@@ -987,6 +987,14 @@
 </footer>
 
 <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+<!-- fCoSE: a compound-aware force-directed layout, faster and with better
+     node/edge separation than the built-in cose (researched, not guessed --
+     see docs/Memory.md's layout-algorithm entry). Self-registers against the
+     global `cytoscape` above; must load after it, before this file's own
+     inline script calls cy.layout({name:'fcose', ...}). Versions pinned. -->
+<script src="https://cdn.jsdelivr.net/npm/layout-base@2.0.1/layout-base.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cose-base@2.2.0/cose-base.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-fcose@2.2.0/cytoscape-fcose.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.5/dist/purify.min.js"></script>
@@ -1513,7 +1521,7 @@ const cy = cytoscape({
         'border-style': 'dashed',
     }},
   ],
-  layout: { name: 'cose', padding: 40 },
+  layout: { name: 'fcose', padding: 40 },
 });
 
 // Subtle "data flow" effect along edges — purely visual, no relation to data.
@@ -2212,30 +2220,39 @@ function renderGraph(graph) {
     eles.push({ data: { id: e.source + '->' + e.target + ':' + e.label, source: e.source, target: e.target, label: e.label } });
   }
   cy.add(eles);
-  // Force-directed (cose), not a tree layout -- this project's whole point is
-  // that the graph isn't always a tree (§0.28-§0.32), so the layout shouldn't
-  // assume one either. `breadthfirst` needed an explicit `roots` workaround
-  // to stop disconnected components (cycles, meshes, cross-space context)
-  // from stacking on top of each other; cose has no such assumption baked
-  // in -- it spaces every node (including compound/boxed ones) by simulated
-  // repulsion, so a mesh spreads out, a cycle closes cleanly, and unrelated
-  // components separate on their own, using however much canvas is available
-  // rather than a fixed tree shape.
+  // fCoSE (researched, not guessed -- see docs/Memory.md's layout-algorithm
+  // entry): a compound-aware force-directed layout, not a tree layout. This
+  // project's whole point is that the graph isn't always a tree (§0.28-§0.32),
+  // so the layout shouldn't assume one either. `breadthfirst` needed an
+  // explicit `roots` workaround to stop disconnected components (cycles,
+  // meshes, cross-space context) from stacking on top of each other; a
+  // spring-embedder layout has no such assumption baked in -- it spaces every
+  // node (including compound/boxed ones) by simulated repulsion, so a mesh
+  // spreads out, a cycle closes cleanly, and unrelated components tile
+  // themselves apart automatically. fCoSE specifically (over the older,
+  // built-in cose) because it's the actively-maintained one with first-class
+  // compound-node support and runs materially faster on the same graph.
+  // Spacing knobs below are pushed above fCoSE's own defaults (nodeSeparation
+  // 75->130, nodeRepulsion 4500->9000, idealEdgeLength 50->110) specifically
+  // to answer the live-use complaint that the default result still looked
+  // congested -- more breathing room between both nodes and edges.
   cy.layout({
-    name: 'cose',
+    name: 'fcose',
+    quality: 'proof',
     animate: true,
     animationDuration: 450,
     animationEasing: 'ease-out-cubic',
     fit: true,
-    padding: 40,
+    padding: 45,
     nodeDimensionsIncludeLabels: true,
-    avoidOverlap: true,
-    nodeRepulsion: 9000,
-    idealEdgeLength: 95,
-    edgeElasticity: 100,
-    nestingFactor: 1.2,
-    gravity: 35,
-    numIter: 1200,
+    tile: true,
+    nodeSeparation: 150,
+    nodeRepulsion: 25000,
+    idealEdgeLength: 110,
+    edgeElasticity: 0.4,
+    gravity: 0.2,
+    gravityCompound: 0.7,
+    numIter: 2500,
   }).run();
   cy.one('layoutstop', () => popFocus());
 
