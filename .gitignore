@@ -6,3 +6,6 @@ __pycache__/
 *.sqlite3
 .claude/
 target/
+
+# Internal planning/research notes -- not part of the shipped project.
+Implimentation-Research/
