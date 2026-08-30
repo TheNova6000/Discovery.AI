@@ -77,6 +77,77 @@ existed before the fix: `Risk checks -[PRECEDES]-> Authorization -[PRECEDES]-> P
 end-to-end UI render of the complete chain (through Settlement) is the natural follow-up once provider quota
 resets — not yet observed, and not claimed as observed.
 
+## 2026-08-30 (continued) — §0.33 Pass A: mining the real World Model, zero LLM calls
+
+§0.30-§0.32 had proven the renderer and navigation aren't forcing a tree onto arbitrary graphs. The next,
+harder question the user posed was whether the AI knowledge-acquisition process *itself* preserves graph
+structure across real investigations — planned as an 8-topology live test matrix (Pass B), tracing
+question → intent → investigation → extraction → canonicalization → identity resolution → Neo4j → space/
+projection → reachability → renderer, and comparing where topology first diverges from what was intended.
+
+Before running any of that, `/provider_status` was checked and confirmed all three LLM providers (Groq,
+Gemini, Cerebras) exhausted simultaneously — live investigation was not possible. Rather than wait idle, the
+user redirected to a zero-cost alternative that turned out to be more informative than expected: mine the
+graph every investigation this entire project has ever run has already written to the same Neo4j database.
+Wrote `scripts/mine_world_model_topology.py` — weakly-connected-component analysis (union-find), directed
+cycle detection (three-color DFS), convergence counting (in-degree ≥ 2), nested-composition detection,
+cross-boundary-edge detection, temporal-chain walking, and per-node family-mixing — deliberately reusing
+`backend.questions.relation_types.get_family` rather than re-deriving family classification, consistent with
+every prior pass's discipline against maintaining a second copy of that table.
+
+**Result, against 278 nodes / 253 edges accumulated across every topic ever investigated this project
+(computers, payments, electric grids, smartphone imaging pipelines, game server scalability, intrusion
+detection): the World Model already contains every non-tree shape being searched for, without anyone having
+designed a single test to produce most of them.**
+
+- **A real cycle**: `payment gateway → acquiring bank → card network → issuing bank → merchant → payment
+  gateway`, five hops, each edge individually real (`ROUTES_THROUGH`, `ROUTES_TO`/`ROUTES_REQUEST_TO`,
+  `TRANSFERS_FUNDS_TO`, and a closing merchant→gateway edge) — extracted across several separately-run
+  investigations, not asserted as a loop in one coherent reasoning pass. Named honestly as an *aggregate*
+  property of the accumulated graph, not a claim about what any single LLM call understood. A smaller,
+  probably-artifactual 2-node cycle (`In-Memory Caching ⇄ Redis`, via an `EXEMPLIFIES` relation likely
+  extracted in both directions) was also found and reported without inflating its significance.
+- **Convergence with real identity-resolution evidence**: `Authorization` has 8 incoming edges from five
+  *separately run, time-separated* investigations (`Payments`, `payment`, `Card payment flow`, `Card
+  Payment`, `How does payment work`) — all correctly resolving onto the same canonical node rather than
+  fragmenting into duplicates. This is new evidence beyond what had been checked before: identity resolution
+  had only previously been verified within one investigation's own sibling set (§0.18's original test), never
+  across genuinely separate sessions run at different times. Same convergence pattern confirmed for `issuing
+  bank` (8), `card network` (5), `acquiring bank` (5), `PayPal` (4), `Mastercard` (3).
+- **Nested spaces exist beyond the one already studied**: `payment → Payment Methods → {Payment Instruments,
+  Payment transaction lifecycle, Payment ecosystem participants}` and `Payment System → PayPal → {7 internal
+  parts}`, in addition to the already-known `Authorization` case from §0.29/§0.32.
+- **Cross-space edges are real but narrowly evidenced**: all 4 instances found trace to the single §0.28 Test
+  3 lineage. Other multi-region investigations in the data (electric grid, smartphone imaging pipeline)
+  haven't produced any yet — recorded as a real limit on generalization, not smoothed over.
+- **Temporal chains have not spread beyond the one deliberately-tested case**: zero spontaneous `temporal`-
+  family edges anywhere else in 253 edges, despite the electric-grid and game-scalability investigations
+  plausibly having real sequential processes of their own. The §0.28 fix works when directly asked for; it
+  has not yet been observed to generalize without a question explicitly shaped like "show me the sequence."
+- **The single most consequential finding, more concerning than the cycle**: **71 of 253 edges (28%) fall
+  outside the `RELATION_TYPES` registry entirely** (`family: null`, reported as `unmapped`). Inspecting them:
+  not noise — `SENDS_TO`, `FORWARDS_TO`, `ROUTES_REQUEST_TO`, `TRANSMITS_DATA_TO`, `CAPTURES_REQUESTS_FOR` are
+  obviously interaction-family relations, just surface variants the registry's exact-string lookup doesn't
+  recognize. One is a clean normalization miss on its own terms: `is_example_of` is registered,
+  `is_an_example_of` (one word longer) is not. A quarter of everything ever extracted by this system is
+  currently invisible to family-based projection filtering and topology classification — not incorrectly
+  modeled, just unclassified, and this was never visible until this exact query ran.
+- **Nodes participating in multiple relation families simultaneously is the common case, not the exception**:
+  15 such nodes found in one scan (`PayPal`, `Mastercard`, `Authorization`, `Payment Processing Engine`,
+  `risk engine`, `card network`, `issuing bank`, and others), each combining composition with at least one of
+  interaction/temporal/dependency/unmapped — confirming §0.29's single studied example generalizes across
+  nearly every investigated topic rather than being an isolated case.
+
+**Explicitly not acted on, per direct instruction:** the 71 unmapped relation names were not patched into the
+registry one by one. The user's reasoning, kept verbatim because it names the actual risk precisely: "Don't
+manually add the 71 relation names to the registry one by one. That would make today's graph look cleaner
+while making the underlying problem worse... First understand relation identity. Then let the registry become
+the consequence of that model, rather than a growing dictionary of whatever verbs the LLM happened to
+produce." §0.34 is scoped to research relation identity/canonicalization theory before any registry change;
+§0.35 (fresh live topology acquisition, deferred from this pass once a provider is available) and §0.36 (a
+learning layer built on top of a graph proven to survive contact with real investigations) are named as
+queued, not started.
+
 ## 2026-08-30 (continued) — §0.32: bounded reachability, implemented and regression-tested live
 
 Direct implementation of §0.31's validated contract, with the user's explicit constraint honored throughout:

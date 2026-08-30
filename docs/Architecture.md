@@ -1581,6 +1581,44 @@ in a real Chrome tab:**
 No new Node type, no new graph type, no stored topology field, no duplicate graph — the standard held from
 §0.29 through this pass.
 
+## 0.33 Mining the real World Model — non-tree topology already exists in the wild (2026-08-30)
+
+**[VERIFIED against real Neo4j, zero LLM calls].** Full detail and the complete script output are in
+`docs/Memory.md`'s entry of the same name; this is the pointer. With every LLM provider exhausted
+simultaneously (confirmed via `/provider_status` before starting), live end-to-end investigation was not
+possible — so this pass mined the graph every investigation this whole project has ever run has already
+written to the same Neo4j database, using `scripts/mine_world_model_topology.py` (pure graph analysis:
+weakly-connected components, directed-cycle detection, convergence counting, nested-composition detection,
+cross-boundary-edge detection, temporal-chain walking, and per-node family-mixing) against the project's own
+`get_family` registry rather than re-deriving classification.
+
+**278 nodes, 253 edges, and the World Model is demonstrably not a tree:**
+- A genuine 5-node directed cycle already exists (`payment gateway → acquiring bank → card network → issuing
+  bank → merchant → payment gateway`), built from individually-real extracted edges — named honestly as an
+  aggregate property of several separately-run investigations over time, not a claim that any single
+  reasoning pass asserted the loop consciously.
+- Real convergence points exist with up to 8 distinct incoming edges (`Authorization`, from five *separately
+  run, time-separated* investigations) — and every one of them resolved onto the *same* canonical node
+  instead of fragmenting into duplicates, which is new evidence that identity resolution holds across
+  sessions, not only within one investigation's own sibling set (the only scope it had been checked at
+  before).
+- Nested spaces (composition depth ≥ 2) occur organically in three lineages beyond the one already studied.
+- Cross-space edges are real but narrowly evidenced — all four found instances trace to one lineage.
+- Temporal chains have not yet been observed spontaneously outside the one deliberately-tested case, an
+  honest limit rather than a claimed generalization.
+- The single most consequential finding: **71 of 253 edges (28%) fall outside §0.25's `RELATION_TYPES`
+  registry entirely** — not because they're meaningless (`SENDS_TO`, `FORWARDS_TO`, `ROUTES_REQUEST_TO` are
+  obviously interaction-family relations), but because the registry's exact-string lookup doesn't recognize
+  surface variants of verbs it already half-knows (`routes_to` is registered; `routes_request_to` is not;
+  `is_example_of` is registered; `is_an_example_of` is not). A quarter of everything ever extracted is
+  currently invisible to family-based projection and topology classification.
+
+**Explicitly not done in response to that last finding, on the user's own instruction:** the 71 unmapped
+relation names were not manually added to the registry. Patching entries one at a time would make today's
+graph look cleaner while leaving the actual problem — an ever-growing, ad hoc vocabulary with no theory of
+when two surface relations are the same thing — completely unaddressed. §0.34 is scoped to research relation
+identity/canonicalization properly before touching the registry at all.
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |
