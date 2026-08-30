@@ -181,6 +181,18 @@
   .stack-item .name { font-size: 13px; color: #fff; margin-bottom: 4px; }
   .stack-item .note { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
 
+  .topo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0 28px; }
+  .topo-card { border: 1px solid var(--border); background: rgba(255,255,255,0.015); padding: 14px 16px 6px; overflow-x: auto; }
+  .topo-card .topo-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+  .topo-card .topo-name { font-size: 12px; color: #fff; }
+  .topo-card .topo-verdict { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--hud); flex-shrink: 0; }
+  .topo-card .topo-note { font-size: 10.5px; color: var(--muted-2); margin: 0 0 6px; }
+  .topo-card .mermaid { font-size: 10px; }
+
+  .topo-before-after { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0 28px; align-items: stretch; }
+  .topo-before-after .topo-card.before .topo-verdict { color: #ff6b6b; }
+  @media (max-width: 720px) { .topo-before-after { grid-template-columns: 1fr; } }
+
   footer {
     display: flex;
     justify-content: space-between;
@@ -204,7 +216,7 @@
     .toc-links { display: flex; flex-wrap: wrap; gap: 4px 16px; }
     .toc a { padding: 4px 0 4px 10px; }
     .doc-content { padding: 40px 20px 80px; }
-    .limit-grid, .stack-grid { grid-template-columns: 1fr; }
+    .limit-grid, .stack-grid, .topo-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -229,6 +241,7 @@
       <a href="#evidence">Evidence &amp; confidence</a>
       <a href="#identity">Identity resolution</a>
       <a href="#relationships">Typed relationships</a>
+      <a href="#topology">Graph topology</a>
       <a href="#limits">Reliability &amp; limits</a>
       <a href="#stack">Tech stack</a>
     </div>
@@ -516,8 +529,217 @@ flowchart LR
         being read in service of.</p>
     </section>
 
+    <section class="doc-section" id="topology">
+      <div class="sec-label">08 — Graph topology</div>
+      <h3>Proving the renderer doesn't secretly think in trees</h3>
+      <p>A recurring worry, raised while actually using the graph: does everything eventually collapse
+        back into a decomposition tree, no matter what the real relationships look like? That's testable,
+        and it was tested in two separate passes rather than patched on sight.</p>
+      <p><strong>Pass one — the renderer alone.</strong> Ten synthetic graphs, spanning every topology that
+        matters for a knowledge model, were fed directly into the live renderer with no LLM, no Neo4j, and
+        no navigation logic in the loop — pure "given this exact node/edge data, what gets drawn." All ten
+        passed: composition edges nest into boxes, every other relation type crosses box boundaries as an
+        ordinary edge, convergent and cyclic structure survive without inventing a root or duplicating a
+        node.</p>
+      <div class="topo-grid">
+        <div class="topo-card">
+          <div class="topo-head"><span class="topo-name">Tree</span><span class="topo-verdict">Pass</span></div>
+          <p class="topo-note">Composition only — nests into boxes, no stray edges.</p>
+          <pre class="mermaid">
+flowchart TD
+  Payment --> A
+  Payment --> B
+  Payment --> C
+  B --> D
+  B --> E
+          </pre>
+        </div>
+        <div class="topo-card">
+          <div class="topo-head"><span class="topo-name">Network</span><span class="topo-verdict">Pass</span></div>
+          <p class="topo-note">Pure interaction — zero boxes invented.</p>
+          <pre class="mermaid">
+flowchart LR
+  PayPal -->|uses| Mastercard
+  PayPal -->|serves| Merchant
+  Mastercard -->|routes_to| Acquirer
+  Merchant -->|receives| Payment
+  PayPal -->|processes| Payment
+          </pre>
+        </div>
+        <div class="topo-card">
+          <div class="topo-head"><span class="topo-name">DAG</span><span class="topo-verdict">Pass</span></div>
+          <p class="topo-note">Branch converges on one node, not a duplicate.</p>
+          <pre class="mermaid">
+flowchart TD
+  Request[Payment Request] --> Fraud[Fraud Check]
+  Request --> Auth[Authorization]
+  Fraud --> Capture
+  Auth --> Capture
+          </pre>
+        </div>
+        <div class="topo-card">
+          <div class="topo-head"><span class="topo-name">Cycle</span><span class="topo-verdict">Pass</span></div>
+          <p class="topo-note">Full loop preserved, no root invented.</p>
+          <pre class="mermaid">
+flowchart LR
+  Controller -->|causes| Plant
+  Plant -->|causes| Sensor
+  Sensor -->|causes| Controller
+          </pre>
+        </div>
+        <div class="topo-card">
+          <div class="topo-head"><span class="topo-name">Nested boxes</span><span class="topo-verdict">Pass</span></div>
+          <p class="topo-note">A space inside a space, independent internal graph.</p>
+          <pre class="mermaid">
+flowchart TD
+  subgraph Payment
+    direction TB
+    subgraph Stages["Payment Stages"]
+      direction TB
+      Client --> ClientBank["Client Bank"] --> Network --> MerchantBank["Merchant Bank"] --> Merchant
+    end
+    PayPal -->|uses| Mastercard
+  end
+          </pre>
+        </div>
+        <div class="topo-card">
+          <div class="topo-head"><span class="topo-name">Cross-space edges</span><span class="topo-verdict">Pass</span></div>
+          <p class="topo-note">Relations crossing two boxes stay real edges.</p>
+          <pre class="mermaid">
+flowchart TD
+  subgraph A
+    X --> Y
+  end
+  subgraph B
+    Z --> W
+  end
+  X -->|uses| Z
+  Y -->|depends_on| W
+          </pre>
+        </div>
+        <div class="topo-card">
+          <div class="topo-head"><span class="topo-name">Workflow + retry</span><span class="topo-verdict">Pass</span></div>
+          <p class="topo-note">Branch, plus a backward retry edge — still a graph.</p>
+          <pre class="mermaid">
+flowchart TD
+  Request --> Validation
+  Validation --> Approved
+  Validation --> Rejected
+  Approved --> Payment
+  Payment --> Settlement --> Reconciliation --> Audit --> Exception
+  Exception -.->|retry| Payment
+          </pre>
+        </div>
+        <div class="topo-card">
+          <div class="topo-head"><span class="topo-name">Nested workflow</span><span class="topo-verdict">Pass</span></div>
+          <p class="topo-note">A space's own internal edge crossing back out.</p>
+          <pre class="mermaid">
+flowchart TD
+  subgraph PP["Payment Process"]
+    direction TB
+    subgraph Auth["Authorization"]
+      direction TB
+      Req[Request] --> Val[Validate] --> Dec[Decide]
+      Dec --> App[Approve]
+      Dec --> Rej[Reject]
+    end
+    App --> Capture --> Settlement
+  end
+          </pre>
+        </div>
+        <div class="topo-card">
+          <div class="topo-head"><span class="topo-name">Hub</span><span class="topo-verdict">Pass</span></div>
+          <p class="topo-note">High out-degree ≠ a parent — no box formed.</p>
+          <pre class="mermaid">
+flowchart TD
+  A -->|notifies| B
+  A -->|queries| C
+  A -->|authorizes| D
+  A -->|serves| E
+          </pre>
+        </div>
+        <div class="topo-card">
+          <div class="topo-head"><span class="topo-name">Mesh</span><span class="topo-verdict">Pass</span></div>
+          <p class="topo-note">Dense cross-links, no hierarchy invented.</p>
+          <pre class="mermaid">
+flowchart LR
+  A --- B
+  A --- C
+  A --- X
+  B --- D
+  B --- X
+  C --- D
+  C --- X
+  D --- X
+          </pre>
+        </div>
+      </div>
+      <p>The renderer's box-vs-edge logic passed 10/10 — <code>renderGraph</code> derives shape from each
+        edge's actual relation family, never from investigation order. But a second, narrower limitation
+        surfaced here too: the focus/zoom viewport (a separate 1-hop "children + parent + siblings" window,
+        built for readability) can silently drop real structure more than one hop from whatever node is
+        focused — a cycle's back-edge, or most of a mesh, depending on which node happens to get clicked.
+        Documented and left alone for a later pass; it's a windowing limitation, not a modeling one.</p>
+
+      <p><strong>Pass two — the real pipeline.</strong> The harder, more honest question: does the live
+        system, investigating a genuine natural-language question end to end, actually construct these
+        topologies, or only render them when handed one by hand? Three fresh chats, three real
+        investigations, no manual graph editing. A hierarchy question produced a real tree. A relational
+        question — "how do PayPal, Mastercard, Visa, banks, and merchants interact" — correctly produced a
+        network, and incidentally regression-tested the exact PayPal/Mastercard containment bug this project
+        hit early on, this time with fresh model output instead of a manual reproduction:</p>
+      <div class="diagram-box">
+        <pre class="mermaid">
+flowchart TD
+  subgraph PayPal
+    direction TB
+    RiskEngine["risk engine"]
+    ProcEngine["Payment Processing Engine"]
+    BizModel["Business Model"]
+  end
+  PayPal -->|USES| Mastercard
+  PayPal -->|competes_with| Stripe
+  Mastercard -->|CONNECTS| CardBanks["card-issuing banks"]
+        </pre>
+      </div>
+      <div class="diagram-caption">Real output, unedited: Mastercard stayed a peer, not a child, of PayPal —
+        exactly the distinction the earlier fix was for.</div>
+      <p>A sequence question broke it, and the failure was traced to its actual source instead of patched at
+        the symptom:</p>
+      <div class="topo-before-after">
+        <div class="topo-card before">
+          <div class="topo-head"><span class="topo-name">Before the fix</span><span class="topo-verdict">Flattened</span></div>
+          <p class="topo-note">"...lifecycle from request through risk checks, authorization, capture,
+            clearing and settlement" produced this — zero ordering, two stages silently dropped.</p>
+          <pre class="mermaid">
+flowchart TD
+  Q["Payment Lifecycle"] --> RiskChecks["Risk checks"]
+  Q --> Authorization
+  Q --> Capture
+  Q --> CS["Capture &amp; Settlement Process"]
+          </pre>
+        </div>
+        <div class="topo-card">
+          <div class="topo-head"><span class="topo-name">After the fix</span><span class="topo-verdict">Pass</span></div>
+          <p class="topo-note">Same question, one prompt sentence added telling extraction that ordering is
+            in scope. Verified directly against Neo4j.</p>
+          <pre class="mermaid">
+flowchart LR
+  RiskChecks["Risk checks"] -->|PRECEDES| Authorization
+  Authorization -->|PRECEDES| Capture["Payment Capture"]
+  Capture -->|PRECEDES| Clearing
+          </pre>
+        </div>
+      </div>
+      <p>The root cause wasn't the renderer, decomposition, or the relation registry — all three passed
+        every test aimed at them. It was one paragraph: the relation-extraction prompt asked for actor,
+        causal, and functional relationships, and simply never mentioned temporal ones, even though
+        <code>precedes</code>/<code>follows</code> already existed as real entries in the relation-type
+        registry. Naming the gap fixed it. Full trace in <code>docs/Memory.md</code>'s §0.28 entry.</p>
+    </section>
+
     <section class="doc-section" id="limits">
-      <div class="sec-label">08 — Reliability &amp; limits</div>
+      <div class="sec-label">09 — Reliability &amp; limits</div>
       <h3>What this doesn't promise</h3>
       <p>Being honest about limits is part of the design, not an afterthought:</p>
       <div class="limit-grid">
@@ -549,7 +771,7 @@ flowchart LR
     </section>
 
     <section class="doc-section" id="stack">
-      <div class="sec-label">09 — Tech stack</div>
+      <div class="sec-label">10 — Tech stack</div>
       <h3>What it actually runs on</h3>
       <div class="stack-grid">
         <div class="stack-item"><div class="layer">API</div><div class="name">FastAPI</div><div class="note">Plain REST, async throughout.</div></div>
