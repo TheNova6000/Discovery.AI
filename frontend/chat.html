@@ -795,7 +795,16 @@
     #mobile-menu-btn, #mobile-graph-btn { display: inline-flex; align-items: center; justify-content: center; }
     #mobile-backdrop:not(.hidden) { display: block; }
 
-    main { grid-template-columns: 1fr; position: relative; overflow: hidden; }
+    /* !important: main's grid-template-columns is also set as an inline style
+       by the desktop collapse/resize feature further down this file (JS sets
+       it directly so a user's chosen chat width persists across renders) --
+       an inline style otherwise beats any media-query rule at ANY viewport
+       width, which is exactly what broke the mobile single-column layout the
+       first time this was tested at a narrow width. This is the fix, plus the
+       JS itself now only ever sets that inline style above the same 860px
+       breakpoint (see applyChatWidth's isDesktop() guard). */
+    main { grid-template-columns: 1fr !important; position: relative; overflow: hidden; }
+    #rail-toggle, #chat-resize-handle { display: none; }
 
     #session-rail, #graph-panel {
       position: absolute;
@@ -1339,8 +1348,16 @@ const railToggleEl = document.getElementById('rail-toggle');
 const chatResizeHandleEl = document.getElementById('chat-resize-handle');
 const CHAT_WIDTH_MIN = 300;
 const CHAT_WIDTH_MAX = 720;
+// Same breakpoint the mobile @media block above uses -- below it, session-rail
+// and graph-panel become off-canvas drawers with their own layout entirely,
+// so this desktop-only grid-template-columns override must never apply there.
+// Confirmed live: an earlier version set the inline style unconditionally on
+// load, which silently broke the mobile layout at ANY width, since an inline
+// style beats a media-query rule regardless of viewport size.
+const isDesktopLayout = () => window.innerWidth > 860;
 
 function applyChatWidth(px) {
+  if (!isDesktopLayout()) return;
   const clamped = Math.max(CHAT_WIDTH_MIN, Math.min(CHAT_WIDTH_MAX, px));
   const railWidth = mainEl.classList.contains('rail-collapsed') ? '0px' : '200px';
   mainEl.style.gridTemplateColumns = `${railWidth} ${clamped}px 1fr`;
@@ -1348,12 +1365,28 @@ function applyChatWidth(px) {
 }
 
 const savedChatWidth = parseInt(localStorage.getItem('discoveryai_chat_width'), 10);
-applyChatWidth(Number.isFinite(savedChatWidth) ? savedChatWidth : 400);
+const initialChatWidth = Number.isFinite(savedChatWidth) ? savedChatWidth : 400;
 if (localStorage.getItem('discoveryai_rail_collapsed') === '1') {
   mainEl.classList.add('rail-collapsed');
   railToggleEl.innerHTML = '&#187;';
-  applyChatWidth(savedChatWidth || 400);
 }
+applyChatWidth(initialChatWidth);
+
+// Crossing the breakpoint after load (an actual window resize, not a phone's
+// orientation-only viewport quirks) must hand control back to the mobile CSS
+// -- clear the inline style rather than leave a stale desktop value fighting
+// the media query the moment the window narrows past 860px.
+let wasDesktop = isDesktopLayout();
+window.addEventListener('resize', () => {
+  const nowDesktop = isDesktopLayout();
+  if (nowDesktop === wasDesktop) return;
+  wasDesktop = nowDesktop;
+  if (nowDesktop) {
+    applyChatWidth(parseInt(localStorage.getItem('discoveryai_chat_width'), 10) || 400);
+  } else {
+    mainEl.style.gridTemplateColumns = '';
+  }
+});
 
 railToggleEl.addEventListener('click', () => {
   const collapsed = mainEl.classList.toggle('rail-collapsed');
@@ -1365,6 +1398,7 @@ railToggleEl.addEventListener('click', () => {
 
 let resizing = false;
 chatResizeHandleEl.addEventListener('mousedown', (e) => {
+  if (!isDesktopLayout()) return;
   resizing = true;
   mainEl.classList.add('resizing');
   chatResizeHandleEl.classList.add('active');
