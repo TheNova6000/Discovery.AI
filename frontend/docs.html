@@ -193,6 +193,18 @@
   .topo-before-after .topo-card.before .topo-verdict { color: #ff6b6b; }
   @media (max-width: 720px) { .topo-before-after { grid-template-columns: 1fr; } }
 
+  .report-log { display: flex; flex-direction: column; gap: 2px; margin: 24px 0; }
+  .report-card { border: 1px solid var(--border); background: rgba(255,255,255,0.015); padding: 16px 20px; }
+  .report-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+  .report-title { font-size: 13px; color: #fff; }
+  .report-date { font-size: 10px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+  .report-verdict { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 8px; border: 1px solid currentColor; flex-shrink: 0; }
+  .report-verdict.pass { color: #6fe6b0; }
+  .report-verdict.fixed { color: #ffd166; }
+  .report-row { font-size: 11.5px; color: var(--muted); margin: 3px 0; line-height: 1.6; }
+  .report-row b { color: var(--text); font-weight: 500; }
+  .report-card a { color: var(--hud); }
+
   footer {
     display: flex;
     justify-content: space-between;
@@ -244,6 +256,7 @@
       <a href="#topology">Graph topology</a>
       <a href="#limits">Reliability &amp; limits</a>
       <a href="#stack">Tech stack</a>
+      <a href="#reports">Reports</a>
     </div>
   </nav>
 
@@ -783,6 +796,124 @@ flowchart LR
         <div class="stack-item"><div class="layer">Graph UI</div><div class="name">Cytoscape.js</div><div class="note">Interactive, click-to-inspect nodes.</div></div>
         <div class="stack-item"><div class="layer">Frontend</div><div class="name">Vanilla JS/HTML/CSS</div><div class="note">No framework, no build step.</div></div>
         <div class="stack-item"><div class="layer">Auth</div><div class="name">Supabase (Google OAuth)</div><div class="note">Per-account isolation, no shared state.</div></div>
+      </div>
+    </section>
+
+    <section class="doc-section" id="reports">
+      <div class="sec-label">11 — Reports</div>
+      <h3>Every verification pass, in order</h3>
+      <p>Claims on this page are backed by tests that actually ran, not asserted from design intent. This is
+        the log: every real verification pass conducted against this system, what it checked, how, and what
+        it found — including the ones that failed on the first attempt. Newest first.</p>
+      <div class="report-log">
+
+        <div class="report-card">
+          <div class="report-head">
+            <span class="report-title">Abstraction levels — model validation</span>
+            <span class="report-verdict pass">No new schema needed</span>
+          </div>
+          <p class="report-row"><b>Question:</b> can one entity have different valid relational structures at
+            different abstraction levels, in one world model, without a new primitive?</p>
+          <p class="report-row"><b>Method:</b> replayed the real payment-lifecycle Neo4j data (below) through
+            the existing Graph Space mechanism — zero new code, zero LLM calls.</p>
+          <p class="report-row"><b>Result:</b> entering <code>Authorization</code> correctly exposed its own
+            internal interaction graph while the coarse temporal chain stayed visible as context — same
+            nodes, same edges, confirmed byte-identical before and after. Abstraction reduces to scope in the
+            current model; topology stays a derived read, never stored.</p>
+        </div>
+
+        <div class="report-card">
+          <div class="report-head">
+            <span class="report-title">Topology-preserving extraction</span>
+            <span class="report-verdict fixed">Bug found &amp; fixed</span>
+          </div>
+          <p class="report-row"><b>Method:</b> 10 synthetic topologies fed directly into the renderer, then 3
+            fresh end-to-end investigations from real natural-language questions — no manual graph editing
+            either time.</p>
+          <p class="report-row"><b>Result:</b> renderer 10/10. Live pipeline: tree and network questions
+            correct outright (the network test doubled as a regression test of the containment bug below); a
+            sequence question flattened to a tree with zero ordering. Root-caused to one missing category in
+            the extraction prompt, fixed, and re-verified directly against Neo4j.</p>
+          <p class="report-row">Full diagrams and the before/after in <a href="#topology">Graph topology</a>,
+            above.</p>
+        </div>
+
+        <div class="report-card">
+          <div class="report-head">
+            <span class="report-title">Semantic Graph Projections</span>
+            <span class="report-verdict fixed">Bug found &amp; fixed</span>
+          </div>
+          <p class="report-row"><b>Method:</b> 8-case check of the view-switch invariant — a projection must
+            never write to the graph, never call an LLM, and must report an honest gap rather than invent
+            structure.</p>
+          <p class="report-row"><b>Result:</b> world model confirmed byte-identical across every switch. One
+            real bug caught: the reply and the render disagreed about scope when a space was entered — fixed
+            by giving both the same reachability rule, re-verified in both Python and the browser.</p>
+        </div>
+
+        <div class="report-card">
+          <div class="report-head">
+            <span class="report-title">Relation evidence &amp; confidence</span>
+            <span class="report-verdict pass">Pass</span>
+          </div>
+          <p class="report-row"><b>Method:</b> attach claims to the same relation repeatedly against real
+            Neo4j, checking the native edge never duplicates and confidence tracks a stated formula exactly.</p>
+          <p class="report-row"><b>Result:</b> edge count stayed at exactly 1 regardless of claim count;
+            confidence matched the formula to two decimal places for every supports/contradicts ratio tested;
+            an unevidenced relation correctly reported "unknown," never a fabricated default.</p>
+        </div>
+
+        <div class="report-card">
+          <div class="report-head">
+            <span class="report-title">Relation-type / family registry</span>
+            <span class="report-verdict pass">Pass</span>
+          </div>
+          <p class="report-row"><b>Method:</b> consolidate three independently hand-maintained lists of
+            "which relations mean containment" — one each in extraction, the API, and the frontend — into one
+            registry, grounded in real prior art (part-whole meronymy taxonomy, OWL property
+            characteristics) rather than invented ad hoc.</p>
+          <p class="report-row"><b>Result:</b> single source of truth adopted everywhere; this is the
+            registry every later projection and topology test above depends on.</p>
+        </div>
+
+        <div class="report-card">
+          <div class="report-head">
+            <span class="report-title">Focus vs. Enter Space acceptance matrix</span>
+            <span class="report-verdict pass">Pass</span>
+          </div>
+          <p class="report-row"><b>Method:</b> 8-case live check that focusing on an entity (context stays
+            visible) and entering its own space (context drops, its own subgraph becomes the root) are
+            genuinely different operations, not the same zoom with two names.</p>
+          <p class="report-row"><b>Result:</b> all 8 cases passed live, including "Back" correctly restoring
+            prior context and the same node keeping one identity across both views.</p>
+        </div>
+
+        <div class="report-card">
+          <div class="report-head">
+            <span class="report-title">Composition vs. interaction containment</span>
+            <span class="report-verdict fixed">Bug found &amp; fixed</span>
+          </div>
+          <p class="report-row"><b>Method:</b> live use surfaced PayPal rendering as if Mastercard were one of
+            its parts, because an interaction edge (<code>PayPal USES Mastercard</code>) was being treated the
+            same as a structural one.</p>
+          <p class="report-row"><b>Result:</b> fixed by checking the relation's family before assigning box
+            containment. This exact bug is the one the network topology test above deliberately re-runs, live,
+            with fresh model output.</p>
+        </div>
+
+        <div class="report-card">
+          <div class="report-head">
+            <span class="report-title">Relation-extraction schema stabilization</span>
+            <span class="report-verdict fixed">Bug found &amp; fixed</span>
+          </div>
+          <p class="report-row"><b>Method:</b> the smaller free-tier model intermittently drifted onto its
+            own field names (<code>subject</code>/<code>predicate</code>/<code>object</code>) instead of the
+            real schema, discarding otherwise-correct extractions.</p>
+          <p class="report-row"><b>Result:</b> fixed not by forcing a stricter decoding mode (tried, didn't
+            help) but by renaming the schema to match the vocabulary the model already wanted to use — verified
+            against live Neo4j, drift eliminated.</p>
+        </div>
+
       </div>
     </section>
   </main>
