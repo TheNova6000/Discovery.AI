@@ -1,16 +1,98 @@
 # Discovery.AI
 
-Ask a question, and the system recursively investigates it — decomposing it into
-sub-questions, answering them, and building a live graph of what it explored
-along the way. Backend: FastAPI + Neo4j + a multi-provider LLM fallback chain.
-Frontend: a single static `frontend/index.html` (Cytoscape.js graph, no build
-step).
+**We built an AI knowledge system that refuses to reduce knowledge to a tree.**
+
+Ask a question in plain language. Discovery.AI recursively investigates it — deciding, one step at a
+time, whether to answer directly, break it into a sharper sub-question, or admit it's hit a real
+boundary — and builds a persistent, typed knowledge graph in Neo4j from what it actually finds: real
+entities, real typed relationships, real retrieved evidence with honest confidence scores.
+
+The part that makes it different from every other "AI knowledge graph" demo: **the same world model can
+be explored at different scopes, through different relationship lenses, without ever forking into a
+second graph.** Topology — whether a region reads as a tree, a network, a DAG, a cycle, or a mesh — is
+never assigned. It's derived, live, from which relationship *types* connect which entities.
+
+## The core example
+
+Enter `Authorization` inside a real, live payment investigation, and it holds two genuinely different,
+both-true topologies at once:
+
+```
+COARSE SCOPE (Authorization's siblings)
+Risk Checks --PRECEDES--> Authorization --PRECEDES--> Capture --PRECEDES--> Clearing --PRECEDES--> Settlement
+
+                              │
+                          enter Authorization
+                              ▼
+
+FINE SCOPE (Authorization's own internals)
+Enforcement --QUERIES--> Engine --EVALUATES--> Policies --EXPRESS--> XACML
+```
+
+Same entity. Same world model. Zero duplication. The temporal chain doesn't disappear when you step
+inside — it stays visible as dimmed context, honestly.
+
+## Architecture
+
+![Discovery.AI architecture: natural-language question flows through investigation into a persistent world model (nodes, typed relationships, evidence and confidence), which branches into composition, interaction, and temporal relation families feeding Graph Spaces, networks, and flows; a separate view/projection layer (focus, enter space, projection) reads that same world model with zero writes and zero LLM calls, producing the bounded view rendered by Cytoscape.](docs/assets/architecture-diagram.jpg)
+
+**World Model ≠ View.** The graph in Neo4j is written once, by investigation, and never rebuilt when a
+user zooms, enters a box, or switches projection — those are reads over the same stored facts, never a
+new graph.
+
+- **Composition** relationships create nested "Graph Spaces" (boxes an entity's own subgraph lives inside)
+- **Interaction, temporal, causal, dependency** relationships stay as ordinary edges, crossing box
+  boundaries freely — an interaction never gets mistaken for containment
+- **Focus** (a small, readable, bounded neighborhood) and **Enter Space** (step inside an entity's own
+  compositional subgraph) are two parameterizations of one general bounded-reachability primitive, not two
+  separate mechanisms
+- **Projections** filter the current view down to one relation family (structure / flow / causal /
+  dependency / network) — zero new LLM calls, zero graph writes, and an honest "nothing of this kind here
+  yet" message instead of silently investigating more
+- A bounded view is allowed to be incomplete; it is **never allowed to imply completeness** — any node
+  with real structure just outside the current view carries a visible disclosure marker
+
+## What we actually verified (not just claimed)
+
+- **10/10** on a synthetic topology test suite — tree, network, DAG, cycle, nested boxes, cross-space
+  edges, a workflow with a retry cycle, a nested workflow, a hub, and a mesh — fed directly into the
+  renderer with no LLM, no database, and no investigation in the loop
+- A real natural-language investigation ("how do PayPal, Mastercard, banks, and merchants interact")
+  produced a genuine network, and incidentally regression-tested a real bug we'd found and fixed earlier:
+  an *interaction* edge (`PayPal USES Mastercard`) had been rendering as *containment* (Mastercard trapped
+  inside PayPal's own box) — fixed by making only compositional relationships create boxes
+- A real investigation about a payment lifecycle **broke**: the agent's own reasoning correctly narrated a
+  sequence of steps, but the graph stored a flat tree with zero ordering between them. Traced to the exact
+  cause — the relation-extraction prompt never mentioned sequence as a category — fixed with one
+  paragraph, and re-verified directly against Neo4j that a genuine `PRECEDES` chain now extracts where
+  none did before
+- Mined the project's own accumulated graph (278 nodes, 253 edges across every topic ever investigated)
+  and found non-tree structure had already formed on its own: a real 5-node cycle, convergence points that
+  correctly resolved to the same node across five separately-run investigations, and nodes routinely
+  participating in more than one relation family at once
+- The full write-up of every verification pass — including the ones that failed on the first attempt — is
+  live on the deployed app's own `/docs#reports` page and in `docs/Memory.md`
+
+## Docs map
+
+| File | What's in it |
+|---|---|
+| `docs/Architecture.md` | The numbered research/design log (§0.1–§0.34): every architectural decision, why it was made, and what it's grounded in |
+| `docs/Memory.md` | The detailed, chronological verification record — every test, every result, every bug found and fixed |
+| `docs/DemoScript.md` | The exact live demo sequence, verified reproducible without depending on LLM provider quota |
+| `docs/DevpostSubmission.md` / `docs/DevpostSubmission_Short.md` | The submission narrative, full and compressed |
+| `/docs` on the deployed app | The public-facing version: theory, architecture, the topology test matrix with live diagrams, and a running reports log |
+
+## Tech stack
+
+Python · FastAPI · Neo4j · Groq / Google Gemini / Cerebras (free-tier LLM fallback chain via Instructor) ·
+Cytoscape.js (graph rendering, fCoSE layout) · Supabase (auth + session storage) · SQLite (agent state) ·
+vanilla JS/HTML/CSS, no build step
 
 ## Local / VM dev (no login)
 
-This is how the project has run so far — zero auth, one shared session store.
-Nothing about the deployment steps below changes this: every new capability is
-off unless you explicitly configure it.
+This is how the project has run so far — zero auth, one shared session store. Nothing about the
+deployment steps below changes this: every new capability is off unless you explicitly configure it.
 
 ```
 pip install -r requirements.txt
