@@ -77,6 +77,76 @@ existed before the fix: `Risk checks -[PRECEDES]-> Authorization -[PRECEDES]-> P
 end-to-end UI render of the complete chain (through Settlement) is the natural follow-up once provider quota
 resets — not yet observed, and not claimed as observed.
 
+## 2026-08-30 (continued) — §0.31: the bounded-reachability contract, specified and tested before any code
+
+Direct follow-on from §0.30's conclusion that Focus and Enter Space are one primitive with different bound
+parameters. The user was explicit about sequencing before this pass started: "don't start coding §0.31 yet.
+First define the contract," with six named questions to answer, then "test that contract against the same
+topology matrix" — a specification-and-validation pass, not an implementation pass, with implementation
+explicitly deferred to a separate future §0.32.
+
+**The primitive, made precise enough to implement:** `reach(seeds, maxDepth, familyFilter, direction)` — a
+multi-source BFS bounded by depth/family/direction that discovers a NODE set, followed by a strictly separate
+final pass that includes every edge in the full graph with both endpoints in that node set. This decoupling
+is the actual, specific fix for the cycle/mesh edge-drop bug §0.28/§0.30 both named: today's
+`computeViewport` never asks "what edges exist among the nodes I ended up with," it only keeps the specific
+edges its own traversal happened to walk (children/parentEdges/siblingEdges as three separate arrays) — so a
+cycle's back-edge is invisible even when both its endpoints are already on screen, purely because the
+traversal never needed to walk that specific edge to discover a new node.
+
+Enter Space and Focus are then compositions of one call each, not separate algorithms: Enter Space =
+`reach(root, ∞, {composition}, forward)` for the core plus one hop of non-composition-family context around
+it; Focus = `reach(node, 1, all, both)` for the core plus one more forward hop from the parent shell for
+siblings.
+
+**A real mistake was made and caught during this exact pass, not after.** The first draft of the Enter Space
+prototype used an unrestricted `all`-family filter for its context-extension step. Tested immediately against
+the nested-workflow case from §0.30 (entering `Authorization`, nested inside `Payment Process`), and the
+output incorrectly included `Payment Process` — the context step had walked backward through
+`Payment Process -[decomposes_into]-> Authorization`, a *composition* edge, silently reintroducing exactly
+the outer context §0.24 was built to drop when entering a space. Caught by running the prototype rather than
+trusting the design on paper, fixed by explicitly excluding the composition family from the context step
+(`reach(core, 1, all-except-composition, both)`), and re-verified before writing any of this up — the kind of
+self-correction this project's whole verification discipline exists to catch, kept in the record rather than
+smoothed into "and then it worked."
+
+**Tested against the topology matrix, prototype only, in a live Chrome console — no file in the repo touched:**
+
+- **Cycle** (3-node, focus on any single node): before, 2/3 edges shown, the back-edge silently dropped.
+  After: **3/3 edges, zero truncation** — the corrected edge-inclusion rule alone fully recovers a cycle
+  within Focus's *existing* 1-hop radius. No depth increase was needed; the radius was never the problem.
+- **Mesh** (5-node dense graph, focus on a low-degree node): before, node D and 5/8 edges silently vanished.
+  After: the same 4/8 edges render (a low-degree node genuinely cannot reach the rest of a mesh at depth 1 —
+  no algorithm fixes that without abandoning the bounded-radius idea entirely), but the contract now reports
+  exactly 1 hidden node and 3 hidden edges instead of rendering as if nothing were missing.
+- **DAG** (branch/converge, focus on the root vs. the sink): before, the opposite end vanished depending on
+  which node was clicked, with no signal either way. After: the same 3/4 nodes render either way (also
+  irreducible at depth 1), but 1 hidden node / 2 hidden edges is now reported symmetrically regardless of
+  which end was focused.
+- **Nested workflow** (entering `Authorization`, corrected version): correctly includes the boundary-crossing
+  `Capture` (via the non-compositional `Approve→Capture` edge), correctly excludes the outer parent
+  `Payment Process` and the further `Settlement`, and reports exactly 2 hidden nodes / 3 hidden edges for
+  what's one hop past what's shown.
+
+**The mesh and DAG results are the important negative finding, recorded rather than treated as a shortfall of
+the design:** no algorithm can make a bounded, readable view always show everything — that would eliminate
+the reason a bounded view exists in the first place. What the contract actually delivers, and what was
+actually being asked for, is not completeness but honesty about incompleteness — matching the user's own
+framing verbatim: "A viewport is allowed to be incomplete; it is not allowed to imply completeness when it is
+bounded."
+
+**Disclosure design**: hidden structure is never rendered as placeholder/ghost graph elements — that risks
+being mistaken for real discovered content, the same category of mistake §0.27/§0.28 spent real effort
+preventing elsewhere. It is metadata (`truncatedNodes`/`truncatedEdges` counts) that a later UI layer turns
+into a badge anchored to the specific frontier node that has more beyond it, not a vague page-level counter,
+so a viewer knows exactly *where* to look for what isn't shown, not just that something, somewhere, is
+missing.
+
+**Nothing was implemented.** No file in `frontend/chat.html` or `backend/api/app.py` was touched — the
+prototype exists only as an ephemeral in-browser test, deliberately not committed, per the user's explicit
+instruction to specify and validate the contract before writing any production code. §0.32 is queued as
+implementation + a full topology regression run against this exact, now-tested contract.
+
 ## 2026-08-30 (continued) — §0.30: Focus and Enter Space are one operation, not two
 
 Direct follow-on from §0.29, which closed by naming the actual remaining gap precisely: `computeViewport`'s

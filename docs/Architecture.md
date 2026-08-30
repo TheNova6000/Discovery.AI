@@ -1473,6 +1473,64 @@ truncation message says, what "more relations available" means as a UI affordanc
 `computeViewport`'s implementation — not started yet, per the same one-section-at-a-time discipline every
 prior pass in this project has followed.
 
+## 0.31 The bounded-reachability contract — specified and tested, not yet implemented (2026-08-30)
+
+**[SPECIFICATION — validated against a standalone prototype, no production code changed].** Full detail,
+the prototype itself, and every test result are in `docs/Memory.md`'s entry of the same name; this is the
+pointer. §0.30 concluded that Focus and Enter Space are two parameterizations of one reachability primitive;
+this pass wrote that primitive down precisely enough to implement, and tested the spec — not the shipped
+app — against the same topology cases that previously failed, before touching `computeViewport` at all.
+
+**The primitive.** `reach(seeds, maxDepth, familyFilter, direction)` performs a multi-source BFS over nodes
+only, bounded by depth/family/direction; edge inclusion is then a **separate, final pass**: every edge in the
+full graph with both endpoints in the resulting node set is included, not just the edges the traversal
+happened to discover. This decoupling is the actual fix for the cycle/mesh edge-drop bug named in §0.28/§0.30
+— today's `computeViewport` conflates "how a node was reached" with "which edges exist among what's shown,"
+which is exactly why a cycle's back-edge disappeared even when all three of its nodes were visible. Enter
+Space and Focus are then two compositions of this one primitive, not two algorithms:
+
+- **Enter Space** = `reach({root}, ∞, {composition}, forward)` for the core, plus
+  `reach(core, 1, all-families-except-composition, both)` for context — the family exclusion on the context
+  step is required, not incidental: an earlier draft of this exact prototype used an unrestricted `all`
+  filter for context and it walked back up through the parent's own composition edge, silently reintroducing
+  the outer context §0.24 deliberately drops when entering a space. Caught by testing the prototype, not
+  assumed correct, and fixed before being written up here.
+- **Focus** = `reach({node}, 1, all, both)` for the core, plus one more forward hop specifically from whatever
+  was reached backward (the parent shell) to recover sibling context — the same composition pattern
+  `computeViewport`'s existing children/parentEdges/siblingEdges triple already approximates by hand, just
+  expressed as two `reach()` calls instead of three ad hoc filters.
+
+**Return shape**, sufficient for both rendering and disclosure: `{nodes, edges, truncatedNodes,
+truncatedEdges}`, where truncation is a real, always-computable property — count every edge in the full graph
+touching exactly one node currently in view (present on one side, absent on the other). Truncated iff that
+count is nonzero. Hidden structure is never represented as ghost nodes or placeholder edges in the graph (that
+would risk being mistaken for discovered content); it is metadata the UI turns into a disclosure affordance —
+a badge on the specific frontier node that has more beyond it, e.g. "Authorization ⋯+2", not just a generic
+page-level counter, so the disclosure is spatially anchored to where the missing structure actually is.
+
+**Tested against the topology matrix, prototype only, before writing any of this into the shipped app:**
+
+| Case | Before (shipped) | After (prototype) |
+|---|---|---|
+| Cycle, focus on any node | 2/3 edges shown, back-edge silently dropped | **3/3 edges, 0 truncation** — fully recovered by the corrected edge-inclusion rule alone, no depth change needed |
+| Mesh, focus on a low-degree node | Node + 5/8 edges silently dropped | Same 4/8 edges shown (bounded depth genuinely can't reach the rest) — but now **honestly reports** 1 hidden node, 3 hidden edges instead of implying completeness |
+| DAG, focus on root or sink | The other end (convergence or source) silently vanishes | Same 3/4 nodes shown either way (irreducible under any finite depth) — but now **honestly reports** 1 hidden node, 2 hidden edges every time |
+| Nested workflow, enter the inner space | (not previously measured for truncation) | Correctly shows the boundary-crossing context node, correctly excludes the outer parent, and **honestly reports** exactly 2 hidden nodes / 3 hidden edges for what's one hop further out |
+
+The mesh and DAG results are the important negative result, kept rather than smoothed over: **bounded depth
+cannot be made to always show everything** — that would defeat the purpose of a bounded, readable view in the
+first place, and no clever algorithm changes that. What the contract actually delivers is not completeness,
+it's honesty about incompleteness, which is the specific property the user's own principle demanded ("a
+viewport is allowed to be incomplete; it is not allowed to imply completeness when it is bounded").
+
+**Focus's existing radius is unchanged** — `maxDepth=1` stays exactly what made Focus readable in the first
+place. Nothing about this spec asks Focus to see further; it only asks Focus to (a) include every edge that
+genuinely exists among whatever nodes it already shows, and (b) say so when something real is being left out.
+
+**Not done in this pass:** no change to `computeViewport`, `computeSpaceViewport`, or any shipped file — the
+prototype lives only in an ephemeral browser console session, deliberately kept out of the codebase until the
+spec is accepted. §0.32 is scoped as implementation + full topology regression against this exact contract.
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |
