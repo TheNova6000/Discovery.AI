@@ -1785,6 +1785,126 @@ desync is the cheapest, most isolated real fix available and could reasonably be
 the larger predicate-identity design — worth flagging as a candidate "small, low-risk fix" distinct from
 the harder, still-undesigned predicate-identity-resolution stage itself.
 
+## 0.36 A seventh relation family: `HISTORICAL` — a research pass, no code (2026-09-03)
+
+**[RESEARCH CONCLUSION — design-only, no code, per explicit instruction. GitHub issue #4.]** §0.35 named a real
+family gap — `FOUNDED`, `DEVELOPED`, `ACQUIRED`, `MERGED_WITH` don't have a home in any of the six existing
+`RelationFamily` values — but deliberately didn't solve it, tracked instead as issue #4, sequenced behind
+issue #3 (fixed alone in the previous pass, see `docs/Memory.md`'s 2026-09-03 "Issue #3 fixed" entry).
+This entry settles the design question. `relation_types.py` is still untouched; that's the next, separately
+audited step.
+
+**1. The four real observed triples** (pulled live from the world model in §0.35's mining pass, re-used here
+rather than re-queried — Docker/Neo4j wasn't reachable in this session — `docs/Architecture.md` §0.35 point 6
+is the source of record): `FOUNDED` (`Elon Musk` → `X.com`), `DEVELOPED` (`Confinity` → `PayPal`), `ACQUIRED`
+(`eBay` → `PayPal`), `MERGED_WITH` (`Confinity` → `X.com`) — together, the real corporate history of PayPal's
+founding, not four unrelated examples.
+
+**2. Tested against all six existing families, and rejected from each for a specific, checkable reason, not a
+vibe:**
+
+| Family | Why it fails |
+|---|---|
+| `COMPOSITION` | Confuses a historical event with a current structural *state*. `ACQUIRED` looks like the strongest candidate (post-acquisition, PayPal genuinely became part of eBay) — but eBay divested PayPal again in 2015. A permanent `eBay CONTAINS PayPal` edge goes stale and wrong; `eBay ACQUIRED PayPal` stays true forever, because it's a dated fact, not a structural claim. Collapsing an event into a state is the same corruption class issue #5 names for `STORES`/`HOLDS` → `CONTAINS`. |
+| `CAUSAL` | `causes` is `transitive=True`, a real, checkable property in the registry. Founding isn't transitive — if Musk founds X.com and X.com later founds a subsidiary, Musk didn't thereby found the subsidiary. A one-time act of origination is not a link in a mechanistic causal chain. |
+| `TEMPORAL` | Wrong type signature, not just "doesn't feel temporal." `precedes`/`follows` relate two co-stages of *one described process* (`Risk Checks precedes Authorization` — same kind of thing on both ends). `FOUNDED`'s ends are a person and an organization — categorically different kinds, related by an act of origination, not by relative sequence in a shared workflow. Having a date is not the same property as being TEMPORAL-shaped. |
+| `DEPENDENCY` | No ongoing functional-need semantics present. X.com doesn't `depends_on` Musk in the sense the registry already means by that word (continued operational need). Clean rejection. |
+| `INTERACTION` | The closest miss. Every existing member (`uses`, `routes_to`, `queries`, `detects`, ...) is a *repeatable, ongoing* behavioral act between two actors that continue to coexist. `FOUNDED`/`ACQUIRED`/`DEVELOPED`/`MERGED_WITH` are each *singular and irrevocable* — once it happens, the entity's status is permanently different. A real cardinality distinction (repeatable vs. one-time), not a feeling. |
+| `CLASSIFICATION` | Wrong type signature again — `instance_of` relates an instance to a category/concept. `FOUNDED` relates one concrete entity to another concrete entity. Not a close call. |
+
+The `COMPOSITION` rejection is the one worth underlining, per the user's own framing: `ACQUIRED ≠ CONTAINS`.
+An acquisition can *produce* a containment/ownership state, but the acquisition itself is the historical
+event that produced it — the two must stay independently representable, or a later divestiture silently
+corrupts the graph.
+
+**3. Why this is an ontology gap, not vocabulary drift.** Every one of the six existing families models
+either an ongoing *state* (`COMPOSITION`/`DEPENDENCY`/`CLASSIFICATION`) or a repeatable/mechanistic *process*
+(`CAUSAL`/`INTERACTION`/`TEMPORAL`). None of them model a completed, dated *event* in an entity's own history.
+This isn't invented from nothing — it's the same event/fluent distinction event calculus draws (Kowalski &
+Sergot, 1986), and concretely, CIDOC-CRM (the real museum/cultural-heritage ontology standard) has a
+dedicated `E5 Event` class with subtypes like `E63 Beginning of Existence` and `E96 Purchase`, kept separate
+on purpose from its part-whole and property-bearing relations — `FOUNDED`/`ACQUIRED` map almost directly onto
+those. Same grounding discipline this project already applies to `COMPOSITION` (Winston/Chaffin/Herrmann,
+1987) and to the `transitive`/`symmetric`/`inverse_of` vocabulary itself (OWL/RDF) — not a new methodology,
+the same one, applied one family further.
+
+Considered and rejected as an alternative: leaving these four as an unmapped, "not modeled, informational
+only" bucket (§0.35's other named option). Rejected because `PROJECTION_FAMILIES` already establishes that
+families are how a user actually *queries* the graph ("show me the causal view") — an informational-only
+bucket would be invisible to that whole mechanism, and nobody could ever ask "how did this company come to
+exist" as a structured view. Unlike speculative infrastructure ahead of need (which §0.25 warns against),
+this isn't speculative — four real, already-extracted edges exist right now with nowhere to go. That crosses
+the same "something needs this now" bar the project has held everywhere else.
+
+**4. The family: `RelationFamily.HISTORICAL`.** Alternatives considered and rejected: `PROVENANCE` (real
+collision — `docs/Rules.md` and the claim/evidence system already use "provenance" for a different concept,
+where a claim's evidence came from, e.g. `trace_claim`/`audit_synthesis` — one word, two unrelated meanings,
+rejected on that basis alone); `ORIGIN`/`LINEAGE`/`GENESIS` (each undersells `ACQUIRED`/`MERGED_WITH`, which
+aren't about descent or beginnings specifically); `EVENT` (names the ontological *justification* for the
+family rather than its actual domain content, and risks the opposite scope-creep failure — reading as
+"everything is secretly an event," since even an `INTERACTION` fact corresponds to some underlying event too).
+`HISTORICAL` matches the existing naming register — `COMPOSITION`/`CAUSAL`/`TEMPORAL`/`DEPENDENCY`/
+`INTERACTION`/`CLASSIFICATION` are all broad, general nouns, not narrow or poetic ones — without overclaiming
+a tighter shared essence across founding/developing/acquiring/merging than actually exists.
+
+**5. The boundary — corrected from the first draft, and the correction matters.** The first-pass definition
+("a singular, dated event that establishes, transforms, or terminates an entity's existence or ownership
+status") over-fit to three of the four examples and broke on `DEVELOPED`: `Confinity DEVELOPED PayPal` is a
+real historical relationship, but "ownership status" isn't what makes it historical, and requiring a known
+date is unnecessarily strict — the graph may know something happened historically without knowing exactly
+when. The corrected invariant:
+
+> **`HISTORICAL` represents a relation whose truth is anchored to a completed event in the history of an
+> entity, rather than to an ongoing state, a repeatable interaction, a structural relationship, or a logical
+> classification.**
+
+Existence/identity/ownership transformation is a *strong example* of this, not the definition itself:
+
+```text
+FOUNDED       -> completed origination event
+DEVELOPED     -> completed development/origin event
+ACQUIRED      -> completed ownership-transfer event
+MERGED_WITH   -> completed organizational-combination event
+```
+
+Negative test, preserved from the first draft because it still holds under the corrected wording: "PayPal
+launched a mobile app" is not automatically `HISTORICAL` — it doesn't anchor to a completed event that changed
+what PayPal *is*, so it stays `CAUSAL`/`INTERACTION` territory or unmodeled. Same falsifiable-boundary
+discipline the project already holds `is_relation_worthy` and `is_compositional` to.
+
+**6. `MERGED_WITH`'s asymmetry is a real, checkable internal split within the family, not a footnote.**
+`FOUNDED`, `DEVELOPED`, and `ACQUIRED` are each asymmetric actor-acted-upon relations. `MERGED_WITH` is
+semantically **symmetric** — if Confinity merged with X.com, X.com also merged with Confinity, the same shape
+as `connects_to`/`routes_data_between` in `INTERACTION` (`symmetric=True`). This is recorded here as an
+explicit implementation invariant for the eventual `relation_types.py` edit, not left as documentation prose
+to be rediscovered later:
+
+```text
+"founded":      RelationTypeInfo(RelationFamily.HISTORICAL)                    # asymmetric
+"developed":    RelationTypeInfo(RelationFamily.HISTORICAL)                    # asymmetric
+"acquired":     RelationTypeInfo(RelationFamily.HISTORICAL)                    # asymmetric
+"merged_with":  RelationTypeInfo(RelationFamily.HISTORICAL, symmetric=True)    # symmetric
+```
+
+(Shown here as the settled design, not yet written to `relation_types.py` — that edit is the next, separately
+audited step.)
+
+**7. Explicit non-goal: `HISTORICAL` is not a generic "anything that happened in the past" bucket.** Every
+`INTERACTION`/`CAUSAL` fact already extracted also "happened in the past" in the trivial sense that all
+extraction is retrospective — that is not the test. The test is point 5's boundary: a completed event that
+the relation's truth is *anchored to*, as opposed to an ongoing state/process/capability that merely has a
+history. A relation that fails that test does not belong here regardless of tense or vocabulary, the same
+way an unmapped relation that fails `is_relation_worthy` doesn't get force-fit into an existing family just
+to reduce the unmapped count (§0.34's core principle, still the governing one).
+
+**Not done in this pass, deliberately:** no edit to `relation_types.py`, no new `RelationTypeInfo` entries
+committed, no change to `_RELATIONSHIP_TYPE_SYNONYMS` or `normalize_relationship_type`, no test written. Same
+architecture-first/implementation-second/verification-third sequencing as `#2` → `#3`. **Next session, if this
+moves to implementation:** add the four `HISTORICAL` entries shown in point 6 to `RELATION_TYPES`, verified
+the same way `#3` was — `get_relation_info` resolving all four, `verify_relation_registry_consistency.py`
+unaffected (none of these four are synonym-table targets, so this doesn't touch that check's find), committed
+alone, `#5` still untouched.
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |
