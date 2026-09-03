@@ -1696,6 +1696,95 @@ step is a small adversarial test — not of hand-picked toy examples, but of the
 relationship_type strings already sitting in the real 253-edge graph from §0.33 — to check whether this
 theory holds against the mess the system has already produced, before any of it is implemented.
 
+## 0.35 The queued adversarial test, run — the theory holds, with three real counterexamples (2026-09-03)
+
+**[TEST ONLY, per explicit instruction — no registry change, no prompt change, no schema change, no code.]**
+Re-mined the live graph directly (`scripts/mine_world_model_topology.py` plus a one-off script pulling the
+distinct relationship_type strings, both read-only): **278 nodes, 253 edges, 71 unmapped edges — but only
+56 *distinct* relationship_type strings**, not 71 (some repeat: `EXEMPLIFIES` alone accounts for 6, `SENDS_TO`
+for 3). That distinction matters for everything below — the test corpus is 56 unique predicates, checked
+against their real `(source, relationship, target)` triples, not invented examples.
+
+**1. Genuinely distinct predicates, or surface variants?** Mostly variants, and clustered exactly where §0.33
+predicted: **15 of the 56 strings** (`SENDS_TO`, `ROUTES_THROUGH`, `ROUTES_REQUEST_TO`, `RELAYS_TO`,
+`TRANSMITS_TO`, `FORWARDS_TO`, `FORWARDS_REQUEST_TO`, `TRANSMITS_DATA_TO`, `SENDS_REQUEST_THROUGH`,
+`RECEIVES_REQUEST_FROM`, `SENDS_AUTHORIZATION_REQUEST_TO`, `ROUTES_REQUEST_THROUGH`,
+`FORWARDS_TRANSACTION_TO`, `FORWARDS`, and the already-registered `routes_to`) all describe the same real
+-world shape — one party handing a request or data toward another — in the payment-routing domain alone.
+This is strong, direct support for §0.34's core premise: the registry's problem is genuinely vocabulary
+breadth, not that these are 56 unrelated real relationships.
+
+**2. Do apparently-equivalent predicates collapse correctly TODAY?** No — and this is the pass's most
+important finding, because it's not a theory gap, it's a **live, verified bug in the existing pipeline's own
+two tables being out of sync**, found by reading `backend/questions/relation_extraction.py` and
+`backend/questions/relation_types.py` side by side rather than assumed. `_RELATIONSHIP_TYPE_SYNONYMS`
+normalizes `detects`/`detect`/`spots`/`spot`/`monitors`/`monitor` to `"DETECTS"` — but `RELATION_TYPES` (the
+family registry) **has no `detects` entry at all**. Normalization succeeds, family lookup still fails, silently.
+Directly confirmed against the real data: both `'detects'` and `'DETECTS'` sit in the 71 unmapped edges right
+now. Every other synonym-table target (`CAUSES`, `DEPENDS_ON`, `ROUTES_TO`, `IS_EXAMPLE_OF`) checked out fine
+against the registry — this is a narrow, specific gap, not a systemic one, but it's real and was previously
+invisible (the two tables were never checked against each other directly before this pass).
+
+**3. Does context change predicate meaning?** Yes, concretely: `FORWARDS` appears once for `'Router' ->
+'Packets'` (networking hardware) — structurally the same shape as the payment-routing cluster above
+(X moves Y onward), but a different domain's vocabulary choice for what is arguably the same family-level
+relationship. Supports collapsing at the **family** level (both are INTERACTION-shaped) while correctly
+declining to collapse at the **predicate-identity** level (a router forwarding packets and a bank forwarding
+a transaction are not evidence for merging `FORWARDS` and `FORWARDS_TRANSACTION_TO` into one canonical
+predicate — same family, different real-world relationships, per principle 2 of §0.34's own checklist).
+
+**4. Same string, different relations?** No clear case found in this pass — `EXEMPLIFIES`'s all 6 instances
+(`Redis -> In-Memory Caching`, etc.) are internally consistent, all genuine classification-family examples. One
+softer case worth naming: `CAN_FUNCTION_AS` (`PayPal -> payment gateway`) is a *modal/capability* claim
+("PayPal is capable of acting as"), semantically weaker than a firm `instance_of`/`is_example_of` assertion —
+not a counterexample to the theory, but a reminder that surface-similar predicates can carry different
+epistemic strength, which a same-family merge would flatten.
+
+**5. Relations that cannot safely be canonicalized without more context — real counterexamples, not
+hypothetical:** `STORES` (`In-Memory Caches -> active player states`) and `HOLDS` (`In-Memory Caches -> hot,
+mutable state`) look like an obvious merge candidate on string similarity alone, but checking the real
+examples shows genuine ambiguity: is a cache *containing* transient runtime state the same relationship as
+structural part-whole composition (`contains`/`decomposes_into`, already registered), or is it closer to a
+dependency ("the system depends on the cache holding this")? A wrong merge here — collapsing `STORES`/`HOLDS`
+into `contains` — would silently misclassify a functional/data relationship as structural composition, which
+would then incorrectly drive box/space nesting (§0.25's compositional-family behavior). This is exactly
+principle 9's predicted failure mode (`a wrong merge is strictly worse than an unmapped relation`), now found
+in real data rather than argued abstractly. `mediates` (`computer -> hardware_software_interface`) and
+`facilitates` (`Online Card Payment Ecosystem -> PayPal`) are similarly vague "enables/supports" verbs that
+could defensibly land in CAUSAL or INTERACTION depending on reading — neither wrong, neither obviously right
+without more context than the bare triple provides.
+
+**6. Does the registry provide enough structure? No — a real family gap, not just a vocabulary gap.**
+`FOUNDED` (`Elon Musk -> X.com`), `DEVELOPED` (`Confinity -> PayPal`), `ACQUIRED` (`eBay -> PayPal`),
+`MERGED_WITH` (`Confinity -> X.com`) are historical/provenance facts about corporate lineage — not
+COMPOSITION, not an ongoing INTERACTION, not CAUSAL in the mechanistic sense the family was built for, not
+DEPENDENCY, not CLASSIFICATION. These four don't have a family to belong to even in principle, which is a
+different, harder problem than "the vocabulary hasn't caught up" — the six-family taxonomy itself (Winston/
+Chaffin/Herrmann composition + the five families §0.17-§0.22's live runs produced) was never checked against
+biographical/historical relation content, because none of the topics investigated before payments/PayPal
+happened to surface it. Named here, not solved — a seventh family (or an explicit "not modeled, informational
+only" bucket) is a real open design question this test surfaces, not one §0.34 anticipated.
+
+**7. Net verdict: the theory holds where it claimed to, and the counterexamples it predicted it might find,
+it found — which is itself informative.** The core premise (surface variants dominate; a real predicate-
+identity layer would meaningfully shrink the unmapped set) is well-supported: 15/56 collapse into one cluster
+on inspection. But three of the ten principles' own predicted risks are now backed by real examples rather
+than hypothetical ones: (a) principle 9's "wrong merge is worse than unmapped" — `STORES`/`HOLDS`; (b) the
+family taxonomy's completeness — historical/provenance relations have nowhere to go; (c) a live, narrow, now-
+verified bug independent of any predicate-identity work at all — `DETECTS`'s orphaned normalization target.
+None of these overturn §0.34's direction; they sharpen exactly what a future implementation pass needs to
+handle deliberately rather than discover live.
+
+**Not done, deliberately:** no registry edit (not even the one-line `DETECTS` fix, tempting as it is — fixing
+it now would be exactly the "patch one string at a time" pattern §0.33's explicit instruction ruled out,
+and per this pass's own scope, test-only means test-only even for a bug this narrow). No new family added. No
+prompt change. No schema change.
+
+**Next session, if this moves to implementation (not decided, not scheduled):** the `DETECTS` synonym/registry
+desync is the cheapest, most isolated real fix available and could reasonably be done alone, separately from
+the larger predicate-identity design — worth flagging as a candidate "small, low-risk fix" distinct from
+the harder, still-undesigned predicate-identity-resolution stage itself.
+
 ## 1. Consolidated stack
 
 | Layer | Choice | Fallback / later |
