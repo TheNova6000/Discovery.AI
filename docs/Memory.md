@@ -4,6 +4,39 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-03 (continued) — Issue #4 implemented: `HISTORICAL` added to `RELATION_TYPES`
+
+The code-only follow-up to §0.36's design-only entry, per the same architecture-first/implementation-second/
+verification-third sequencing as `#2` → `#3`. Nothing designed in this pass — §0.36 already settled the
+family, the boundary, the name, and the four members' OWL characteristics; this pass only wrote it down as
+code.
+
+**What changed** — `backend/questions/relation_types.py` only: `RelationFamily.HISTORICAL = "historical"`
+added to the enum (docstring extended with the same event/fluent + CIDOC-CRM grounding §0.36 used), and four
+`RELATION_TYPES` entries — `founded`, `developed`, `acquired` (all `RelationTypeInfo(RelationFamily.HISTORICAL)`,
+asymmetric), `merged_with` (`symmetric=True`, the one deliberate exception, matching `connects_to`/
+`routes_data_between`'s shape in `INTERACTION`). `_RELATIONSHIP_TYPE_SYNONYMS` and `normalize_relationship_type`
+untouched — none of these four are synonym-table targets, unlike `detects` in `#3`.
+
+**Verified live**, the seven checks agreed on beforehand:
+1–2. `get_relation_info()` resolves all four; all four report `family == RelationFamily.HISTORICAL`.
+3–4. `merged_with.symmetric == True`; `founded`/`developed`/`acquired`.symmetric == False` for all three.
+5. `scripts/verify_relation_registry_consistency.py`: still 0 violations, exit 0 — unaffected, exactly as
+   predicted (none of the four new entries are synonym-table outputs, so this check has nothing new to find).
+6. `normalize_relationship_type()` output unchanged across every previously-tested input plus the four new
+   ones (`'founded' -> 'FOUNDED'`, etc. — straight uppercase passthrough, no synonym-table entry exists or
+   was added for them).
+7. Extra check beyond the plan, directly testing the invariant `#4`'s whole design exists to protect:
+   `is_compositional()` returns `False` for all four — `ACQUIRED` (and the other three) will never drive
+   Graph Space box/nesting, confirmed at the code level, not just argued in prose.
+
+**Git**: committed together with this log entry (`backend/questions/relation_types.py`, `docs/Memory.md` —
+same two-artifact shape as prior passes, no `_RELATIONSHIP_TYPE_SYNONYMS`/extraction/test changes bundled
+in), pushed to `origin/main`, working tree and remote verified to match afterward.
+
+**State after this pass**: `#2` ✅, `#3` ✅, `#4` ✅ (design + implementation both closed). `#5`
+(`STORES`/`HOLDS` regression test) remains completely untouched — next thread, not started here.
+
 ## 2026-09-03 (continued) — Issue #3 fixed: `detects` added to `RELATION_TYPES` (`INTERACTION`)
 
 Deliberately the smallest possible follow-up to the previous entry, and deliberately alone — the user was

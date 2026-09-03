@@ -15,6 +15,13 @@ class RelationFamily(str, Enum):
     meronymy's six kinds) are real but not needed until something in this
     project actually reasons across chained relations, per §0.25's own
     "don't build the mechanism before something needs it" note.
+
+    HISTORICAL (docs/Architecture.md §0.36, GitHub issue #4) is the seventh,
+    added later: a relation whose truth is anchored to a completed event in an
+    entity's history (founding, development, acquisition, merger), not to an
+    ongoing state/process/capability -- the event/fluent distinction from event
+    calculus (Kowalski & Sergot, 1986) and CIDOC-CRM's E5 Event class, grounded
+    the same way COMPOSITION is grounded in Winston/Chaffin/Herrmann.
     """
 
     COMPOSITION = "composition"
@@ -23,6 +30,7 @@ class RelationFamily(str, Enum):
     DEPENDENCY = "dependency"
     INTERACTION = "interaction"
     CLASSIFICATION = "classification"
+    HISTORICAL = "historical"
 
 
 @dataclass(frozen=True)
@@ -90,6 +98,17 @@ RELATION_TYPES: dict[str, RelationTypeInfo] = {
     "is_example_of": RelationTypeInfo(RelationFamily.CLASSIFICATION, transitive=True),
     "example_of": RelationTypeInfo(RelationFamily.CLASSIFICATION, transitive=True),
     "subtype_of": RelationTypeInfo(RelationFamily.CLASSIFICATION, transitive=True),
+    # ---- historical (completed events in an entity's history -- GitHub issue
+    # #4, docs/Architecture.md §0.36. Real triples this was built from: Elon
+    # Musk FOUNDED X.com, Confinity DEVELOPED PayPal, eBay ACQUIRED PayPal,
+    # Confinity MERGED_WITH X.com. `merged_with` is the one symmetric member --
+    # a merger is mutual by definition, same shape as INTERACTION's
+    # connects_to/routes_data_between; the other three are asymmetric
+    # actor-acted-upon relations, matching every other family's default.) ----
+    "founded": RelationTypeInfo(RelationFamily.HISTORICAL),
+    "developed": RelationTypeInfo(RelationFamily.HISTORICAL),
+    "acquired": RelationTypeInfo(RelationFamily.HISTORICAL),
+    "merged_with": RelationTypeInfo(RelationFamily.HISTORICAL, symmetric=True),
 }
 
 
