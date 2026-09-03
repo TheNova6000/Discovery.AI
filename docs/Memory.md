@@ -4,6 +4,47 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-03 (continued) — Issue #5: STORES/HOLDS regression guard added, zero production changes
+
+Unlike `#3`/`#4`, this pass produces no fix and no new registry entry, on purpose — `#5` was scoped from the
+start as "a regression test, not a code fix" (agreed two passes ago): nothing in the current pipeline
+canonicalizes `STORES`/`HOLDS` toward `CONTAINS`, so there's nothing to patch, only an invariant worth
+locking down before a future predicate-identity implementation could introduce that exact corruption.
+
+**Investigated first, before writing anything**, per instruction to extend the existing test surface rather
+than invent a parallel mechanism: `grep`'d every script under `scripts/` for `canonicalize_relation`/
+`is_compositional`/`RELATION_TYPES`/`normalize_relationship_type`. Two hits. `verify_relation_claims.py`
+(§0.26) is Neo4j-dependent and tests the relation-evidence/claims layer — wrong home, different concern.
+`verify_relation_registry_consistency.py` (issue `#2`) is the right sibling in *style* (zero LLM calls, zero
+Neo4j dependency, pure logic against the deterministic normalization/registry layer) but a different
+*invariant* (drift detection, not semantic-merge safety) — so this became a new script alongside it, matching
+the project's one-concern-per-script convention rather than overloading either existing file.
+
+**What was built** — `scripts/verify_stores_holds_not_compositional.py`. Two checks, same two-part shape as
+`#2`'s script: (1) real current state — for both `stores` and `holds`: `normalize_relationship_type()` is
+plain-uppercase passthrough (behavioral proof no synonym-table rewrite exists, without reaching into
+`relation_extraction.py`'s private `_RELATIONSHIP_TYPE_SYNONYMS` dict from outside its module — that would
+have been bad form), the canonical output is never `"CONTAINS"`, and `is_compositional()` is `False` for
+both. (2) mechanism check — builds a **local, throwaway** copy of `RELATION_TYPES` with `stores` wrongly
+merged into `COMPOSITION` (touching neither real table) and confirms the same `is_compositional`-shaped logic
+correctly flags it as `True` — proving this guard would actually catch the dangerous merge if some future
+change introduced it, not just that today's strings happen to differ.
+
+**Run live**: both checks pass, exit 0. `normalize_relationship_type('stores') -> 'STORES'`,
+`normalize_relationship_type('holds') -> 'HOLDS'`, both plain passthrough; `is_compositional()` is `False`
+for both (registry entry: `None` — the honest, current `TAXONOMY_GAP` state, same as any other unmapped verb).
+The synthetic merge case confirms `is_compositional('stores')` flips to `True` the moment `stores` is (even
+hypothetically) added to `COMPOSITION` — the guard has real teeth, not just a passing coincidence.
+
+**Git**: `git status` confirmed only the new script was dirty before committing — `relation_types.py` and
+`relation_extraction.py` untouched, exactly as expected for a test that found no bug. Committed alone with
+this log entry, pushed, working tree and remote verified to match afterward.
+
+**State after this pass**: `#2` ✅, `#3` ✅, `#4` ✅, `#5` ✅ (regression guard in place, no production change
+needed). All four tracked issues from the `#1` epic are now closed or guarded. The `§0.36`-adjacent question
+of wiring any of these checks into `app.py` startup remains explicitly undecided, same as it was left after
+`#2`.
+
 ## 2026-09-03 (continued) — Issue #4 implemented: `HISTORICAL` added to `RELATION_TYPES`
 
 The code-only follow-up to §0.36's design-only entry, per the same architecture-first/implementation-second/
