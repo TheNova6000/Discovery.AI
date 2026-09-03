@@ -79,6 +79,12 @@ RELATION_TYPES: dict[str, RelationTypeInfo] = {
     "transfers_funds_to": RelationTypeInfo(RelationFamily.INTERACTION),
     "queries": RelationTypeInfo(RelationFamily.INTERACTION),
     "evaluates": RelationTypeInfo(RelationFamily.INTERACTION),
+    # GitHub issue #3 / docs/Architecture.md §0.35: _RELATIONSHIP_TYPE_SYNONYMS
+    # (relation_extraction.py) has normalized detects/spots/monitors -> "DETECTS"
+    # since §0.18, but this entry never existed -- normalization succeeded while
+    # family classification silently failed. Same shape as queries/evaluates:
+    # an actor acting on/observing another entity, not causal or compositional.
+    "detects": RelationTypeInfo(RelationFamily.INTERACTION),
     # ---- classification ----
     "instance_of": RelationTypeInfo(RelationFamily.CLASSIFICATION, transitive=True),
     "is_example_of": RelationTypeInfo(RelationFamily.CLASSIFICATION, transitive=True),

@@ -4,6 +4,41 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-03 (continued) — Issue #3 fixed: `detects` added to `RELATION_TYPES` (`INTERACTION`)
+
+Deliberately the smallest possible follow-up to the previous entry, and deliberately alone — the user was
+explicit that #4 (the historical-relation family/naming question) and #5 (the `STORES`/`HOLDS` regression
+test) stay untouched until this is independently verified and committed.
+
+**What changed** — two edits, nothing else: `backend/questions/relation_types.py` gained one entry,
+`"detects": RelationTypeInfo(RelationFamily.INTERACTION)`, placed next to `queries`/`evaluates` (same
+shape — an actor acting on/observing another entity, not causal or compositional).
+`backend/questions/relation_extraction.py`'s `KNOWN_TAXONOMY_GAPS` had its now-resolved `"DETECTS"` entry
+removed (left as an empty dict, not deleted outright, so it stays the live record for the next declared
+gap — see issue #4). `_RELATIONSHIP_TYPE_SYNONYMS` and `normalize_relationship_type()` were not touched.
+
+**Verified live**, the four checks agreed on beforehand:
+1. `get_relation_info("detects")` now resolves — `RelationTypeInfo(family=INTERACTION, transitive=False,
+   symmetric=False, inverse_of=None)`; `get_family("detects")` returns `"interaction"`.
+2. `scripts/verify_relation_registry_consistency.py`: violations went from 1 (known/tracked) to 0, exit
+   code 0 — the registry-consistency guard built for issue #2 is what proves this fix actually closed the
+   gap it was built to detect, not just that new code was added.
+3. `normalize_relationship_type()` output is byte-for-byte unchanged across every previously-tested input
+   (`detects`/`Spots`/`monitor` all still produce `"DETECTS"`, every other synonym-table entry unchanged) —
+   confirming this was a pure registry addition, not a normalization-behavior change.
+4. `scripts/verify_projections.py` (the other real consumer of `RELATION_TYPES`, zero-LLM-call by design)
+   could not be run in this environment — a pre-existing local `asyncpg` import gap in `backend/api/app.py`
+   unrelated to this change, not a regression it introduced. Noted honestly rather than silently skipped.
+
+**Git**: committed together with this log entry (`backend/questions/relation_types.py`,
+`backend/questions/relation_extraction.py`, `docs/Memory.md` — same three-file shape as the #2 commit,
+nothing from #4/#5 included), pushed to `origin/main`, working tree and remote verified to match
+afterward.
+
+**Explicitly not done in this pass**: issue #4 (no new relation family added, no naming decision made —
+`HISTORICAL` vs `PROVENANCE` still undecided), issue #5 (no regression test written yet for `STORES`/
+`HOLDS`), no broader regression sweep. Each stays a separate, explicitly-approved pass.
+
 ## 2026-09-03 — Registry-consistency check built (GitHub issue #2), `DETECTS` left open on purpose (issue #3)
 
 Five days after §0.35's adversarial test found the `detects` synonym → `RELATION_TYPES` gap, the work was

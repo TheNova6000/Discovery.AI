@@ -314,9 +314,12 @@ def normalize_relationship_type(relationship_type: str) -> str:
 # state"), not a silent failure. An entry that shows up in
 # check_registry_consistency() but is NOT in this dict is new, undeclared
 # drift -- see scripts/verify_relation_registry_consistency.py.
-KNOWN_TAXONOMY_GAPS: dict[str, str] = {
-    "DETECTS": "https://github.com/TheNova6000/Discovery.AI/issues/3",
-}
+#
+# Issue #3 ("DETECTS") resolved (docs/Architecture.md §0.35 follow-up):
+# relation_types.RELATION_TYPES now has a "detects" entry (INTERACTION).
+# Deliberately empty rather than deleted -- this dict is the live record of
+# declared gaps, and stays ready for the next real one (see issue #4).
+KNOWN_TAXONOMY_GAPS: dict[str, str] = {}
 
 
 def check_registry_consistency() -> list[str]:
