@@ -4,6 +4,50 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-03 — Registry-consistency check built (GitHub issue #2), `DETECTS` left open on purpose (issue #3)
+
+Five days after §0.35's adversarial test found the `detects` synonym → `RELATION_TYPES` gap, the work was
+filed as five GitHub issues (`TheNova6000/Discovery.AI` #1–#5): #1 the architectural-evolution epic, #2 a
+registry-consistency check, #3 the `DETECTS` drift itself, #4 the `FOUNDED`/`ACQUIRED`/... taxonomy-family
+gap, #5 the `STORES`/`HOLDS` false-merge risk as a standing constraint. The user was explicit about
+ordering: #2 first, because it's a safety net independent of any semantic decision, and explicitly **not**
+#3 — "don't fix #3 just to make the issue disappear. First make #2 capable of detecting it."
+
+**What was built** — `backend/questions/relation_extraction.py`: `check_registry_consistency()`, a pure
+function returning every canonical string `_RELATIONSHIP_TYPE_SYNONYMS` produces that
+`relation_types.get_relation_info()` can't resolve (real violations, known and unknown both — no filtering
+inside the function itself). Alongside it, `KNOWN_TAXONOMY_GAPS: dict[str, str]`, an explicit,
+issue-linked allowlist (currently `{"DETECTS": ".../issues/3"}`) — a canonical string appearing there is a
+*declared* gap (this epic's own invariant 2: unmapped is a valid state), not silent drift. The
+known/unknown split happens at the call site, not inside the checker, so the checker itself stays a
+simple, honest "does the registry actually agree with what normalization claims" function.
+
+`scripts/verify_relation_registry_consistency.py` (new, matching the project's existing bare
+`scripts/verify_*.py` idiom — no pytest in this repo, so this follows precedent rather than introducing a
+new test framework unprompted) runs two checks: (1) the real `_RELATIONSHIP_TYPE_SYNONYMS` vs
+`RELATION_TYPES` tables, splitting violations into known/tracked vs. unknown/undeclared; (2) a synthetic
+`get_relation_info("TOTALLY_MADE_UP_RELATION_NOT_IN_ANY_REAL_TABLE")` call, proving the underlying
+resolution logic rejects a genuinely novel bad string, not just the one case it already knows about.
+
+**Run live against the real tables**: found exactly one violation, `DETECTS`, correctly classified as
+known/tracked (issue #3) — zero undeclared drift, exit code 0. Separately verified (by simulating an empty
+`KNOWN_TAXONOMY_GAPS` in an interactive check, not by editing the real dict) that the same `DETECTS`
+violation would be classified as UNKNOWN and cause exit code 1 if it weren't declared — confirming the
+detection half of the mechanism actually works, not just its bookkeeping.
+
+**Deliberately not done**: no `RELATION_TYPES` entry added for `detects` (issue #3 stays open — the point
+was proving #2 catches it, not closing it). No new relation family for #4. No change to canonicalization
+behavior for #5. No wiring into `backend/api/app.py` startup — the check exists as a standalone,
+independently-runnable script for now; whether it should also run automatically at app startup is a
+separate, not-yet-made decision.
+
+**Why this design, not a permanently-red test**: the alternative — leaving the check unconditionally
+failing until `DETECTS` is fixed — was considered and rejected. It would make "known, tracked, deliberately
+deferred" indistinguishable from "new, accidental, nobody noticed," which is exactly the distinction this
+whole epic is about preserving (§0.35: unmapped/tracked is a valid state, not an error). The chosen design
+makes that distinction the thing the script actually reports, and forces a conscious edit
+(`KNOWN_TAXONOMY_GAPS`) — not a passive test flip — when #3 eventually gets resolved.
+
 ## 2026-08-30 (continued) — §0.28: topology-preserving extraction — the renderer was never the bug
 
 After §0.27 shipped, the user watched the live UI and reported the tree "coming back," and asked for a

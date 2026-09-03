@@ -8,7 +8,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from .exceptions import QuestionEngineError
 from .llm_client import structured_call
 from .llm_config import GROUND_MODEL_CHAIN
-from .relation_types import is_compositional
+from .relation_types import get_relation_info, is_compositional
 
 # docs/Architecture.md §0.18: a candidate relation named by this call is NOT
 # necessarily written to the graph — `is_relation_worthy` still has to pass it
@@ -297,3 +297,39 @@ def normalize_relationship_type(relationship_type: str) -> str:
     if key in _RELATIONSHIP_TYPE_SYNONYMS:
         return _RELATIONSHIP_TYPE_SYNONYMS[key]
     return key.upper()
+
+
+# GitHub issue #2 / #3 (docs/Architecture.md §0.35): a canonical string this
+# table deliberately claims (i.e. a VALUE in _RELATIONSHIP_TYPE_SYNONYMS, not
+# arbitrary unmapped passthrough -- passthrough being absent from
+# RELATION_TYPES is the normal, expected TAXONOMY_GAP state, not drift) must
+# be resolvable by relation_types.RELATION_TYPES, or the two tables have
+# silently disagreed. This is exactly the `detects` bug: normalized
+# successfully to "DETECTS", then family lookup fails with no signal anyone
+# would notice short of an adversarial audit.
+#
+# KNOWN_TAXONOMY_GAPS is the explicit, tracked exception list -- each entry
+# names the issue deciding what to do about it. A canonical string appearing
+# here is a declared gap (this epic's own invariant 2: "unmapped is a valid
+# state"), not a silent failure. An entry that shows up in
+# check_registry_consistency() but is NOT in this dict is new, undeclared
+# drift -- see scripts/verify_relation_registry_consistency.py.
+KNOWN_TAXONOMY_GAPS: dict[str, str] = {
+    "DETECTS": "https://github.com/TheNova6000/Discovery.AI/issues/3",
+}
+
+
+def check_registry_consistency() -> list[str]:
+    """Every canonical string _RELATIONSHIP_TYPE_SYNONYMS can produce, checked
+    against relation_types.RELATION_TYPES. Returns the sorted list of
+    canonical strings the registry can't resolve (both known/tracked and
+    unknown/undeclared -- callers that care about the distinction should
+    diff the result against KNOWN_TAXONOMY_GAPS themselves, same as
+    scripts/verify_relation_registry_consistency.py does). Empty list means
+    the two tables fully agree.
+    """
+    return sorted(
+        canonical
+        for canonical in set(_RELATIONSHIP_TYPE_SYNONYMS.values())
+        if get_relation_info(canonical) is None
+    )
