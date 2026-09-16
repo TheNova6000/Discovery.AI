@@ -4,6 +4,24 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R4.4 decision record: whether/how computed claim state reaches Neo4j (design only, no code)
+
+Follows the R4.3 review, same session, per an explicit "do not implement R4.4 immediately -- produce a dedicated architecture/scoping document" instruction with ten named questions. No code changed; recorded in `docs/Architecture.md` §0.70 and a new `docs/Phases.md` R4.4 entry, `[SCOPED, not implemented]`.
+
+**Source of truth: Neo4j stays authoritative.** The live `/chat` path and Phase 8.5/8.6 already treat `ClaimNode` as the real system of record; `backend.reasoning.domain.Claim` is a computation layer that *proposes* writes, not a second store. A versioned combination was considered and rejected -- no version infrastructure exists anywhere in this codebase to justify it.
+
+**Persistence boundary for a first slice:** `status`, `duplicate_of` (as both a property AND a `DUPLICATE_OF` edge, mirroring `supersede_claim`'s existing `SUPERSEDES`-edge-plus-property precedent), `provenance_note`, `last_transition_actor`, `updated_at`. Explicitly NOT `parent_claim_id`/`relation_to_parent` yet -- R4.3 has no real orchestration deciding actual relations from live data, so persisting the field now would have no real producer behind it (the same "type-safety without semantic correctness" trap §0.56 already named). Also not the full `ClaimValidationReport` (cheaply re-derivable) or any run/investigation identity (no `Investigation` object exists yet).
+
+**One transaction per claim, one Cypher statement covering status+duplicate_of+edge together** -- matching every existing write function's own granularity (`attach_claim`/`attach_question`/`supersede_claim`), and closing the "status written but relationship not" failure window structurally rather than by careful sequencing.
+
+**A real, concrete follow-up surfaced but deliberately not resolved:** `assess_claim_validity`'s own `superseded_by is None` exclusion filter has no concept of the new `status` property -- once persistence exists, a persisted `duplicate` claim would still read back as "active" in later validation runs unless that filter is extended. Flagged as real Phase 8.5-adjacent work, not silently bundled into this document or a future slice.
+
+**Reconciliation for a first slice: recompute-and-overwrite IS the strategy** -- full versioning and a "preserve both versions" workflow both explicitly rejected as speculative, no observed need yet. Provenance: write onto the SAME real `ClaimNode` by the same id, no new node type.
+
+**First implementation slice, if undertaken:** one new graph-interface function (`persist_claim_lifecycle`-shaped), reusing existing validation as a precondition gate, plus a verify script proving round-trip/idempotency/partial-run recovery. Not implemented in this pass -- this is a decision record, not a commit boundary for code.
+
+---
+
 ## 2026-09-16 (continued, same day) — R4.3 built: the subclaim relation implemented on Claim itself, ten scoping questions answered explicitly
 
 Follows R4.2, same session, per an explicit R4.3 spec naming ten scoping questions to answer before/while implementing, plus guardrails (no persistence, no graph redesign, no semantic-similarity inference, no automatic status/confidence inheritance, don't touch duplicate resolution absent a concrete conflict).

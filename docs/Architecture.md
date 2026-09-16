@@ -2758,3 +2758,80 @@ R4's own original acceptance criterion (Phases.md, predating R1.4) was never sat
 **Verified: `scripts/verify_r4_3.py`, 11/11, pure logic, no Neo4j/LLM/persistence call.** Relation shape and correct `None`-when-absent behavior; `is_necessary_support` correct across all six real relation values plus the no-relation case; self-parent rejected at construction; a dangling half-set reference rejected in both directions (relation without parent, parent without relation); a real 3-level parent-and-subclaim chain validated end to end; an unknown parent rejected; both a direct 2-cycle and an indirect 3-claim cycle rejected, a real valid tree accepted; orphan reporting confirmed for both a missing parent and a discredited (superseded) one, with the orphaned subclaim's own status/confidence confirmed unchanged; `duplicate_of` and `parent_claim_id` confirmed settable together without conflict; full serialization round-trip both with and without the relation set. All 90 pre-existing checks (Phase 6/8.1-8.6/R1.1-R1.5/R2.1/R3.1/R3.2/R4.1/R4.2) re-confirmed unaffected — the two new fields default to `None` and required no change to any existing construction call site, confirmed by the full regression run rather than assumed from optionality alone.
 
 **Next slice: R4.4** — the persistence scoping decision both this slice and R4.2 left explicitly open: should `parent_claim_id`/`relation_to_parent` and R4.2's computed lifecycle statuses ever reach Neo4j, and how, given `ClaimNode` has neither a `status` nor a relation property today. A real architectural decision (source of truth, idempotency, restart behavior, transaction boundaries, reconciliation with stale graph state) — not an automatic "persist everything" step, and not attempted in this pass.
+
+## §0.70 — R4.4 decision record: whether/how R4.2/R4.3's computed state reaches Neo4j
+
+A scoping document, not implementation — no code changed to produce this, matching R0/R4.0's own precedent of a design pass before any code. Ten questions, each given a real, argued decision (or explicitly left open where a decision would be premature), grounded in what the actual codebase already does, not invented from scratch.
+
+**1. Source of truth: Neo4j remains authoritative (option B).** The live `/chat` path, `assess_claim_validity`, and Phase 8.6's artifact compilation all read `ClaimNode` from Neo4j today — it is already the de facto system of record for what the rest of the system sees. `backend.reasoning.domain.Claim` is a rich *computation* layer, not a competing store: R4.1 maps FROM the graph, R4.2/R4.3 compute additional facts ABOUT what's in the graph, and persistence (this section) is what makes a computed fact durable by writing it back onto the same real node. A "versioned combination" (option C) is rejected for now — it would require version-tracking infrastructure (a schema field, comparison logic) that doesn't exist anywhere in this codebase yet, and nothing so far has shown a need for it strong enough to justify building it speculatively.
+
+**2. Persistence boundary — what exactly is persisted, and how:**
+| Field | Persist? | Shape |
+|---|---|---|
+| `status` | Yes | New flat property on the `Claim` node (`ClaimNode` has never had one — a real, minimal schema addition) |
+| `duplicate_of` | Yes | BOTH a flat property AND a `DUPLICATE_OF` edge — mirroring `supersede_claim`'s own existing precedent exactly (`graph/interface.py:889-911` already does `MERGE (new)-[:SUPERSEDES]->(old) SET old.superseded_by = $new_claim_id`, i.e. edge + property together for the same kind of "this claim points at that one" fact) |
+| `provenance_note` / `last_transition_actor` | Yes | Flat properties, extending the existing flat-property convention (`evidence`/`reasoning`/`confidence`/`source_title`/...) `ClaimNode` already uses |
+| `parent_claim_id` / `relation_to_parent` | **Not in the first slice** — see Q10 | Would be an edge typed by the relation value itself (mirroring `attach_relation_claim`'s existing `relationship_type` flexibility), not a flat property, if/when built |
+| `ClaimValidationReport` (the full report object) | No | Derived and cheap to recompute from already-persisted data (`assess_claim_validity` is pure, fast, deterministic) — persisting the report itself would be a redundant, staleness-prone cache of something re-derivable on demand |
+| Investigation/run identity | No, not yet | No `Investigation` object exists in this codebase yet (that's R3/R5 territory); `last_transition_actor` already carries the orchestration's own name (`"r4_2_duplicate_resolution"`), sufficient provenance for now |
+| Timestamps | Yes | One `updated_at`-style property on write, mirroring `AgentState.updated_at`'s existing pattern — cheap, useful for staleness visibility (Q6) |
+
+**3. Idempotency: re-running the full R4.2 orchestration and re-persisting must be safe by construction, not by a special idempotency mechanism.** Every write is a `MERGE`-by-id `SET` (matching `attach_claim`/`attach_question`/`supersede_claim`'s existing convention) — setting the same value twice has no side effect. The real risk is upstream, in the *computation*: because `assess_claim_validity`'s own exclusion filter (`active = [c for c in claims if c.superseded_by is None]`) has no concept of the new `status` property, a persisted `"duplicate"` claim would still be read back as "active" by a later validation run unless that filter is extended to also exclude `status == "duplicate"` (and other terminal statuses) once persistence exists. **Flagged here as a real, concrete follow-up `assess_claim_validity` needs at persistence time — not resolved in this document, since it touches Phase 8.5 code this design pass didn't re-open.**
+
+**4. Restart behavior: safe by construction, given per-claim atomic writes (Q5).** Before any writes: trivially safe, re-run from scratch. Mid-way through writes: some claims updated, some not — re-running recomputes the same correct result from live data and re-issues the same idempotent writes (harmless for already-correct ones). The "status written but relationship not yet" failure mode is closed structurally, not by careful sequencing: status, `duplicate_of`, and the `DUPLICATE_OF` edge are set in **one** Cypher statement per claim (Q5), so there is no window where they can be observed half-applied.
+
+**5. Transaction boundaries: one transaction per claim.** This matches every existing write function's own granularity (`attach_claim`, `attach_question`, `supersede_claim` are each single-entity, single-statement operations) rather than introducing a new transaction-scoping philosophy. Per-run (one transaction for all 38 pairs) is rejected: a single failure would roll back everything already correctly computed, and nothing elsewhere in this codebase transacts at that scope. Per-cluster is rejected as unneeded complexity — claims in different duplicate clusters have no write-order dependency on each other.
+
+**6. Stale graph state:**
+- An older `status` already present — overwritten by the idempotent `SET`; no special-case code.
+- A different `duplicate_of` already recorded (e.g., the graph changed between runs) — the new computed value wins (Q7), but the write should report old-vs-new explicitly (reading the property's prior value before the `SET`, then returning both — the same `RETURN old, new` shape `supersede_claim` already uses, adapted to compare a property's value rather than just returning both full nodes) so a *changed* decision is visible in output, distinct from a first-time write — not a silent overwrite.
+- A missing parent / deleted canonical claim — already caught, for free, by validation this track already built: `validate_subclaim_graph` (R4.3) and the missing-claim handling in `resolve_duplicate_claims` (R4.2) both refuse to proceed on a reference that doesn't resolve within the currently-fetched real claim set. A persistence step should run these same checks as a precondition gate before writing anything, not re-invent the check.
+- A partially-persisted previous run — safe by construction, per Q3/Q4.
+
+**7. Authority of computed status: the freshly computed value is authoritative for its own write, unconditionally — full version/source-checking is deferred, not built speculatively.** The proposed richer check ("same investigation, same claim identity, same source version, same computation version") would require versioning infrastructure that doesn't exist anywhere in this codebase (`ClaimNode` has no schema-version field) — building it now, with no second consumer yet needing it, would repeat the exact "infrastructure before it's proven necessary" mistake this whole track has consistently avoided. The one cheap safeguard worth keeping: Q6's old-vs-new visibility on every write, so an overwritten *different* prior decision is at least auditable, even though it isn't gated.
+
+**8. Failure and reconciliation: recompute-and-overwrite IS the reconciliation strategy for a first slice — no "preserve both versions" or manual-review workflow.** Because the computation (`assess_claim_validity` → `resolve_duplicate_claims`) is cheap, deterministic, and always re-derivable from current real data, there is no evidence yet that a divergence between computed and durable state needs anything beyond "recompute against current data and write the current answer" — building a conflict-resolution system for a problem that hasn't been observed would be speculative. This can be revisited if a real divergence case is ever actually found in practice.
+
+**9. Provenance: persist onto the SAME real `ClaimNode`, by the same id — no new node type, no separate run-artifact node.** R4.1 already established that `claim_id`/`node.id` identity is the load-bearing recovery mechanism (§0.67.1's Question C); persistence should write the computed fields directly onto that existing node via `MERGE (c:Claim {id: $claim_id})`, the exact pattern `attach_claim` already uses — not a wrapping object, not a parallel store. A separate "run artifact" node is rejected for the same reason as full run-identity tracking (Q2): no consumer needs it yet.
+
+**10. Scope of the first R4.4 implementation slice, if/when undertaken:**
+```
+R4.4 must implement (first slice):
+  - One new graph-interface function (e.g. persist_claim_lifecycle) that
+    MERGEs by claim id and SETs status/duplicate_of/provenance_note/
+    last_transition_actor/updated_at in ONE Cypher statement, plus a
+    DUPLICATE_OF edge when duplicate_of is set -- mirroring
+    supersede_claim's existing shape, not inventing a new write pattern.
+  - Reuse of existing validation (validate_subclaim_graph,
+    resolve_duplicate_claims's own missing-claim handling) as a
+    precondition gate before any write.
+  - A verify script proving: round-trip (write, re-read, fields match),
+    idempotent re-run (no duplicate edges/properties, no error), and a
+    simulated partial-run recovery (re-running after "some claims written"
+    reaches the same correct final state).
+
+R4.4 does NOT need to implement, in this first slice:
+  - parent_claim_id/relation_to_parent persistence -- R4.3 has no real
+    orchestration yet that DECIDES actual parent/subclaim relationships
+    from live investigation data (unlike R4.2, which had
+    assess_claim_validity's real duplicate_pairs to act on). Persisting a
+    relation with no real producer yet would be premature, the same
+    "type-safety without semantic correctness" trap §0.56 already named.
+  - Full run/investigation identity tracking.
+  - A versioning/reconciliation system beyond Q7's cheap old-vs-new
+    write-time visibility.
+  - Any change to the live /chat path or assess_claim_validity's own
+    exclusion filter (Q3's flagged follow-up) -- a real, separate,
+    deliberate change to Phase 5/8.5 code, not bundled into this slice
+    silently.
+
+R4.4 is blocked by:
+  - No new blocker beyond ordinary scoping -- unlike earlier phases, every
+    real precedent needed (MERGE-by-id writes, edge+property duplication
+    for a "points at another claim" fact, single-statement atomicity) is
+    confirmed to already exist in graph/interface.py. The one real,
+    separate follow-up this document surfaces but does not resolve is
+    Q3's assess_claim_validity exclusion-filter gap.
+```
+
+**This document is a decision record, not a commit boundary.** No code was written or changed to produce it. The recommended next action is implementing exactly the first slice above, evaluated and scoped the same way every prior R-track slice has been — real inspection before code, focused tests, real regression, one narrow commit.
