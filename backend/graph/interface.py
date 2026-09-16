@@ -12,6 +12,7 @@ from .exceptions import GraphInterfaceError
 from .models import (
     Abstraction,
     CandidateEvidence,
+    ClaimLifecyclePersistResult,
     ClaimNode,
     EntityExplanation,
     GraphNode,
@@ -25,6 +26,7 @@ from .schema import (
     ABSTRACTION_LABEL,
     ANSWERED_BY,
     CLAIM_LABEL,
+    DUPLICATE_OF,
     HAS_QUESTION,
     HAS_RELATION_CLAIM,
     MEMBER_OF,
@@ -92,6 +94,16 @@ def _record_to_claim(node) -> ClaimNode:
         source_type=node["source_type"],
         valid_from=node["valid_from"],
         superseded_by=node.get("superseded_by"),
+        # R4.4: .get(), not [] -- every claim created before R4.4 (and any
+        # claim never run through persist_claim_lifecycle) has none of these
+        # properties at all; .get() reads that back as None, the same
+        # honest "not yet classified" pattern QuestionNode.research_field
+        # (Phase 8.4) already established for exactly this situation.
+        status=node.get("status"),
+        duplicate_of=node.get("duplicate_of"),
+        provenance_note=node.get("provenance_note"),
+        last_transition_actor=node.get("last_transition_actor"),
+        updated_at=node.get("updated_at"),
     )
 
 
@@ -909,6 +921,84 @@ async def supersede_claim(new_claim_id: str, old_claim_id: str) -> None:
                 )
     except Neo4jError as exc:
         raise GraphInterfaceError(f"supersede_claim failed: {exc}") from exc
+
+
+async def persist_claim_lifecycle(
+    claim_id: str,
+    *,
+    status: str,
+    duplicate_of: Optional[str] = None,
+    provenance_note: Optional[str] = None,
+    last_transition_actor: Optional[str] = None,
+) -> ClaimLifecyclePersistResult:
+    """R4.4 (docs/Architecture.md §0.70/§0.71): persist R1.4/R4.2's computed
+    lifecycle fields onto the SAME real, already-existing Claim node
+    identified by `claim_id` -- MATCH, never MERGE/CREATE (this function
+    must not, and cannot, create a new claim; R4.4's own first-slice scope
+    explicitly excludes that). One Cypher statement covers status,
+    duplicate_of, its DUPLICATE_OF edge (when given), provenance, actor,
+    and updated_at together, so there is no window where they could be
+    observed half-applied -- the same single-statement atomicity
+    `attach_claim`/`supersede_claim` already rely on (Neo4j auto-commits
+    one statement as one transaction; no explicit transaction wrapper is
+    a new pattern here, it matches every existing write in this file).
+
+    `status` is a free-form string here, not validated against
+    `backend.reasoning.ClaimStatus` -- this layer does not import
+    `backend.reasoning` (Rules.md rule 1's layering: Graph Interface is
+    the lowest layer). Real legality is enforced by the caller always
+    passing an already-validated domain `Claim`'s own `.status`, never a
+    bare string constructed here.
+
+    Raises GraphInterfaceError if `claim_id` (or `duplicate_of`, when
+    given) does not already exist -- a missing claim or a dangling
+    duplicate_of reference is a real failure, never silently ignored or
+    used to create a new node.
+    """
+    if duplicate_of is not None:
+        query = (
+            f"MATCH (c:{CLAIM_LABEL} {{id: $claim_id}}) "
+            f"MATCH (canonical:{CLAIM_LABEL} {{id: $duplicate_of}}) "
+            "WITH c, canonical, c.status AS previous_status, c.duplicate_of AS previous_duplicate_of "
+            "SET c.status = $status, c.duplicate_of = $duplicate_of, c.provenance_note = $provenance_note, "
+            "c.last_transition_actor = $last_transition_actor, c.updated_at = $updated_at "
+            f"MERGE (c)-[:{DUPLICATE_OF}]->(canonical) "
+            "RETURN c, previous_status, previous_duplicate_of"
+        )
+    else:
+        query = (
+            f"MATCH (c:{CLAIM_LABEL} {{id: $claim_id}}) "
+            "WITH c, c.status AS previous_status, c.duplicate_of AS previous_duplicate_of "
+            "SET c.status = $status, c.provenance_note = $provenance_note, "
+            "c.last_transition_actor = $last_transition_actor, c.updated_at = $updated_at "
+            "RETURN c, previous_status, previous_duplicate_of"
+        )
+    try:
+        driver = get_driver()
+        async with driver.session() as session:
+            result = await session.run(
+                query,
+                claim_id=claim_id,
+                duplicate_of=duplicate_of,
+                status=status,
+                provenance_note=provenance_note,
+                last_transition_actor=last_transition_actor,
+                updated_at=_now(),
+            )
+            record = await result.single()
+            if record is None:
+                raise GraphInterfaceError(
+                    f"persist_claim_lifecycle: claim {claim_id!r}"
+                    + (f" or duplicate_of={duplicate_of!r}" if duplicate_of else "")
+                    + " not found"
+                )
+            return ClaimLifecyclePersistResult(
+                claim=_record_to_claim(record["c"]),
+                previous_status=record["previous_status"],
+                previous_duplicate_of=record["previous_duplicate_of"],
+            )
+    except Neo4jError as exc:
+        raise GraphInterfaceError(f"persist_claim_lifecycle failed: {exc}") from exc
 
 
 _SUB_QUESTION_PREFIX = "Sub-question of: "

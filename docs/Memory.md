@@ -4,6 +4,20 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R4.4 implemented: the first write to Neo4j in this entire track, plus two real gaps found and confirmed
+
+Follows the R4.4 decision record, same session, per its own "recommended next action" -- implementing exactly the scoped first slice, evaluated and tested the same way every prior R-track slice has been.
+
+**Two layers, matching R4.1-R4.3's own established split.** `backend/graph/interface.py`'s `persist_claim_lifecycle(claim_id, *, status, duplicate_of, provenance_note, last_transition_actor)` -- primitive params, matching `attach_claim`/`supersede_claim`'s own convention, no `backend.reasoning` import. One `MATCH` (never `MERGE`/`CREATE`) on the target claim -- a real refinement over the decision record's own draft wording ("MERGE-by-id"), corrected during implementation: `MERGE` can create a node when unmatched, `MATCH` is the only choice that structurally guarantees this function cannot create a claim. One Cypher statement covers status/duplicate_of/a new `DUPLICATE_OF` edge (schema.py, deliberately separate from `SUPERSEDES`)/provenance/actor/updated_at together, capturing the pre-write value in the same statement for old-vs-new visibility. `backend/research/claim_persistence.py`'s `persist_domain_claim_lifecycle(claim: Claim)` is the research-layer bridge, catching `GraphInterfaceError` and reporting `"rejected_missing_claim"` rather than propagating.
+
+**`ClaimNode` gained five new `Optional` fields** (`status`/`duplicate_of`/`provenance_note`/`last_transition_actor`/`updated_at`), read via `.get()`, the same "old nodes don't have it, honest None" pattern `QuestionNode.research_field` already established.
+
+**Verified: `scripts/verify_r4_4.py`, 12/12, against REAL Neo4j -- the first live-write test in this whole track.** Scoped entirely to a fresh, disposable test entity ("R4.4 Verify Test Entity") the script creates itself, mirroring `verify_phase5.py`'s own established convention -- Payment gateway/DNS and every other real research entity were never touched. Covers normalized/duplicate persistence with a real edge, idempotent repeat write (`changed=False`, no second edge), recompute-and-overwrite (old value correctly reported), missing-claim/missing-duplicate-target rejection with zero new nodes and no half-applied state, atomicity confirmed by source inspection (exactly one `session.run` call), no parent/subclaim parameter exists. All 90 pre-existing checks re-confirmed unaffected.
+
+**Two real gaps confirmed, neither fixed in this slice, both flagged rather than bundled in silently:** (1) the decision record's own predicted Q3 follow-up, now confirmed against a real persisted claim -- `assess_claim_validity`'s exclusion filter still only checks `superseded_by`, so a persisted `duplicate` claim is still counted active. (2) A second gap, freshly discovered while writing this slice's own tests, not predicted in advance -- `claim_node_to_domain_claim` (R4.1) still unconditionally maps every `ClaimNode` to `requires_reclassification`, ignoring the `status`/`duplicate_of` this slice now writes; re-mapping an already-persisted claim silently discards it. Recorded explicitly: the end-to-end persisted lifecycle system is not considered closed until both are resolved.
+
+---
+
 ## 2026-09-16 (continued, same day) — R4.4 decision record: whether/how computed claim state reaches Neo4j (design only, no code)
 
 Follows the R4.3 review, same session, per an explicit "do not implement R4.4 immediately -- produce a dedicated architecture/scoping document" instruction with ten named questions. No code changed; recorded in `docs/Architecture.md` §0.70 and a new `docs/Phases.md` R4.4 entry, `[SCOPED, not implemented]`.

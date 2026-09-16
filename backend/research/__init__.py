@@ -57,10 +57,19 @@ real `duplicate_pairs`, maps the non-canonical side of each through R4.1's
 bridge, and calls `transition_claim` (never a direct field assignment) to
 mark it `"duplicate"` -- closing the gap R4.0's audit named (Phase 8.6's
 38-pair finding, reported since Phase 8.5, never previously resolved).
+
+R4.4 (claim_persistence.py, docs/Architecture.md §0.70/§0.71): the first
+function in this whole track that writes to Neo4j. `persist_domain_claim_
+lifecycle` takes any already-transitioned `Claim` and persists its status/
+duplicate_of/provenance/actor onto the real `ClaimNode` sharing its id --
+never creates a claim, never touches parent/subclaim persistence (R4.3 has
+no real producer of those from live data yet) or assess_claim_validity's
+own exclusion filter (a real, separate, deliberately-deferred follow-up).
 """
 
 from .artifact import assemble_research_artifact, compile_research_artifact
 from .claim_mapping import ClaimMappingRejected, claim_node_to_domain_claim
+from .claim_persistence import ClaimPersistenceResult, persist_domain_claim_lifecycle
 from .coverage import assess_plan_readiness, assess_target_completeness, build_readiness_report
 from .duplicate_resolution import DuplicatePairResolution, DuplicateResolutionSummary, resolve_duplicate_claims
 from .investigate import close_coverage_gaps, plan_targeted_investigations, run_targeted_investigation
@@ -121,4 +130,6 @@ __all__ = [
     "resolve_duplicate_claims",
     "DuplicatePairResolution",
     "DuplicateResolutionSummary",
+    "persist_domain_claim_lifecycle",
+    "ClaimPersistenceResult",
 ]

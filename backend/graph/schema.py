@@ -40,6 +40,16 @@ SUPERSEDES = "SUPERSEDES"
 valid-time/superseded temporal pattern) — the old claim is kept, not deleted, just
 marked non-current via its `superseded_by` property."""
 
+DUPLICATE_OF = "DUPLICATE_OF"
+"""Claim -> Claim: the source claim is a redundant restatement of the target
+claim (R4.2's real duplicate resolution, R4.4's persistence of it) --
+deliberately a SEPARATE relationship type from SUPERSEDES above: a
+duplicate is a same-time redundancy, not a temporal replacement, and the
+two concepts must not be collapsed into one edge type just because both
+"point at another claim". Mirrors SUPERSEDES' own edge-plus-property
+pattern: the edge exists alongside a `duplicate_of` property on the source
+Claim node, not instead of it."""
+
 HAS_RELATION_CLAIM = "HAS_RELATION_CLAIM"
 """docs/Architecture.md §0.26: GraphNode -> Claim, evidence for a specific RELATION
 identity (source_id, relationship_type, target_id) rather than for a Question.

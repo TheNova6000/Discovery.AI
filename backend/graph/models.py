@@ -94,6 +94,40 @@ class ClaimNode(BaseModel):
     source_type: str
     valid_from: str
     superseded_by: Optional[str] = None
+    status: Optional[str] = None
+    """R4.4 (docs/Architecture.md §0.70/§0.71): the persisted lifecycle status,
+    written by `persist_claim_lifecycle` — a free-form string here (this layer
+    doesn't import backend.reasoning.ClaimStatus; the caller's already-validated
+    domain Claim is the real source of legality). `None` for every claim
+    created before R4.4 existed, or never run through persistence — a real,
+    honest "not yet classified" state, not defaulted to any particular status."""
+    duplicate_of: Optional[str] = None
+    """R4.4: mirrors `superseded_by`'s own existing pattern exactly (a flat
+    property alongside a same-named relationship type, `DUPLICATE_OF`) — set
+    together with a `DUPLICATE_OF` edge by `persist_claim_lifecycle`, never
+    independently."""
+    provenance_note: Optional[str] = None
+    last_transition_actor: Optional[str] = None
+    updated_at: Optional[str] = None
+    """R4.4: set on every `persist_claim_lifecycle` write — `None` for a claim
+    never persisted through this path, distinct from `valid_from` (creation
+    time, set once by `attach_claim` and never touched again)."""
+
+
+class ClaimLifecyclePersistResult(BaseModel):
+    """What the low-level `persist_claim_lifecycle` (graph/interface.py)
+    returns — the updated node, plus the pre-write values of the two fields
+    a caller most needs to know changed (R4.4's "old-vs-new visibility on
+    every write" decision, Architecture.md §0.70's Q6/Q7). `previous_status`/
+    `previous_duplicate_of` are `None` both when the claim never had a value
+    before (a genuine first-time write) and when it already had `None` --
+    the two cases are indistinguishable from this field alone, exactly like
+    every other `Optional` field in this module that means "no value," not
+    "value is the string 'None'"."""
+
+    claim: ClaimNode
+    previous_status: Optional[str] = None
+    previous_duplicate_of: Optional[str] = None
 
 
 class QuestionProvenance(BaseModel):

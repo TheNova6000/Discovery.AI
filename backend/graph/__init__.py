@@ -33,11 +33,13 @@ from .interface import (
     resolve_entity,
     set_boundary_kind,
     supersede_claim,
+    persist_claim_lifecycle,
     materialize_abstraction,
 )
 from .models import (
     Abstraction,
     CandidateEvidence,
+    ClaimLifecyclePersistResult,
     ClaimNode,
     EntityExplanation,
     GraphNode,
@@ -70,6 +72,8 @@ __all__ = [
     "get_claims_for_question",
     "get_questions_for_entity",
     "supersede_claim",
+    "persist_claim_lifecycle",
+    "ClaimLifecyclePersistResult",
     "get_decomposition",
     "get_decomposition_typed",
     "materialize_abstraction",
