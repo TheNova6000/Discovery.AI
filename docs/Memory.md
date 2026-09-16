@@ -4,6 +4,26 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R1.2 built: the RetrievalOutcome/Claim distinction goes live, at the one real production site
+
+Follows R1.1, same session. Moved from "can we reconstruct the distinction from existing data" to "does live investigation produce it correctly from the start," per the user's own framing.
+
+**Mapped the live path first, per explicit instruction, before changing anything:** `backend/evidence/engine.py`'s `gather_evidence` is the only place a `Claim` gets constructed from a retrieved resource — confirmed by grep, no second path to also cover.
+
+**The fix reuses an existing contract rather than inventing a new judgment:** `synthesize_claim`'s system prompt already told the LLM "confidence MUST be low (below 0.2)" for a non-answer, before this design pass ever started — nothing acted on it. `NON_ANSWER_CONFIDENCE_THRESHOLD=0.2` is that same number, used for the first time to actually gate whether a draft becomes a `Claim`.
+
+**Backward compatibility is structural:** `gather_evidence_with_outcomes` does the real classification; `gather_evidence` (unchanged name/signature/return type) wraps it, so neither existing caller (`ground_agent.py`, `verify_phase5.py`) needed to change. The one real, intentional behavior change: a non-answer no longer becomes a `Claim` at all.
+
+**A real bug caught by R1.1's own validator before it ever reached a verify script:** the first attempt set `failure_reason` on a `success=True/relevant=False` outcome; the validator correctly rejected it (`raw_content` required whenever `success=True`). Fixed by clarifying the actual semantics and collapsing two near-duplicate constructors into one — the invariant did its job.
+
+**A real, unplanned improvement fell out as a side effect:** a synthesis failure, previously a bare silent `continue` with zero record, is now a real `RetrievalOutcome(success=False)`.
+
+**Verified honestly, two parts, and the live part's limitation stated precisely rather than smoothed over:** mocked Part 1 (7/7, deterministic) proves the full behavior including a genuine answer surviving classification. The live run (real network/LLM, the exact real question that produced the original failure pattern) happened to find zero genuinely relevant sources among its 4 real results this time — `retrieval_outcomes=4, evidence=0, claims=0` — worse luck than the original investigation, most likely ordinary retriever variance (no Tavily key), not a classifier defect. That run strongly proves the exclusion side (4 real non-answers, zero false positives) but doesn't by itself show a genuine answer surviving live — worth stating precisely since the two tests together, not either alone, cover the acceptance criteria.
+
+**Untouched, exactly as scoped:** `Claim`'s schema, Neo4j persistence, deduplication, the claim lifecycle, the bus, `MasterAgent`, any API. All 51 pre-existing checks (Phase 6/8.1-8.6/R1.1) re-confirmed unaffected.
+
+---
+
 ## 2026-09-16 (continued, same day) — R1.1 built: the core invariant (RetrievalOutcome != Evidence != Claim != Answer) enforced as code
 
 Follows the Reasoning Engine Evolution design pass (R0-R5, PRD.md §10, Architecture.md §0.47-§0.57) and its R1-scope refinement, both same session. First real code in the new track — deliberately the smallest slice, per explicit user scoping: four pure domain types, nothing about tasks/bus/MasterAgent/Neo4j/LLM.

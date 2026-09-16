@@ -5,7 +5,7 @@ Rules.md rule 2, this module (and `backend/questions`) are the only ones allowed
 call external LLM/search APIs.
 """
 
-from .engine import gather_evidence
+from .engine import GatherEvidenceResult, gather_evidence, gather_evidence_with_outcomes
 from .exceptions import EvidenceRetrievalError
 from .models import Claim, ClaimDraft, RetrievedResource
 from .retrievers import (
@@ -22,6 +22,8 @@ from .synthesis import synthesize_claim
 
 __all__ = [
     "gather_evidence",
+    "gather_evidence_with_outcomes",
+    "GatherEvidenceResult",
     "synthesize_claim",
     "EvidenceRetrievalError",
     "Claim",
