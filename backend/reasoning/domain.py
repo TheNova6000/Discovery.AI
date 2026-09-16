@@ -182,15 +182,23 @@ class Claim(BaseModel):
     references too, not lists)."""
     parent_claim_id: Optional[str] = None
     """R4.3 (Architecture.md §0.49/§0.69): this claim's single parent, if
-    any -- a tree, not a general graph. A claim may have AT MOST one parent
-    in this slice (deliberately, not an oversight: the current research
-    workflow's own decomposition is already tree-shaped -- one question
-    decomposes into sequential sub-questions -- and a single field is the
-    smallest representation that matches it; true multi-parent support
-    would need a separate edge/relation model, not justified here). A claim
-    CAN be both a parent (referenced by others' `parent_claim_id`) and a
-    subclaim (having one itself) at the same time -- that's the normal,
-    expected shape of nested support, not a special case."""
+    any. Parent/subclaim relations form a DIRECTED FOREST of claim
+    decomposition (at most one parent per claim, but many independent
+    root claims can exist side by side) -- not a single tree, and not a
+    claim about the shape of the whole Discovery.AI graph (which already
+    has other relation types alongside this one -- duplicate_of,
+    superseded_by, evidence_ids -- and this project's own broader model
+    graph is explicitly a network, not a tree, per Architecture.md §0's
+    design-principles discussion). A claim may have AT MOST one parent
+    in this slice
+    (deliberately, not an oversight: the current research workflow's own
+    decomposition is already this shape -- one question decomposes into
+    sequential sub-questions -- and a single field is the smallest
+    representation that matches it; true multi-parent support would need a
+    separate edge/relation model, not justified here). A claim CAN be both
+    a parent (referenced by others' `parent_claim_id`) and a subclaim
+    (having one itself) at the same time -- that's the normal, expected
+    shape of nested support, not a special case."""
     relation_to_parent: Optional[SubclaimRelation] = None
     """R4.3: REQUIRED whenever `parent_claim_id` is set (enforced below) --
     never a dangling reference with no stated reason. Only `"SUPPORTED_BY"`
@@ -491,7 +499,8 @@ class SubclaimGraphError(Exception):
 def validate_subclaim_graph(claims: list[Claim]) -> None:
     """Pure: raises SubclaimGraphError if any claim's parent_claim_id is
     absent from `claims`, or if the parent chain contains a cycle. Single-
-    parent-per-claim (R4.3's own scope: a tree, not a general graph) makes
+    parent-per-claim (R4.3's own scope: a directed forest of independent
+    decomposition trees, not a single tree and not a general graph) makes
     a cycle mean exactly one thing -- some claim is, transitively, its own
     ancestor."""
     ids = {c.claim_id for c in claims}
