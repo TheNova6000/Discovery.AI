@@ -94,12 +94,12 @@ def check_successful_relevant_retrieval_produces_evidence() -> None:
 
 def check_claim_requires_normalized_form_and_valid_confidence() -> None:
     try:
-        Claim(normalized_form="", source_question_id="q1", confidence=0.5)
+        Claim(entity_id="e1", normalized_form="", source_question_id="q1", confidence=0.5)
         raise AssertionError("should have rejected an empty normalized_form")
     except ValidationError:
         pass
     try:
-        Claim(normalized_form="x", source_question_id="q1", confidence=1.5)
+        Claim(entity_id="e1", normalized_form="x", source_question_id="q1", confidence=1.5)
         raise AssertionError("should have rejected confidence outside [0,1]")
     except ValidationError:
         pass
@@ -114,7 +114,7 @@ def check_exception_statuses_require_provenance() -> None:
         ("requires_reclassification", {}),
     ]:
         try:
-            Claim(normalized_form="x", source_question_id="q1", confidence=0.5, status=status, **extra)
+            Claim(entity_id="e1", normalized_form="x", source_question_id="q1", confidence=0.5, status=status, **extra)
             raise AssertionError(f"should have required provenance for status={status!r}")
         except ValidationError:
             pass
@@ -125,6 +125,7 @@ def check_reclassify_legacy_claim_never_lands_active() -> None:
     legacy = reclassify_legacy_claim(
         raw_text="The provided resource does not answer the question.",
         raw_confidence=0.1,
+        entity_id="e1",
         source_question_id="q1",
         reason="matches the retrieval-failure pattern observed in real DNS investigation data",
     )
@@ -134,7 +135,7 @@ def check_reclassify_legacy_claim_never_lands_active() -> None:
 
 
 def check_answer_grounded_consistency() -> None:
-    claim = Claim(normalized_form="DNS translates names to IPs", source_question_id="q1", confidence=0.6)
+    claim = Claim(entity_id="e1", normalized_form="DNS translates names to IPs", source_question_id="q1", confidence=0.6)
     Answer(text="DNS maps names to addresses.", claim_ids=[claim.claim_id], grounded=True)  # should not raise
     try:
         Answer(text="x", claim_ids=[], grounded=True)
@@ -151,12 +152,13 @@ def check_answer_grounded_consistency() -> None:
 
 def check_serialization_round_trip() -> None:
     claim = Claim(
+        entity_id="e1",
         subject="DNS",
         predicate="translates",
         object="domain names to IP addresses",
         normalized_form="DNS translates domain names to IP addresses",
         source_question_id="q1",
-        evidence_ids=["e1", "e2"],
+        evidence_ids=["ev1", "ev2"],
         confidence=0.6,
     )
     dumped = claim.model_dump_json()
@@ -208,6 +210,7 @@ def run_real_data_acceptance_test() -> None:
         reclassify_legacy_claim(
             raw_text=c.evidence,
             raw_confidence=c.confidence,
+            entity_id=recursive_resolver_id,
             source_question_id=question.id,
             reason="pre-R1 graph data, migrated for R1.1's acceptance test, not yet reviewed",
         )
@@ -253,6 +256,7 @@ def run_real_data_acceptance_test() -> None:
     evidence = classify_retrieval_outcome(good_outcome)
     assert evidence is not None
     new_claim = Claim(
+        entity_id=recursive_resolver_id,
         normalized_form=good.evidence.strip(),
         source_question_id=question.id,
         evidence_ids=[evidence.evidence_id],

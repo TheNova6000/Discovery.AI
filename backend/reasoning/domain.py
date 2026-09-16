@@ -132,6 +132,11 @@ class Claim(BaseModel):
     """
 
     claim_id: str = Field(default_factory=_new_id)
+    entity_id: str
+    """R1.3 addition (Architecture.md §0.50/§0.60): required, not optional --
+    identity_floor below is meaningless without it. Two claims with
+    identical normalized_form about DIFFERENT entities must never collide
+    as "the same claim" just because their text happens to match."""
     subject: Optional[str] = None
     predicate: Optional[str] = None
     object: Optional[str] = None
@@ -207,6 +212,7 @@ def reclassify_legacy_claim(
     *,
     raw_text: str,
     raw_confidence: float,
+    entity_id: str,
     source_question_id: str,
     reason: str,
 ) -> Claim:
@@ -220,9 +226,58 @@ def reclassify_legacy_claim(
     claim" actually means as code, not just as a stated principle.
     """
     return Claim(
+        entity_id=entity_id,
         normalized_form=raw_text.strip(),
         source_question_id=source_question_id,
         confidence=raw_confidence,
         status="requires_reclassification",
         provenance_note=reason,
     )
+
+
+# R1.3 (docs/Phases.md, Architecture.md §0.50/§0.60): the two-tier identity
+# model as real, callable functions -- not just fields sitting unused on
+# Claim. Both are pure; neither does any I/O, matching every function in
+# this module.
+
+IdentityFloor = tuple[str, str, str]
+SemanticIdentity = tuple[str, str, str, tuple[str, ...]]
+
+
+def identity_floor(claim: Claim) -> IdentityFloor:
+    """The mandatory, always-available deterministic floor (Architecture.md
+    §0.50): (entity_id, source_question_id, normalized_form). Never raises,
+    never returns partial/missing data -- every Claim has all three fields
+    by construction (all required on the model). This is the real
+    generalization of Phase 8.5's `assess_claim_validity` duplicate
+    detection (exact source_url / exact evidence-text match) into the R1
+    domain model -- same floor-first philosophy, now a named, reusable
+    function instead of inline comparison logic.
+    """
+    return (claim.entity_id, claim.source_question_id, claim.normalized_form)
+
+
+def semantic_identity(claim: Claim) -> Optional[SemanticIdentity]:
+    """The optional, additive layer (Architecture.md §0.50): (subject,
+    predicate, object, qualifiers) -- returned ONLY when all three of
+    subject/predicate/object are set. Returns None otherwise, meaning
+    "unknown," never a partially-filled or guessed tuple -- a claim with a
+    subject but no predicate does not get a semantic identity with `None`
+    silently standing in for the missing piece.
+    """
+    if claim.subject is None or claim.predicate is None or claim.object is None:
+        return None
+    return (claim.subject, claim.predicate, claim.object, tuple(claim.qualifiers))
+
+
+def is_likely_duplicate(claim_a: Claim, claim_b: Claim) -> bool:
+    """Deterministic-floor-based duplicate check -- the actual comparison
+    function R4's claim-lifecycle work (docs/Phases.md) will consume to
+    decide whether to mark a claim `status="duplicate"`. R1.3 defines the
+    comparison only; it does not itself change any claim's status (no
+    lifecycle transitions here -- that's explicitly R1.4/R4's job, not
+    this function's). Two claims about different entities are never
+    duplicates of each other regardless of text, by construction
+    (identity_floor includes entity_id).
+    """
+    return identity_floor(claim_a) == identity_floor(claim_b)

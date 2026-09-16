@@ -18,9 +18,14 @@ from .domain import (
     Claim,
     ClaimStatus,
     Evidence,
+    IdentityFloor,
     RetrievalOutcome,
+    SemanticIdentity,
     classify_retrieval_outcome,
+    identity_floor,
+    is_likely_duplicate,
     reclassify_legacy_claim,
+    semantic_identity,
 )
 
 __all__ = [
@@ -31,4 +36,9 @@ __all__ = [
     "Answer",
     "classify_retrieval_outcome",
     "reclassify_legacy_claim",
+    "identity_floor",
+    "semantic_identity",
+    "is_likely_duplicate",
+    "IdentityFloor",
+    "SemanticIdentity",
 ]

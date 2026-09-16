@@ -4,6 +4,20 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R1.3 built: two-tier claim identity as real functions; a real count mismatch (4 vs. 38) explained, not hidden
+
+Follows R1.2, same session, same "continue to the next slice" instruction.
+
+**Found a real gap while implementing, not anticipated:** `Claim`'s deterministic identity floor needs `entity_id`, but R1.1's `Claim` never had one — only `source_question_id`. Added as required (not optional): without it, two claims about different entities with similar wording could collide as "the same claim." Six existing construction sites needed the new argument — normal ripple from a required-field addition, not scope creep.
+
+**`identity_floor`/`semantic_identity`/`is_likely_duplicate` added to `backend/reasoning/domain.py`, all pure.** `identity_floor` scoped to `(entity_id, source_question_id, normalized_form)` — narrower than §0.50's original "source_url or text" sketch, deliberately: `Claim` doesn't carry `source_url` directly, only `evidence_ids` pointers, and dereferencing those inside a "pure, no I/O" function would be a hidden coupling. `semantic_identity` returns `None` for any partial subject/predicate/object — never a guessed, partially-filled tuple.
+
+**The real-data test surfaced an honest, explained mismatch, not a clean match:** reconstructing "Payment gateway"'s real 23 claims (the same fixture Phase 8.6 found 38 duplicate pairs in) and running the new `is_likely_duplicate` pairwise found **4 pairs, not 38.** Real, understood reasons, not a regression: the new floor is question-scoped (two claims from different questions are never compared), where Phase 8.5's original check flattened an entity's whole claim set together regardless of question; and the new floor never compares `source_url` at all, where the old one did. Question-scoping is arguably the more correct choice — shared wording across different questions is a weaker duplication signal than identical answers to the identical question. The honest claim is "the new mechanism finds real duplicates in known-duplicated data," not "it reproduces the old count" — documented precisely in both the script's own output and the docs, not smoothed into a false match.
+
+**Verified:** 5/5 pure fixture checks, plus the live Payment-gateway check above. All 51 pre-existing checks (Phase 6/8.1-8.6/R1.1, plus R1.2's own) re-confirmed unaffected. No lifecycle transitions (still R1.4/R4), no source-URL identity yet, no bus, no MasterAgent, no API.
+
+---
+
 ## 2026-09-16 (continued, same day) — R1.2 built: the RetrievalOutcome/Claim distinction goes live, at the one real production site
 
 Follows R1.1, same session. Moved from "can we reconstruct the distinction from existing data" to "does live investigation produce it correctly from the start," per the user's own framing.
