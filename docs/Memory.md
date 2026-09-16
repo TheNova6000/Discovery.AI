@@ -4,6 +4,22 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R1.4 built: pure claim lifecycle transitions, confidence never gates status
+
+Follows R1.3, same session. Recorded one architectural warning first (before writing any R1.4 code, per the user's own instruction): `identity_floor` is a provisional, investigation-scoped identity signal (one `entity_id` + one `source_question_id`), not yet a globally unique claim identity across all of Discovery.AI — a real limitation, not a bug, and explicitly not something R1.3 claimed to solve.
+
+**The rule that shaped everything else:** `transition_claim` never reads `claim.confidence`. `if confidence > 0.7: status = ACTIVE` would recreate R0's original failure one layer up — status is an explicit, asserted fact (validated, superseded, disputed), never a number in disguise. Every transition requires a stated `reason` and `actor`, no exceptions, even for transitions that feel routine.
+
+**Legal graph:** `candidate → {normalized, rejected, requires_reclassification}`, `normalized → {supported, duplicate, disputed}`, `supported → {validated, superseded}`, `validated → {active, disputed}`, `active → {superseded, disputed}`. Every other status has an empty legal-targets set on purpose — inventing further transitions now would be exactly the "implement everything before the meaning is proven" mistake this phase was scoped to avoid. R1.1's original `"attached"` status is quietly retired by this graph (present in the enum for backward compatibility, never routed through) since the user's authoritative lifecycle doesn't include it.
+
+**`"active"` means epistemically active, a real decision recorded explicitly** (the user posed it as an open Option A/B question and recommended A): a claim's status describes its own standing in Discovery.AI's reasoning, never whether some client happens to be using it.
+
+**A real correctness choice, not a default:** the transition result is reconstructed through `Claim(...)`, not `model_copy(update=...)` — pydantic's `model_copy` skips validators, which would make `transition_claim`'s own hand-written checks the *only* thing enforcing the model's `_status_consistency` invariant, with nothing keeping the two in sync as either evolves. Reconstructing through the real constructor makes the model's own validator the actual source of truth.
+
+**Verified: 12/12, pure, no I/O** — full legal chain to `active`; both illegal transitions the user specifically named correctly rejected; confidence proven irrelevant by direct comparison; empty reason/actor always rejected; original claim never mutated; result independently re-constructible; R1.1's invariant confirmed untouched. All 57 pre-existing checks re-confirmed unaffected.
+
+---
+
 ## 2026-09-16 (continued, same day) — R1.3 built: two-tier claim identity as real functions; a real count mismatch (4 vs. 38) explained, not hidden
 
 Follows R1.2, same session, same "continue to the next slice" instruction.

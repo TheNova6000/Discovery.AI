@@ -17,6 +17,7 @@ from .domain import (
     Answer,
     Claim,
     ClaimStatus,
+    ClaimTransitionRejected,
     Evidence,
     IdentityFloor,
     RetrievalOutcome,
@@ -26,6 +27,7 @@ from .domain import (
     is_likely_duplicate,
     reclassify_legacy_claim,
     semantic_identity,
+    transition_claim,
 )
 
 __all__ = [
@@ -41,4 +43,6 @@ __all__ = [
     "is_likely_duplicate",
     "IdentityFloor",
     "SemanticIdentity",
+    "transition_claim",
+    "ClaimTransitionRejected",
 ]

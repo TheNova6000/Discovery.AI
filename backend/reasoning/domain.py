@@ -151,10 +151,18 @@ class Claim(BaseModel):
     superseded_by: Optional[str] = None
     duplicate_of: Optional[str] = None
     provenance_note: Optional[str] = None
-    """Required whenever status explains an exception to the normal
-    lifecycle (superseded/duplicate/legacy_invalid_claim/
-    requires_reclassification) -- a status alone never has to be taken on
-    faith; there is always a stated reason attached."""
+    """R1.4 (Architecture.md §0.61): required for EVERY status except the
+    initial `"candidate"` default -- generalized from R1.1's narrower "only
+    the exception statuses need a reason" rule. Every claim that has moved
+    anywhere in its lifecycle carries an explicit, stated reason for being
+    there; a status is never just a label taken on faith. Set by
+    `transition_claim` below, not hand-assigned alongside a status change."""
+    last_transition_actor: Optional[str] = None
+    """R1.4: who/what performed the most recent transition (e.g. a specific
+    validator, "human_reviewer", a migration script name) -- a single,
+    most-recent record, not a full audit log (matching this module's
+    existing minimalism: `superseded_by`/`duplicate_of` are single
+    references too, not lists)."""
 
     @model_validator(mode="after")
     def _status_consistency(self) -> "Claim":
@@ -162,8 +170,8 @@ class Claim(BaseModel):
             raise ValueError("a superseded claim must record superseded_by")
         if self.status == "duplicate" and not self.duplicate_of:
             raise ValueError("a duplicate claim must record duplicate_of")
-        if self.status in ("legacy_invalid_claim", "requires_reclassification") and not self.provenance_note:
-            raise ValueError(f"a {self.status!r} claim must record provenance_note explaining why")
+        if self.status != "candidate" and not self.provenance_note:
+            raise ValueError(f"a {self.status!r} claim must record provenance_note explaining why (R1.4 generalization)")
         return self
 
 
@@ -281,3 +289,100 @@ def is_likely_duplicate(claim_a: Claim, claim_b: Claim) -> bool:
     (identity_floor includes entity_id).
     """
     return identity_floor(claim_a) == identity_floor(claim_b)
+
+
+# R1.4 (docs/Phases.md, Architecture.md §0.61): pure claim lifecycle
+# transitions. The question this section answers, verbatim from the scoping
+# that shaped it: "given a Claim object, which statuses may it move
+# between, and what conditions are required?" -- not orchestration, not
+# automatic validation, not an LLM/Neo4j-driven decision about WHEN to
+# transition. transition_claim never reads `confidence` at all -- status is
+# an explicit fact someone asserts with a reason, never a threshold
+# derived from a number (the exact R0 problem this whole track exists to
+# prevent, recreated one layer up if status were confidence-gated here).
+#
+# "active" means EPISTEMICALLY active (Option A, not B): a claim currently
+# accepted as part of the investigation's own knowledge state. Not "the
+# Portal is using it" -- a downstream consumer filtering claims for its own
+# purpose is that consumer's concern, not a fact about the claim itself.
+#
+# Deliberately not implemented, per explicit scope: every theoretically
+# possible transition (only the ones below are legal), any automatic
+# transition triggered by an LLM/retriever/confidence value, any
+# transition-history log beyond the single most-recent
+# provenance_note/last_transition_actor, any Neo4j persistence of a
+# transition, any event publication (that's the bus, R2).
+
+_LEGAL_TRANSITIONS: dict[ClaimStatus, frozenset[ClaimStatus]] = {
+    "candidate": frozenset({"normalized", "rejected", "requires_reclassification"}),
+    "normalized": frozenset({"supported", "duplicate", "disputed"}),
+    "supported": frozenset({"validated", "superseded"}),
+    "validated": frozenset({"active", "disputed"}),
+    "active": frozenset({"superseded", "disputed"}),
+    # No legal outgoing transition defined yet for these -- not because one
+    # could never exist, but because inventing it now would be exactly the
+    # "implement every possible transition before the meanings are proven"
+    # mistake this phase was explicitly scoped to avoid.
+    "attached": frozenset(),
+    "rejected": frozenset(),
+    "duplicate": frozenset(),
+    "disputed": frozenset(),
+    "superseded": frozenset(),
+    "legacy_invalid_claim": frozenset(),
+    "requires_reclassification": frozenset(),
+}
+
+
+class ClaimTransitionRejected(Exception):
+    """Raised by transition_claim for any illegal transition or any legal
+    transition missing a required condition -- never a bare `None` a caller
+    could forget to check, and never a silent no-op."""
+
+
+def transition_claim(
+    claim: Claim,
+    target_status: ClaimStatus,
+    *,
+    reason: str,
+    actor: str,
+    superseded_by: Optional[str] = None,
+    duplicate_of: Optional[str] = None,
+) -> Claim:
+    """Pure: returns a NEW Claim with the transition applied (claims are
+    treated as immutable here -- `claim` itself is never mutated), or
+    raises ClaimTransitionRejected. Calls no LLM, queries no Neo4j,
+    retrieves no evidence, publishes no event, and reads `claim.confidence`
+    nowhere in this function -- status is asserted by `reason`/`actor`, not
+    derived from a number.
+    """
+    if not reason.strip():
+        raise ClaimTransitionRejected("a transition always requires a non-empty reason")
+    if not actor.strip():
+        raise ClaimTransitionRejected("a transition always requires a non-empty actor")
+
+    legal_targets = _LEGAL_TRANSITIONS.get(claim.status, frozenset())
+    if target_status not in legal_targets:
+        raise ClaimTransitionRejected(
+            f"{claim.status!r} -> {target_status!r} is not a legal transition "
+            f"(legal targets from {claim.status!r}: {sorted(legal_targets) or 'none'})"
+        )
+
+    if target_status == "superseded" and not superseded_by:
+        raise ClaimTransitionRejected("transitioning to 'superseded' requires superseded_by")
+    if target_status == "duplicate" and not duplicate_of:
+        raise ClaimTransitionRejected("transitioning to 'duplicate' requires duplicate_of")
+    if target_status == "supported" and not claim.evidence_ids:
+        raise ClaimTransitionRejected("transitioning to 'supported' requires at least one evidence_id already present on the claim")
+
+    updates: dict = {"status": target_status, "provenance_note": reason, "last_transition_actor": actor}
+    if superseded_by is not None:
+        updates["superseded_by"] = superseded_by
+    if duplicate_of is not None:
+        updates["duplicate_of"] = duplicate_of
+    # Constructed via Claim(...), not claim.model_copy(update=...) -- model_copy
+    # does NOT re-run validators, so it could silently produce a Claim that
+    # violates _status_consistency if this function's own checks above ever
+    # drifted out of sync with that validator. Re-validating through the
+    # constructor makes the model's own invariant the actual source of
+    # truth, not a second, hand-maintained copy of the same logic.
+    return Claim(**{**claim.model_dump(), **updates})
