@@ -2285,7 +2285,25 @@ Today's single `decomposes_into` edge (visible in R0's DNS walkthrough above) co
 
 ## §0.49 — Claim and Subclaim Model
 
-**What a `Claim` actually is, made explicit (it wasn't before — R0 found real claims that shouldn't have been claims at all):** a `Claim` asserts a proposition about its subject, sourced from evidence. It is not a record of "this source didn't help" — that's a **retrieval outcome**, a different kind of fact entirely, and today's pipeline conflates them (§0.47's DNS example: 3 of 4 "claims" for `Recursive Resolver` are non-answers, not propositions). A retrieval outcome belongs in the evidence-gathering log, not the claim graph, full stop — this single distinction, on its own, would likely eliminate a meaningful fraction of both the low-confidence noise seen throughout this session's live runs and some share of the 38 duplicate pairs found in Phase 8.6 (multiple non-answers from different sources are trivially "similar" to each other in a way real claims about the same fact are not).
+**Refined, 2026-09-16 (same design pass, after further review of R0's findings before any R1 code exists):** the object chain is `RetrievalOutcome ≠ Evidence ≠ Claim ≠ Answer` — four distinct things, not points on one spectrum, and R1 must not begin by writing a large collection of classes before this chain's boundaries are precise. Each object gets its own paragraph below rather than being folded into `Claim`'s own definition, because folding them together is exactly the conflation R0 found.
+
+**`RetrievalOutcome`** — represents what happened when a source/tool was actually used: which source was attempted, what came back, success/failure, a relevance judgment, and a failure reason when relevant. It *may* produce `Evidence`; it is never itself a `Claim`. This is the object R0's DNS example was missing entirely — three of `Recursive Resolver`'s four "claims" (§0.47) are exactly this: a source was tried, it wasn't relevant, and that fact was stored as if it were a proposition about DNS instead of a fact about the retrieval attempt.
+
+**`Evidence`** — material that *can* support or challenge a proposition: the source, an excerpt/content, retrieval metadata, a relevance judgment, provenance. Critically, evidence existing is not the same as evidence being valid support for any particular claim — `Evidence` is a candidate, `Claim` is what asserts it actually supports something.
+
+**`Claim`** — a proposition asserted about the world, per the structure below. Only a `Claim` carries a confidence score; a `RetrievalOutcome` does not, because "this source wasn't relevant" isn't a proposition that can be more or less true.
+
+**`Answer`** — a human-readable synthesis, itself a *projection* of the underlying claims (§0.47's canonical-output principle), never the primary object.
+
+**A second, independent separation R1 must also encode — five different things that are currently blurred into one number:**
+```
+claim existence     -- does a Claim object exist at all for this proposition
+claim quality       -- is the claim actually a well-formed proposition (not a RetrievalOutcome misclassified as one)
+confidence          -- the claim's own evidence-strength score
+coverage            -- does a required field have a qualifying claim, per Phase 8.3's model
+policy thresholds   -- what confidence a given ResearchPolicy demands before coverage counts a field "present"
+```
+R0's finding 2 (§0.47) is a direct consequence of NOT separating these: `EXPLORATORY_POLICY.confidence_threshold=0.0` means *policy threshold* is set so low that *claim quality* problems never surface through *coverage* — a `RetrievalOutcome`-as-`Claim` with confidence 0.1 counts identically to a real, well-sourced claim once the threshold is zero. Once `RetrievalOutcome`/`Evidence`/`Claim` are properly distinct objects (this section) and quality is asked as its own question independent of confidence (R1.1), this stops being possible even under a permissive policy — quality is a property of the claim itself, not something a threshold can accidentally launder.
 
 **Structure**, generalizing beyond a rigid triple without losing identity (the shape the previous discussion settled on):
 
@@ -2434,6 +2452,18 @@ No code moves as part of this design pass. The mapping below is what a future im
 | Six required fields (`BASE_REQUIRED_FIELDS`/`UNCLASSIFIED_FIELDS`) | Required-output/claim-obligation vocabulary — unchanged in meaning, now understood as one example of a client-specified objective (PRD.md §10.4), not the only kind |
 
 **The one correction this table exists to make concrete:** every module in the left column currently describes itself, in its own docstring, as Phase-8/Learning-Portal-scoped. Under this migration, none of that code changes; what changes is that `backend/research/` stops being "the Learning Portal's machinery" and becomes "Discovery.AI's reasoning core, which the Learning Portal happens to be the first caller of."
+
+**Migration-mapping discipline, added before any R1 code exists rather than discovered mid-migration:** do not migrate existing Phase 8 *data* into the new model automatically. First produce an explicit old→new mapping for every ambiguous or invalid state already sitting in the real graph, and decide per state whether it becomes a valid object under the new model or is quarantined as evidence-of-what-happened without being treated as knowledge:
+
+| Old state (real, observed) | New treatment |
+|---|---|
+| A `RetrievalOutcome`-shaped claim stored as `Claim` (§0.47's DNS example — 3 of 4 "claims" are non-answers) | Reclassify as `RetrievalOutcome`, not `Claim`; never silently keep as a low-confidence claim |
+| `confidence = 0.0` under `EXPLORATORY_POLICY` | Stays a valid confidence value for a real claim; the fix is separating claim quality from confidence (above), not changing what `0.0` means |
+| Missing semantic identity (§0.50) | Stays `semantic_identity = unknown` — never backfilled by guessing, never treated as a migration blocker |
+| The 38 duplicate claim pairs (Phase 8.6, "Payment gateway") | Explicit `duplicate` status pointing at the canonical claim, not silently merged or silently left as 23 "independent" claims |
+| Any claim never run through Phase 8.5's validation | Explicit `unvalidated` status — distinct from `validated` and from `rejected`, not defaulted to either |
+
+**Why this table matters more than it looks:** the temptation in any migration is to write a converter that maps every old row to *some* new row so nothing "breaks." That would silently launder exactly the invalid states R0 found into the new model with a clean-looking schema — type-safety without semantic correctness. The mapping must be allowed to say "this old state was never valid; represent that it happened, but don't count it as knowledge" for at least the five rows above.
 
 ## §0.57 — Research API Boundary
 
