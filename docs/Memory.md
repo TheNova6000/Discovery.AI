@@ -4,6 +4,18 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R1.1 built: the core invariant (RetrievalOutcome != Evidence != Claim != Answer) enforced as code
+
+Follows the Reasoning Engine Evolution design pass (R0-R5, PRD.md §10, Architecture.md §0.47-§0.57) and its R1-scope refinement, both same session. First real code in the new track — deliberately the smallest slice, per explicit user scoping: four pure domain types, nothing about tasks/bus/MasterAgent/Neo4j/LLM.
+
+**`backend/reasoning/domain.py`** — `RetrievalOutcome`/`Evidence`/`Claim`/`Answer`, each with real structural invariants: a failed retrieval can't be marked relevant; `classify_retrieval_outcome` is the only function that produces `Evidence` and returns `None` for anything that wasn't a successful, relevant retrieval (this IS the "retrieval failure can't become a claim" rule, as code, not a comment); exception claim statuses require a stated reason; an `Answer` can't claim or disclaim authority inconsistently. Confirmed, not just intended: zero imports from any other backend package — only pydantic and stdlib.
+
+**Verified against the real DNS investigation data, all 7 of the user's own acceptance points, 12/12 checks passing on the first run:** the 3 real "does not answer the question" claims for `Recursive Resolver` correctly reconstruct as failed `RetrievalOutcome`s producing no `Evidence`; the one real substantive claim correctly becomes real `Evidence` then a real `Claim` with intact provenance; a real `Answer` derives from it without becoming its own authority; all 4 real legacy claims land as `requires_reclassification` via the one sanctioned migration path, never auto-promoted; all 39 pre-existing Phase 6/8.1-8.6 checks re-ran unaffected.
+
+**What's next, per the user's own explicit ordering:** R1.2 (wire this distinction into live investigation output, not just retrospective reconstruction of already-completed data), R1.3 (two-tier identity fields), R1.4 (full lifecycle transitions), R1.5. Not the bus, not MasterAgent, not the API — those come later in the track, after R1 is actually done.
+
+---
+
 ## 2026-09-16 (continued, same day) — Phase 8.6 built: Research-complete graph artifact; surfaced a real 38-duplicate-pair finding along the way
 
 Directly follows the Phase 8.5 entry immediately below — same session, own commit. Sixth and final phase in the 8.1-8.6 track for this session; the whole track is now [BUILT].
