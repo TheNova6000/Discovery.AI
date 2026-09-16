@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from typing import Optional, get_args
+
 from backend.graph.models import ClaimNode
-from backend.reasoning import Claim
+from backend.reasoning import Claim, ClaimStatus
+
+_RECOGNIZED_STATUSES: frozenset[str] = frozenset(get_args(ClaimStatus))
 
 # R4.1 (docs/Phases.md's Reasoning Engine Evolution track, docs/Architecture.md
 # §0.66/§0.67): the pure bridge R4.0's audit found missing -- nothing anywhere
@@ -66,27 +70,41 @@ def claim_node_to_domain_claim(
     claim-content with evidence-content, exactly what R1.1 was built to
     stop doing (§0.49).
 
-    Every mapped claim lands at status="requires_reclassification",
-    unconditionally -- NOT because `node` is assumed invalid, but because
-    `ClaimNode` carries no R1-lifecycle status information to preserve at
-    all (only a binary superseded_by-or-not fact, copied through separately
-    below). This is the same sanctioned status `reclassify_legacy_claim`
-    (R1.1) already uses for exactly this situation: real, persisted data
-    that has never been run through this model's own validation, evidence-
-    sufficiency, or duplicate checks. No confidence-based promotion, no
-    "high confidence therefore active" shortcut -- Rule B (R4.1's own scope):
-    confidence is never a substitute for lifecycle status here either.
+    **R4.5 (Architecture.md §0.72): rehydrates a REAL, CONSISTENT persisted
+    status/duplicate_of when R4.4 has already written one; falls back to
+    `"requires_reclassification"` otherwise.** Before R4.5, every mapped
+    claim landed at `"requires_reclassification"` unconditionally, even
+    once R4.4 gave `ClaimNode` a real `status` property to read -- a real,
+    confirmed gap (`scripts/verify_r4_4.py`'s own check #12, written
+    specifically to catch this). R4.5 closes it: `node.status` is honored
+    exactly when it is (a) present, (b) a recognized `ClaimStatus` value,
+    and (c) internally consistent (a `"duplicate"` status has a real
+    `duplicate_of`; a `"superseded"` status has a real `superseded_by`).
+    Any of those three checks failing falls back to the ORIGINAL
+    `"requires_reclassification"` behavior, with a note distinguishing WHY
+    (never persisted / unrecognized value / inconsistent persisted state)
+    -- never a crash, never a silently-trusted garbage value forced into a
+    typed `ClaimStatus` field. Legacy `ClaimNode`s created before R4.4
+    existed (or any claim never run through persistence) have `status =
+    None` and are completely unaffected -- the exact same fallback path
+    this function has always used, now reached explicitly rather than
+    unconditionally. No confidence-based promotion, still: rehydration
+    only ever trusts an already-real, already-persisted status, never
+    infers one from `confidence` -- Rule B (R4.1's own scope) remains
+    intact.
 
-    **This is a uniform non-promotion safeguard, NOT retrieval-failure
-    detection -- stated precisely, not conflated (R4.1-review's own
-    finding):** this function has no way to tell a genuine weak claim apart
-    from a retrieval-failure-shaped `ClaimNode` using `node`'s fields alone
-    (that distinction lived in `RetrievalOutcome`, which is never persisted
-    for a `ClaimNode` -- R0's own unrecoverable finding). It does not
-    attempt to; every input, regardless of shape, lands at the identical
-    `"requires_reclassification"` status, which is what actually prevents a
-    disguised retrieval failure from ever being promoted -- a structural
-    guarantee, not a classification the mapper is entitled to claim it made.
+    **This is a uniform non-promotion safeguard for UN-persisted claims,
+    NOT retrieval-failure detection -- stated precisely, not conflated
+    (R4.1-review's own finding, still true for every claim R4.5's
+    rehydration doesn't apply to):** this function has no way to tell a
+    genuine weak claim apart from a retrieval-failure-shaped `ClaimNode`
+    using `node`'s fields alone (that distinction lived in
+    `RetrievalOutcome`, never persisted for a `ClaimNode` -- R0's own
+    unrecoverable finding). For any `ClaimNode` without a real, consistent
+    persisted status, every input still lands at the identical
+    `"requires_reclassification"` status regardless of shape -- a
+    structural guarantee, not a classification the mapper is entitled to
+    claim it made.
 
     Lossy by design, not by oversight -- `node.reasoning`, `node.source_title`,
     `node.source_url`, `node.source_type`, and `node.valid_from` are NOT
@@ -126,6 +144,37 @@ def claim_node_to_domain_claim(
     if node.superseded_by:
         provenance_note += f" (the graph already marks it superseded_by={node.superseded_by!r})"
 
+    status: ClaimStatus = "requires_reclassification"
+    duplicate_of: Optional[str] = None
+    last_transition_actor: Optional[str] = None
+
+    if node.status is None:
+        pass  # never persisted -- the original, unconditional fallback path, unchanged
+    elif node.status not in _RECOGNIZED_STATUSES:
+        provenance_note = (
+            f"reconstructed from graph ClaimNode {node.id!r}; persisted status {node.status!r} is not a "
+            "recognized ClaimStatus, so this claim requires reclassification before entering the normal lifecycle"
+        )
+    elif node.status == "duplicate" and not node.duplicate_of:
+        provenance_note = (
+            f"reconstructed from graph ClaimNode {node.id!r}; persisted status is 'duplicate' but duplicate_of "
+            "is missing -- an inconsistent persisted state, so this claim requires reclassification"
+        )
+    elif node.status == "superseded" and not node.superseded_by:
+        provenance_note = (
+            f"reconstructed from graph ClaimNode {node.id!r}; persisted status is 'superseded' but superseded_by "
+            "is missing -- an inconsistent persisted state, so this claim requires reclassification"
+        )
+    else:
+        # A real, consistent persisted status -- rehydrate it, not the
+        # unconditional requires_reclassification fallback.
+        status = node.status  # type: ignore[assignment]
+        duplicate_of = node.duplicate_of if node.status == "duplicate" else None
+        last_transition_actor = node.last_transition_actor
+        provenance_note = node.provenance_note or (
+            f"reconstructed from graph ClaimNode {node.id!r} with its real persisted status {node.status!r}"
+        )
+
     return Claim(
         claim_id=node.id,
         entity_id=entity_id,
@@ -133,7 +182,9 @@ def claim_node_to_domain_claim(
         source_question_id=source_question_id,
         evidence_ids=[],
         confidence=node.confidence,
-        status="requires_reclassification",
+        status=status,
+        duplicate_of=duplicate_of,
         superseded_by=node.superseded_by,
         provenance_note=provenance_note,
+        last_transition_actor=last_transition_actor,
     )

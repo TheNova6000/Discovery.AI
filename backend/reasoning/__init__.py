@@ -49,6 +49,7 @@ from .domain import (
     Claim,
     ClaimStatus,
     ClaimTransitionRejected,
+    DISCREDITED_CLAIM_STATUSES,
     Evidence,
     IdentityFloor,
     ParentRelation,
@@ -134,4 +135,5 @@ __all__ = [
     "SubclaimGraphError",
     "validate_subclaim_graph",
     "find_claims_with_invalid_parent",
+    "DISCREDITED_CLAIM_STATUSES",
 ]

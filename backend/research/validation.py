@@ -4,6 +4,7 @@ from itertools import combinations
 
 from backend.graph.models import ClaimNode
 from backend.questions import QuestionEngineError, analyze_claim_relationships
+from backend.reasoning import DISCREDITED_CLAIM_STATUSES
 
 from .models import ClaimValidationReport, ContradictionFinding, ContradictionReport, DuplicateClaimPair
 
@@ -14,6 +15,15 @@ from .models import ClaimValidationReport, ContradictionFinding, ContradictionRe
 # place in this module with a real LLM call, and it's bounded and OPT-IN --
 # never invoked as part of the deterministic path, never run against an
 # unbounded claim set.
+#
+# R4.5 (docs/Architecture.md §0.72): `active` now also excludes a claim
+# whose PERSISTED status (R4.4) is in DISCREDITED_CLAIM_STATUSES -- closing
+# the real gap R4.4's own tests confirmed (a persisted "duplicate" claim,
+# superseded_by still None, was still counted "active" here). `c.status`
+# is `Optional[str]`; `None not in frozenset(...)` is always False, so a
+# claim never run through R4.4 persistence (status=None) is completely
+# unaffected -- the exact same exclusion behavior this function has always
+# had for legacy/un-persisted data.
 
 DEFAULT_WEAK_CONFIDENCE_THRESHOLD = 0.3
 DEFAULT_MAX_CLAIMS_FOR_CONTRADICTION_CHECK = 5
@@ -38,8 +48,17 @@ def assess_claim_validity(
     duplicate Claims too, and Phase 8.3's coverage model has no way to catch
     it (raw claim count would look fine even if every claim cites the same
     source).
+
+    R4.5 (Architecture.md §0.72): `active` also excludes a claim whose
+    PERSISTED status (R4.4) is in `DISCREDITED_CLAIM_STATUSES` -- closing a
+    real, confirmed gap (`scripts/verify_r4_4.py`'s own check #11): before
+    this, a persisted `"duplicate"` claim (superseded_by still `None`) was
+    still counted "active" here, meaning it would be re-detected as a
+    duplicate candidate on every subsequent run instead of staying resolved.
+    A claim never run through R4.4 persistence (`status=None`) is completely
+    unaffected -- the same exclusion behavior this function has always had.
     """
-    active = [c for c in claims if c.superseded_by is None]
+    active = [c for c in claims if c.superseded_by is None and c.status not in DISCREDITED_CLAIM_STATUSES]
     superseded_ids = [c.id for c in claims if c.superseded_by is not None]
     weak_ids = [c.id for c in active if c.confidence < weak_confidence_threshold]
 
@@ -95,8 +114,15 @@ async def detect_contradictions(
     itself still waiting on. Findings from this function are real model
     output, carried with their own reasoning so a reader can judge them, not
     presented as an infallible oracle.
+
+    R4.5 (Architecture.md §0.72): also excludes a persisted `duplicate`/
+    `rejected`/`legacy_invalid_claim` claim from the comparison set, same
+    as `assess_claim_validity` -- comparing an already-known-redundant
+    claim for contradictions would waste an LLM call and could surface a
+    confusing "these contradict" finding when one side is simply a marked
+    duplicate of the other or of something else.
     """
-    active = [c for c in claims if c.superseded_by is None]
+    active = [c for c in claims if c.superseded_by is None and c.status not in DISCREDITED_CLAIM_STATUSES]
     if len(active) < 2:
         return ContradictionReport(
             entity_id=entity_id,

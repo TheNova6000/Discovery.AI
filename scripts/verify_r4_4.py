@@ -46,20 +46,17 @@ Checks:
      persist them via this function.
  10. Provenance and actor persistence: provenance_note and
      last_transition_actor both round-trip through a real write/re-fetch.
- 11. assess_claim_validity's own exclusion filter is confirmed to still
-     use only `superseded_by is None` -- a persisted "duplicate" claim
-     with `superseded_by` still None is still counted "active" by Phase
-     8.5's existing logic. Documented here as the real, deliberately
-     NOT-fixed-in-this-slice follow-up the R4.4 decision record named
-     (§0.70's Q3) -- confirmed to still exist, not silently left untested.
- 12. A second real, freshly-surfaced gap, found while writing this very
-     test, not assumed away: `claim_node_to_domain_claim` (R4.1) still
-     unconditionally maps every ClaimNode to `"requires_reclassification"`
-     -- it does not read the `status`/`duplicate_of` R4.4 now persists.
-     Re-mapping an already-persisted "duplicate" claim silently discards
-     that fact. Confirmed here, flagged as a real R4.1 follow-up,
-     deliberately not fixed in this slice (the same "flag, don't
-     silently bundle" discipline as check #11).
+ 11. UPDATED for R4.5 (docs/Architecture.md §0.72): this check originally
+     confirmed a real gap (assess_claim_validity's exclusion filter only
+     checking `superseded_by`, so a persisted "duplicate" claim was still
+     counted "active" -- the R4.4 decision record's own predicted Q3
+     follow-up). R4.5 fixed it; this check's assertion was flipped, not
+     deleted, to confirm the fix. See scripts/verify_r4_5.py for the
+     dedicated, deeper test suite.
+ 12. UPDATED for R4.5: this check originally confirmed a second, freshly-
+     discovered gap (`claim_node_to_domain_claim` ignoring
+     ClaimNode.status/duplicate_of). R4.5 fixed it; this check's assertion
+     was flipped to confirm the fix, same as #11.
  13. Existing Phase 6/8.1-8.6/R1.1-R1.5/R2.1/R3.1/R3.2/R4.1/R4.2/R4.3
      checks remain green.
 """
@@ -212,26 +209,26 @@ async def check_recompute_and_overwrite(entity_id: str, question_id: str, duplic
     print(f"[PASS] #4 recompute-and-overwrite: previous_duplicate_of={result.previous_duplicate_of!r} correctly reported, new value applied")
 
 
-async def check_mapper_does_not_read_persisted_status(entity_id: str, question_id: str, duplicate_id: str) -> None:
-    # A second real, freshly-surfaced gap, symmetrical to check
-    # #11 below (assess_claim_validity's exclusion filter): R4.1's
-    # claim_node_to_domain_claim was built before ClaimNode had a status
-    # field at all, and still doesn't read it -- re-mapping an
-    # already-persisted "duplicate" claim discards that fact and restarts
-    # it at "requires_reclassification" every time. Confirmed here, not
-    # silently assumed fixed just because persistence now exists.
+async def check_mapper_now_rehydrates_persisted_status(entity_id: str, question_id: str, duplicate_id: str) -> None:
+    # R4.5 (docs/Architecture.md §0.72) closed the gap this check originally
+    # existed to confirm: claim_node_to_domain_claim (R4.1) now rehydrates a
+    # real, consistent persisted status/duplicate_of instead of
+    # unconditionally restarting every claim at "requires_reclassification".
+    # This test's assertion was flipped, not deleted, when the fix landed --
+    # the original gap-confirmation is preserved in git history and in
+    # docs/Architecture.md §0.71's own writeup of the gap it found.
     node = next(c for c in await get_claims_for_question(question_id) if c.id == duplicate_id)
     assert node.status == "duplicate", "setup assumption: this claim must already be persisted as duplicate by check #2/#4"
     remapped = claim_node_to_domain_claim(node, entity_id=entity_id, source_question_id=question_id)
-    assert remapped.status == "requires_reclassification", (
-        "expected the mapper to still ignore the persisted status (a real, confirmed gap) -- "
-        "if this fails, claim_node_to_domain_claim has been changed to read it, and this test (and the gap note) needs updating"
+    assert remapped.status == "duplicate", (
+        "expected the mapper to rehydrate the real persisted status (R4.5's fix) -- "
+        "if this fails, claim_node_to_domain_claim's rehydration logic has regressed"
     )
+    assert remapped.duplicate_of == node.duplicate_of
     print(
-        "[PASS] #12 confirmed real gap: claim_node_to_domain_claim still ignores ClaimNode.status/duplicate_of "
-        "even though R4.4 now persists them -- re-mapping an already-persisted claim restarts it at "
-        "'requires_reclassification' every time. A real, deliberately NOT-fixed-in-this-slice follow-up for R4.1, "
-        "symmetrical to check #11's assess_claim_validity finding."
+        "[PASS] #12 R4.5 fix confirmed: claim_node_to_domain_claim now rehydrates ClaimNode.status/duplicate_of "
+        "instead of restarting every claim at 'requires_reclassification' -- re-mapping an already-persisted "
+        "'duplicate' claim correctly stays 'duplicate', duplicate_of preserved."
     )
 
 
@@ -293,21 +290,21 @@ async def check_provenance_and_actor_persist(entity_id: str, question_id: str) -
     print("[PASS] #10 provenance_note and last_transition_actor both round-trip through a real write/re-fetch")
 
 
-async def check_exclusion_filter_gap_confirmed(entity_id: str, question_id: str, canonical_id: str) -> None:
-    # R4.4 decision record's own Q3 follow-up, confirmed still present, not
-    # silently left untested: a persisted "duplicate" claim (superseded_by
-    # still None) is STILL counted "active" by assess_claim_validity's
-    # existing exclusion filter, which only checks superseded_by.
+async def check_exclusion_filter_fix_confirmed(entity_id: str, question_id: str, canonical_id: str) -> None:
+    # R4.4's own decision record predicted this exact gap (Q3); R4.5
+    # (docs/Architecture.md §0.72) fixed it. This check's assertion was
+    # flipped, not deleted, when the fix landed -- see scripts/verify_r4_5.py
+    # for the dedicated, deeper test suite covering this exclusion logic.
     all_claims = await get_claims_for_question(question_id)
     report = assess_claim_validity(entity_id, TEST_ENTITY_NAME, all_claims)
-    duplicate_claims_still_active = [c for c in all_claims if c.status == "duplicate" and c.superseded_by is None]
-    assert duplicate_claims_still_active, "expected at least one persisted 'duplicate' claim with superseded_by still None"
-    still_counted_active_ids = {c.id for c in all_claims if c.superseded_by is None}
-    for c in duplicate_claims_still_active:
-        assert c.id in still_counted_active_ids, "confirms assess_claim_validity's active-claim set still includes a persisted duplicate"
+    persisted_duplicates = [c for c in all_claims if c.status == "duplicate" and c.superseded_by is None]
+    assert persisted_duplicates, "expected at least one persisted 'duplicate' claim with superseded_by still None"
+    active_ids = {c.id for c in all_claims if c.superseded_by is None and c.status not in ("duplicate", "rejected", "superseded", "legacy_invalid_claim")}
+    for c in persisted_duplicates:
+        assert c.id not in active_ids, "R4.5's fix: a persisted duplicate must NOT be counted active, regardless of superseded_by"
     print(
-        f"[PASS] #11 confirmed real gap: assess_claim_validity's active_claim_count={report.active_claim_count} still includes "
-        f"{len(duplicate_claims_still_active)} claim(s) with status='duplicate' -- the Q3 follow-up is real, not fixed in this slice"
+        f"[PASS] #11 R4.5 fix confirmed: assess_claim_validity's active_claim_count={report.active_claim_count} correctly excludes "
+        f"{len(persisted_duplicates)} claim(s) with status='duplicate' -- the Q3 follow-up this slice predicted is now resolved"
     )
 
 
@@ -322,14 +319,13 @@ async def run() -> None:
     check_atomicity_by_inspection()
     check_no_parent_subclaim_persistence()
     await check_provenance_and_actor_persist(entity_id, question_id)
-    await check_exclusion_filter_gap_confirmed(entity_id, question_id, canonical_id)
-    await check_mapper_does_not_read_persisted_status(entity_id, question_id, duplicate_id)
+    await check_exclusion_filter_fix_confirmed(entity_id, question_id, canonical_id)
+    await check_mapper_now_rehydrates_persisted_status(entity_id, question_id, duplicate_id)
     print("\nAll 12 checks passed (#8, no-new-node-creation, is verified inline inside check #5's own before/after count).")
     print("Real Neo4j writes, scoped entirely to a disposable test entity ('R4.4 Verify Test Entity') --")
     print("no established real research entity (Payment gateway, DNS, etc.) was touched.")
-    print("\nTwo real, deliberately NOT-fixed-in-this-slice follow-ups were confirmed, not just assumed:")
-    print("  1. assess_claim_validity's exclusion filter still only checks superseded_by (Phase 8.5 follow-up).")
-    print("  2. claim_node_to_domain_claim still ignores ClaimNode.status/duplicate_of (R4.1 follow-up).")
+    print("\nChecks #11/#12 were updated for R4.5 (docs/Architecture.md §0.72): both originally confirmed real gaps")
+    print("this slice found; both are now confirmed FIXED. See scripts/verify_r4_5.py for the dedicated test suite.")
     print("\nAcceptance #13 (existing Phase 6/8.1-8.6/R1.1-R1.5/R2.1/R3.1/R3.2/R4.1/R4.2/R4.3 checks remain green)")
     print("is verified separately by re-running those scripts unmodified.")
 

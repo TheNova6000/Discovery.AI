@@ -4,6 +4,24 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R4.5 built: lifecycle rehydration and active-claim semantics -- both R4.4-confirmed gaps closed
+
+Follows R4.4, same session, per an explicit "handle both gaps together as a narrowly defined semantic repair slice, not a new persistence feature" instruction with its own 10-question scope and required test list.
+
+**Design question answered first, per the review's own instruction, not assumed:** should rehydration use (A) the already-expanded ClaimNode fields, (B) a separate graph read model, or (C) an adapter? Confirmed A by direct inspection -- R4.4 already added status/duplicate_of/provenance_note/last_transition_actor to ClaimNode, already read via `.get()`. No new abstraction needed.
+
+**Gap 2 fixed:** `claim_node_to_domain_claim` (R4.1) now rehydrates a real, consistent persisted status -- honored only when present, a recognized ClaimStatus value, and internally consistent (duplicate has a real duplicate_of; superseded has a real superseded_by). Any check failing falls back to the original unconditional "requires_reclassification" with a distinguishing note (three different reasons, three different messages, never a generic catch-all). Legacy ClaimNodes (status=None) completely unaffected.
+
+**Gap 1 fixed:** `assess_claim_validity`/`detect_contradictions` (Phase 8.5) now exclude discredited persisted statuses via a newly-public `DISCREDITED_CLAIM_STATUSES` constant -- promoted from R4.3's private `_DISCREDITED_PARENT_STATUSES` rather than duplicating the same literal set in a second place. "disputed" deliberately excluded from this set -- contested, not discredited.
+
+**Both fixes are additive, not replacements** -- the pre-existing superseded_by check and the mapper's status=None fallback are byte-for-byte unchanged, confirmed via a dedicated test against Phase 5's own supersede_claim path.
+
+**Verified: `scripts/verify_r4_5.py`, 9/9.** Checks #1-7 pure/synthetic; checks #8-9 against real Neo4j (fresh "R4.5 Verify Test Entity"), proving the FULL closed loop for the first time -- persist -> reload -> re-map (now correctly rehydrating) -> re-persist -> confirmed changed=False, zero additional edges. `verify_r4_4.py`'s checks #11/#12 were updated (assertions flipped, not deleted) to confirm both fixes rather than continuing to assert the now-resolved gaps. All 99 pre-existing checks re-confirmed unaffected.
+
+**The end-to-end persisted lifecycle system, as scoped through R4.1-R4.5, is now closed:** a claim can be computed, transitioned, persisted, reloaded, and re-validated without losing or misrepresenting its lifecycle state at any step.
+
+---
+
 ## 2026-09-16 (continued, same day) — R4.4 implemented: the first write to Neo4j in this entire track, plus two real gaps found and confirmed
 
 Follows the R4.4 decision record, same session, per its own "recommended next action" -- implementing exactly the scoped first slice, evaluated and tested the same way every prior R-track slice has been.

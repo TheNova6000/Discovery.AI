@@ -528,7 +528,18 @@ def validate_subclaim_graph(claims: list[Claim]) -> None:
             visit(claim_id, [claim_id])
 
 
-_DISCREDITED_PARENT_STATUSES: frozenset[ClaimStatus] = frozenset({"rejected", "superseded", "duplicate", "legacy_invalid_claim"})
+DISCREDITED_CLAIM_STATUSES: frozenset[ClaimStatus] = frozenset({"rejected", "superseded", "duplicate", "legacy_invalid_claim"})
+"""R4.3, made public in R4.5 (Architecture.md §0.72): the set of statuses
+that mean "this claim is no longer good-standing data," regardless of the
+CONTEXT that's asking. Originally private to `find_claims_with_invalid_parent`
+(R4.3); promoted to a public, reusable constant when R4.5 needed the exact
+same concept for `assess_claim_validity`'s own active-claim exclusion
+(Phase 8.5, `backend/research/validation.py`) -- one named set, not two
+literal copies that could silently drift apart. `"disputed"` is
+deliberately NOT included: a disputed claim is contested, not discredited
+-- it may still be valid, and `detect_contradictions` (Phase 8.5's own
+opt-in LLM layer) is the mechanism for surfacing disputes, not silent
+exclusion from every other check."""
 
 
 def find_claims_with_invalid_parent(claims: list[Claim]) -> list[str]:
@@ -546,6 +557,6 @@ def find_claims_with_invalid_parent(claims: list[Claim]) -> list[str]:
         if c.parent_claim_id is None:
             continue
         parent = claims_by_id.get(c.parent_claim_id)
-        if parent is None or parent.status in _DISCREDITED_PARENT_STATUSES:
+        if parent is None or parent.status in DISCREDITED_CLAIM_STATUSES:
             orphaned.append(c.claim_id)
     return orphaned
