@@ -4,6 +4,24 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R4.1-review: three named concerns re-checked against real source before R4.2, all confirmed safe, three tests added
+
+Follows R4.1, same session, per an explicit "do not proceed to R4.2 yet" review instruction raising three specific concerns about the just-committed mapper: whether `ClaimNode.evidence -> normalized_form` confuses generated text with evidence, whether dropped provenance is truly lost, and whether "never promoted" was being conflated with "detected."
+
+**All three were resolved by re-tracing real source, not by re-asserting the prior report.** `ClaimDraft.evidence`'s own field docstring ("a concise, direct answer to the question"), `engine.py`'s reuse of that exact string for both `RetrievalOutcome.raw_content` and `Claim.evidence`, and `ground_agent.py:502`'s sole `attach_claim` call site together confirm `ClaimNode.evidence` IS the model's own synthesized proposition, not raw retrieved material -- mapping it to `normalized_form` was correct, and mapping it to an `Evidence.excerpt` instead would have been the actual mistake (conflating claim-content with evidence-content, exactly what R1.1 exists to prevent).
+
+**Dropped provenance is recoverable, not lost -- now an explicit, tested guarantee rather than a reassuring sentence.** `claim_id` is reused unchanged from `node.id` (already true in the original slice); a new test (`verify_r4_1.py` #9) confirms this explicitly, closing the gap between "this should work" and "this is checked."
+
+**"Never promoted" and "cannot be detected" were correctly distinct in the code's actual behavior all along, but the wording wasn't tied together clearly enough.** Tightened the module docstring to state plainly: this mapper performs uniform non-promotion, never retrieval-failure detection. A new test (#10) proves this structurally -- a genuine weak claim and a disguised retrieval-failure claim (R0's own real DNS non-answer text) receive identical treatment when fed through the mapper.
+
+**One previously-untested edge case closed:** `ClaimNode.confidence` has no bound of its own; an out-of-range value is now confirmed (test #11) to be rejected via `Claim`'s own field validator, the same logic-level-vs-model-level split `transition_claim` already established.
+
+**Result: option A -- R4.1 was already semantically safe; no mapping-logic changed.** `verify_r4_1.py` grew from 9/9 to 12/12 checks; the module docstring now cites exact source locations for every claim it makes. All 79 pre-existing checks re-confirmed unaffected.
+
+**R4.2 is now unblocked:** validation orchestration, consuming `assess_claim_validity`'s real duplicate-pair findings (through this bridge, holding the original `ClaimNode` alongside the mapped `Claim` for provenance) to actually call `transition_claim`.
+
+---
+
 ## 2026-09-16 (continued, same day) — R4.1 built: the pure ClaimNode -> reasoning.domain.Claim bridge, every mapped claim lands at the same honest status
 
 Follows the R4.0 audit, same session, per an explicit "proceed with R4.1" instruction with a detailed spec (semantic rules A-E on invented truth, automatic promotion, identity honesty, evidence boundaries, retrieval failures) and a 10-test acceptance list.

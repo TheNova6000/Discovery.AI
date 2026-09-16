@@ -37,11 +37,24 @@ Checks:
      both map through the same documented compatibility rule
      ("requires_reclassification", with superseded_by carried through
      as real data when present).
-  9. No reverse mapping exists in this module -- confirmed by inspection,
+  9. Provenance recovery: claim_id is reused UNCHANGED from ClaimNode.id, so
+     everything this mapper drops remains reachable from the original
+     ClaimNode by that same id -- not permanently lost, just not duplicated
+     onto the in-memory domain object (R4.1-review's answer to "where does
+     provenance survive").
+ 10. Uniform treatment, not detection: a genuine weak claim and a disguised
+     retrieval-failure-shaped claim receive IDENTICAL status -- proof this
+     mapper performs a uniform non-promotion safeguard, never content-based
+     retrieval-failure classification (R4.1-review's central finding, made
+     structural rather than left as narrative).
+ 11. Out-of-range confidence (ClaimNode.confidence has no bound of its own)
+     is rejected via Claim's own field validator -- documented and tested
+     explicitly, not an unexamined edge case.
+ 12. No reverse mapping exists in this module -- confirmed by inspection,
      not just by absence of a test for it. Documented why: source_title/
      source_url/source_type/reasoning/valid_from are already dropped going
      forward, so a reverse mapping would have to fabricate them.
- 10. Regression: every pre-existing verify script re-run unmodified.
+ 13. Regression: every pre-existing verify script re-run unmodified.
 """
 
 from __future__ import annotations
@@ -51,6 +64,8 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+from pydantic import ValidationError  # noqa: E402
 
 from backend.graph.models import ClaimNode  # noqa: E402
 from backend.reasoning import identity_floor, semantic_identity  # noqa: E402
@@ -171,6 +186,55 @@ def check_status_compatibility_enumeration() -> None:
     print("[PASS] #8 both of ClaimNode's real status signals (superseded_by None / not None) map through the same documented rule -- neither silently collapsed nor conflated")
 
 
+def check_claim_id_enables_provenance_recovery() -> None:
+    # R4.1-review's answer to "where does provenance survive": claim_id is
+    # reused UNCHANGED from node.id, so anything dropped by this mapper
+    # (reasoning/source_title/source_url/source_type/valid_from) remains
+    # recoverable from the original ClaimNode by that same id -- not
+    # permanently lost, just not duplicated onto the in-memory domain object.
+    node = _node(id="claim-recoverable", source_title="RFC 1035", source_url="https://example.com/rfc1035")
+    claim = claim_node_to_domain_claim(node, entity_id="e1", source_question_id="q1")
+    assert claim.claim_id == node.id, "claim_id must be reused unchanged so the original ClaimNode (and its dropped fields) stays reachable by id"
+    print("[PASS] #9 claim_id is reused unchanged from ClaimNode.id -- dropped provenance remains recoverable from the original node by that same id, not permanently lost")
+
+
+def check_uniform_treatment_not_detection() -> None:
+    # R4.1-review's central finding, made structural rather than narrative:
+    # a genuine weak-but-real claim and a retrieval-failure-shaped claim are
+    # given IDENTICAL treatment by this mapper -- proving it performs a
+    # uniform non-promotion safeguard, not retrieval-failure classification.
+    # If this mapper ever starts branching behavior based on content
+    # (e.g. sniffing for "does not answer" phrasing), this test would need
+    # to change to reflect an actual detection capability being added.
+    genuine_weak_claim = _node(id="genuine", evidence="DNS occasionally caches negative responses too.", confidence=0.15)
+    disguised_failure = _node(id="disguised", evidence="The provided resource does not answer the question.", confidence=0.15)
+
+    mapped_genuine = claim_node_to_domain_claim(genuine_weak_claim, entity_id="e1", source_question_id="q1")
+    mapped_failure = claim_node_to_domain_claim(disguised_failure, entity_id="e1", source_question_id="q1")
+
+    assert mapped_genuine.status == mapped_failure.status == "requires_reclassification", (
+        "a real claim and a disguised retrieval failure must receive IDENTICAL status -- "
+        "proving this is a uniform safeguard, not content-based detection"
+    )
+    print("[PASS] #10 a genuine weak claim and a disguised retrieval failure receive identical treatment -- confirms uniform non-promotion, not content-based detection")
+
+
+def check_out_of_range_confidence_raises() -> None:
+    # ClaimNode.confidence has no bound of its own (backend/graph/models.py);
+    # reasoning.domain.Claim.confidence requires 0.0-1.0. This function does
+    # not pre-check that range itself -- it relies on Claim's own validator,
+    # the same split transition_claim (R1.4) already uses between its own
+    # logic-level rejection and the model's own field validation. Documented
+    # and tested explicitly here, not left as an unexamined edge case.
+    out_of_range = _node(confidence=1.5)
+    try:
+        claim_node_to_domain_claim(out_of_range, entity_id="e1", source_question_id="q1")
+        raise AssertionError("an out-of-range confidence must be rejected by Claim's own field validator")
+    except ValidationError:
+        pass
+    print("[PASS] #11 an out-of-range ClaimNode.confidence is rejected via Claim's own field validator (documented, not a silent gap)")
+
+
 def check_no_reverse_mapping_exists() -> None:
     import backend.research.claim_mapping as claim_mapping_module
 
@@ -182,7 +246,7 @@ def check_no_reverse_mapping_exists() -> None:
     import_lines = [line.strip() for line in source.splitlines() if line.strip().startswith(("import ", "from "))]
     assert any("backend.graph" in line for line in import_lines)
     assert any("backend.reasoning" in line for line in import_lines)
-    print("[PASS] #9 no reverse mapping exists (confirmed by inspection); forward-only is the honest choice given the fields already dropped going forward")
+    print("[PASS] #12 no reverse mapping exists (confirmed by inspection); forward-only is the honest choice given the fields already dropped going forward")
 
 
 if __name__ == "__main__":
@@ -194,7 +258,10 @@ if __name__ == "__main__":
     check_retrieval_failure_never_promoted()
     check_provenance_no_cross_contamination()
     check_status_compatibility_enumeration()
+    check_claim_id_enables_provenance_recovery()
+    check_uniform_treatment_not_detection()
+    check_out_of_range_confidence_raises()
     check_no_reverse_mapping_exists()
-    print("\nAll 9 checks passed. Pure logic only, no network/LLM/database/LangGraph call.")
-    print("Acceptance #10 (existing Phase 6/8.1-8.6/R1.1-R1.5/R2.1/R3.1/R3.2 checks remain green)")
+    print("\nAll 12 checks passed. Pure logic only, no network/LLM/database/LangGraph call.")
+    print("Acceptance #13 (existing Phase 6/8.1-8.6/R1.1-R1.5/R2.1/R3.1/R3.2 checks remain green)")
     print("is verified separately by re-running those scripts unmodified.")

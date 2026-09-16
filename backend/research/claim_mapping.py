@@ -46,6 +46,26 @@ def claim_node_to_domain_claim(
     it: which entity's question was this attached to). Never fabricate them
     as "unknown" -- a caller without real values has nothing safe to map.
 
+    **What `node.evidence` actually is (confirmed against the real
+    production path, not assumed from its name, per the R4.1-review pass):**
+    `ClaimDraft.evidence` (backend/evidence/models.py) is documented at its
+    own definition as "a concise, direct answer to the question, grounded
+    only in the given resource" -- the model's own synthesized PROPOSITION,
+    not a verbatim excerpt copied from the source. `engine.py`'s
+    `gather_evidence_with_outcomes` uses this exact same string for two
+    purposes: it becomes `RetrievalOutcome.raw_content` (line ~72) AND,
+    unchanged, `Claim.evidence` (line ~148) -- so the one and only production
+    path that ever creates a `ClaimNode` (`ground_agent.py`'s `attach_claim`
+    call, `evidence=claim.evidence`) confirms `ClaimNode.evidence` IS the
+    asserted proposition text, despite its legacy field name. Mapping it to
+    `normalized_form` (this model's own "canonical text form... the
+    proposition asserted about the world") is therefore correct, not a
+    guess -- and mapping it to an `Evidence.excerpt` instead would have been
+    WRONG: that same text is the model's own synthesis, not independently-
+    checkable raw material, so treating it as Evidence would conflate
+    claim-content with evidence-content, exactly what R1.1 was built to
+    stop doing (§0.49).
+
     Every mapped claim lands at status="requires_reclassification",
     unconditionally -- NOT because `node` is assumed invalid, but because
     `ClaimNode` carries no R1-lifecycle status information to preserve at
@@ -56,6 +76,17 @@ def claim_node_to_domain_claim(
     sufficiency, or duplicate checks. No confidence-based promotion, no
     "high confidence therefore active" shortcut -- Rule B (R4.1's own scope):
     confidence is never a substitute for lifecycle status here either.
+
+    **This is a uniform non-promotion safeguard, NOT retrieval-failure
+    detection -- stated precisely, not conflated (R4.1-review's own
+    finding):** this function has no way to tell a genuine weak claim apart
+    from a retrieval-failure-shaped `ClaimNode` using `node`'s fields alone
+    (that distinction lived in `RetrievalOutcome`, which is never persisted
+    for a `ClaimNode` -- R0's own unrecoverable finding). It does not
+    attempt to; every input, regardless of shape, lands at the identical
+    `"requires_reclassification"` status, which is what actually prevents a
+    disguised retrieval failure from ever being promoted -- a structural
+    guarantee, not a classification the mapper is entitled to claim it made.
 
     Lossy by design, not by oversight -- `node.reasoning`, `node.source_title`,
     `node.source_url`, `node.source_type`, and `node.valid_from` are NOT
@@ -68,6 +99,16 @@ def claim_node_to_domain_claim(
     without evidence validation" fabrication this slice's own review
     explicitly warns against. `evidence_ids` is left empty; a real Evidence
     bridge, if ever built, is separate, later work, not this mapper's job.
+
+    **This loss is recoverable, not permanent (R4.1-review's answer to
+    "where does provenance survive"):** `claim_id` is reused UNCHANGED from
+    `node.id` (never regenerated), so any later step holding the mapped
+    `Claim` can always re-fetch the exact original `ClaimNode` -- and every
+    field this function drops -- by that same id. Provenance is not carried
+    on the in-memory domain object, but nothing is deleted from the graph;
+    `get_claims_for_question`/direct lookup remains the recovery path, and
+    R4.2's own orchestration is expected to hold both objects side by side,
+    correlated by this shared id, not the mapped `Claim` alone.
     """
     if not entity_id.strip():
         raise ClaimMappingRejected("entity_id must be a non-empty string -- never fabricated as 'unknown'")
