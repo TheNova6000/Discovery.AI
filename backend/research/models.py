@@ -230,3 +230,80 @@ class ContradictionReport(BaseModel):
     checked: bool
     skipped_reason: str | None = None
     findings: list[ContradictionFinding] = Field(default_factory=list)
+
+
+# Phase 8.6 (docs/Phases.md, docs/Architecture.md §0.46): Research-complete
+# graph artifact -- the stable output contract Phase 9's Curriculum Compiler
+# actually consumes. This is packaging only: every field below is assembled
+# from what Phases 8.1-8.5 already computed (ResearchPolicy, planner.py's
+# ConceptResearchTarget, coverage.py's ConceptCompleteness, validation.py's
+# ClaimValidationReport, and -- only if the caller separately ran it --
+# Phase 8.5's ContradictionReport). Nothing in this module performs new
+# research, calls an LLM, or compiles a curriculum.
+
+
+class EvidenceReference(BaseModel):
+    """Lightweight provenance pointer back to one real, active (non-
+    superseded) Claim -- enough for a downstream consumer (Phase 9) to trace
+    a concept's coverage back to its actual source without re-fetching the
+    full ClaimNode from Neo4j itself."""
+
+    claim_id: str
+    source_title: str
+    source_url: str
+    source_type: str
+    confidence: float
+
+
+class ConceptResearchArtifact(BaseModel):
+    """One concept's full research-state snapshot, assembled -- not
+    recomputed -- from Phase 8.2's ConceptResearchTarget, Phase 8.3's
+    ConceptCompleteness, and Phase 8.5's ClaimValidationReport (plus,
+    optionally, a caller-supplied ContradictionReport)."""
+
+    entity_id: str
+    entity_name: str
+    required_fields: frozenset[str]
+    field_coverage: list[FieldCoverage] = Field(default_factory=list)
+    """Also the unresolved-questions view: filter to status=="missing" for
+    exactly what's still outstanding on this concept -- deliberately not
+    duplicated as a separate field, one source of truth for the same fact."""
+    is_complete: bool
+    missing_fields: frozenset[str] = Field(default_factory=frozenset)
+    claim_validity: ClaimValidationReport | None = None
+    contradictions: ContradictionReport | None = None
+    """None means "not checked for this artifact," not "no contradictions
+    found" -- distinct from ContradictionReport.checked=False, which means
+    the check ran and was itself skipped. compile_research_artifact never
+    runs Phase 8.5's LLM-backed check on its own (see artifact.py's module
+    docstring); a caller who wants this populated runs detect_contradictions
+    separately and passes the results in."""
+    evidence_refs: list[EvidenceReference] = Field(default_factory=list)
+    prerequisite_entity_ids: list[str] = Field(default_factory=list)
+    """Always empty today -- the `requires`/`prerequisite_of` relation type
+    this would read doesn't exist in the graph yet (deferred alongside
+    curriculum-source retrievers, Phase 8.4's own deferral note,
+    Architecture.md §0.44). Kept as a real field now, not added later, so
+    Phase 9 can already depend on this artifact's shape being stable; only
+    its content is pending, the same "field present, honestly empty" pattern
+    Phase 8.2's ConceptResearchTarget already used for the same gap."""
+
+
+class ResearchArtifact(BaseModel):
+    """The full contract: `compile_research_artifact`/`assemble_research_artifact`
+    (artifact.py) produce this; Phase 9's Curriculum Compiler is meant to
+    consume it (once built) instead of re-deriving readiness/coverage/
+    validity from scratch. Still just a read over the existing world model
+    (PRD.md §9.3's "one world model, multiple projections" principle,
+    unchanged) -- an artifact, not a second store."""
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    abstraction_id: str
+    abstraction_name: str
+    policy: ResearchPolicy
+    concepts: list[ConceptResearchArtifact] = Field(default_factory=list)
+    ready_count: int
+    incomplete_count: int
+    is_ready: bool
+    generated_at: str

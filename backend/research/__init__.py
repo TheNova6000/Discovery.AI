@@ -31,10 +31,18 @@ real LLM call, bounded and opt-in) reuses the existing epistemic layer's
 analyze_claim_relationships (Post-Phase-5) rather than inventing new
 contradiction logic.
 
+Phase 8.6 (artifact.py): packages Phase 8.1-8.5's already-computed research
+state into one stable ResearchArtifact -- the contract Phase 9's Curriculum
+Compiler is meant to consume. Performs NO new research and calls NO LLM of
+its own (not even optionally); a caller who wants Phase 8.5's contradiction
+findings included runs detect_contradictions separately and passes the
+results in.
+
 Curriculum compilation and lesson/exercise generation are explicitly later
 phases, not this module's job.
 """
 
+from .artifact import assemble_research_artifact, compile_research_artifact
 from .coverage import assess_plan_readiness, assess_target_completeness, build_readiness_report
 from .investigate import close_coverage_gaps, plan_targeted_investigations, run_targeted_investigation
 from .models import (
@@ -44,11 +52,14 @@ from .models import (
     UNCLASSIFIED_FIELDS,
     ClaimValidationReport,
     ConceptCompleteness,
+    ConceptResearchArtifact,
     ConceptResearchTarget,
     ContradictionFinding,
     ContradictionReport,
     DuplicateClaimPair,
+    EvidenceReference,
     FieldCoverage,
+    ResearchArtifact,
     ResearchPlan,
     ResearchReadinessReport,
     TargetedInvestigationRequest,
@@ -81,4 +92,9 @@ __all__ = [
     "DuplicateClaimPair",
     "ContradictionFinding",
     "ContradictionReport",
+    "assemble_research_artifact",
+    "compile_research_artifact",
+    "ResearchArtifact",
+    "ConceptResearchArtifact",
+    "EvidenceReference",
 ]

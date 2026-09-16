@@ -4,6 +4,20 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — Phase 8.6 built: Research-complete graph artifact; surfaced a real 38-duplicate-pair finding along the way
+
+Directly follows the Phase 8.5 entry immediately below — same session, own commit. Sixth and final phase in the 8.1-8.6 track for this session; the whole track is now [BUILT].
+
+**The instruction was unusually narrow and this phase's entire design problem was staying inside it:** package and expose the research state, perform no new research, compile no curriculum. The one decision that makes this mechanically true rather than just stated: `compile_research_artifact` calls zero LLM APIs, full stop — not an optional flag defaulting off, which is one accidental `True` away from violating the rule, but a parameter that simply doesn't exist. Phase 8.5's `detect_contradictions` (the only real LLM call in this whole track) is never invoked by this module; a caller who wants those findings folded in runs it themselves and passes the results into `contradiction_reports_by_entity`. `None` (never checked) vs. a supplied `ContradictionReport(checked=False, ...)` (checked, but Phase 8.5 itself skipped it) stays a real, tested distinction through assembly.
+
+**The original Phase 8.6 sketch's own verify plan didn't survive contact with reality, and that's recorded rather than quietly reworked:** it proposed pointing `generate_roadmap` at "a research-complete subgraph," treating the artifact as if it were graph-shaped. It isn't — `ResearchArtifact` bundles policy/coverage/validity/provenance a bare `Subgraph` has no room for. What actually matters (PRD.md §9.3's "one world model, multiple projections") still holds: the artifact is assembled from the exact same upstream reads `generate_roadmap` already uses, one more projection, not a second store.
+
+**`prerequisite_entity_ids` stays present-but-always-empty, matching Phase 8.2's identical, already-established pattern for the same missing relation type** — shape stable now, content pending Phase 8.4's deferred relation-type work.
+
+**Verified live against real data, and this run surfaced something real and unplanned:** `compile_research_artifact` against the real "online payment" abstraction returned `is_ready=True`, 5/5 concepts, real evidence-ref lists, `contradictions=None` everywhere (correct — nothing supplied). But this was the first time Phase 8.5's `assess_claim_validity` got run against every concept in the abstraction in one pass, and it found "Payment gateway" (23 real claims) has **38 duplicate claim pairs** — not a hypothetical Phase 8.5's own design notes speculated about, a real, substantial, previously-unquantified data-quality issue in this exact dataset. Likely the same repeated-decomposition/retry pattern already implicated in the duplicate-Question-node observation (Phase 6). Flagged for whoever next touches question/claim attachment; diagnosing/fixing it is explicitly not this phase's job.
+
+---
+
 ## 2026-09-16 (continued, same day) — Phase 8.5 built: Evidence and contradiction validation, reusing the epistemic layer exactly as its original design called for
 
 Directly follows the Phase 8.4 entry immediately below — same session, own commit. Sixth and (for this session) final phase in the 8.1-8.5 track.
