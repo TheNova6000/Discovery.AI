@@ -4,6 +4,22 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — Phase 8.3 built: Coverage/completeness model, drawing an honesty boundary instead of guessing at field-level precision
+
+Directly follows the Phase 8.2 entry immediately below — same session, own commit, same "keep phases separable" discipline as 8.1/8.2.
+
+**The real design problem: `ClaimNode` has no "which PRD.md §9.3a field does this satisfy" tag.** Nothing distinguishes a claim that's a definition from one that's an example from one that's a misconception — that classification doesn't exist in the schema. Two honest options: add it via an LLM pass (excluded — this phase inherits Phase 8.2's "deterministic, no LLM calls" constraint), or be precise about what today's evidence actually demonstrates and report the rest as genuinely unknown. Took the second path, same discipline Phase 8.1 applied to `spawn_budget` and Phase 8.2 applied to prerequisite edges: don't add a signal with nothing real behind it.
+
+**The split, grounded in what the engine actually produces:** `GroundAgent`'s one master-level question + one synthesized answer per entity genuinely does cover "what is this and how does it work" — real content. So `definition`/`mechanism`/`evidence` (PRD.md's own literal definition of "evidence" IS "meets a confidence bar") are scored against real, non-superseded claim confidence vs. the active policy's threshold. `prerequisites`/`examples`/`misconceptions` require content nothing currently asks for or tags — always honestly reported `"missing"`, with an explicit reason string, never guessed from generic prose.
+
+**Real consequence, confirmed not assumed:** any genuine "learning"-shaped policy makes a target's completeness honestly always `False` today, regardless of evidence quality — the accurate signal that Phase 8.4's field-targeted investigation doesn't exist yet, not a defect in this phase. Tested directly: a target under a full six-field policy, given 0.95-confidence evidence, correctly shows exactly the three unclassified fields missing while the three confidence-gated ones show present — proving the gap is specifically "no field classification," not "this model doesn't work."
+
+**Reused the existing epistemic-layer convention rather than inventing a new one:** superseded claims (`ClaimNode.superseded_by`, Post-Phase-5) are excluded from "current evidence" before confidence is checked — a stale, since-corrected claim can't make a concept look falsely complete. Tested directly (a superseded claim at 0.95 confidence correctly doesn't count).
+
+**Verified the same two ways as 8.1/8.2, both clean on the first run:** `scripts/verify_phase8_3.py` (6/6, pure logic, no LLM/Neo4j call) plus a live call — `build_readiness_report` against the real "online payment" plan (Phase 8.2's own live data) — returned `is_ready=True` for all 5 real member entities, each with real claim counts (4-18) and confidences (0.10-0.90) cited directly in the per-field reason strings, clearing `EXPLORATORY_POLICY`'s deliberately-permissive `confidence_threshold=0.0`.
+
+---
+
 ## 2026-09-16 (continued, same day) — Phase 8.2 built: Learning Research Planner, deliberately scoped narrower than the original design sketch
 
 Directly follows the Phase 8.1 entry immediately below — same session, own commit per the same "keep phases separable" instruction that shaped Phase 8.1's commit boundary.
