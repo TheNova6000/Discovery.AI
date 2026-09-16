@@ -4,6 +4,24 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R4.0 audit (no code changed): three disconnected Claim representations, not a missing lifecycle system
+
+Follows R3.2, same session, per an explicit "evaluation-only, do not implement R4 yet" instruction with a full 10-section audit template. No production code was touched — this is a docs-only entry recording the audit's findings so the next session doesn't have to re-derive them.
+
+**The central finding:** three separate Claim representations exist and have never been unified: `backend.evidence.models.Claim` (real/live construction path, `evidence/engine.py:146`, no status field), `backend.graph.models.ClaimNode` (Neo4j-persisted, no status field in the schema at all — only `superseded_by`), and `backend.reasoning.domain.Claim` (R1.1-R1.5, the only one with a real `ClaimStatus` lifecycle and `transition_claim`, never persisted, never constructed from real data except in a one-off test fixture).
+
+**`transition_claim` has zero production callers** (grep confirms it's only called from `verify_r1_4.py`/`verify_r2_1.py`) — the same disconnected-but-real shape as `MasterAgent` before R3.2. This is NOT a bypass — grep for direct non-candidate `Claim(status=...)` construction outside `domain.py` finds nothing. The real gap is structural: `supersede_claim` (`graph/interface.py:889-911`, also zero production callers) is the only real claim-mutation function, and it operates on `ClaimNode`, which has no `status` concept to bypass in the first place.
+
+**Validation is real but report-only.** `assess_claim_validity`/`detect_contradictions` (Phase 8.5, both real, tested, 6/6 and 6/6) produce reports nothing consumes. Phase 8.6's real 38-duplicate-pairs finding has been reported (8.5) and explained (R1.3's 4-vs-38 reconciliation) but never resolved — no code calls `transition_claim` from a real validation finding. This is R4's own original, still-open acceptance criterion.
+
+**Subclaims don't exist in code** (zero matches repo-wide) but do have a precise, already-settled design (`Architecture.md §0.49`, written before R1): a subclaim is a `Claim` in a `SUPPORTED_BY`/`QUALIFIED_BY`/etc. relation to a parent `Claim` — not a new class, not a research task, not a text fragment. `Claim` has no field to express this yet. Two distinct, superficially-similar existing things flagged so they aren't confused with subclaims: `analyze_claim_relationships` (peer-claim classification, same question) and `audit_synthesis`/`AtomicClaim` (content-provenance decomposition, zero production callers).
+
+**Conclusion:** R4 is overwhelmingly orchestration/bridging work around R1.4's already-built, already-tested lifecycle mechanics, plus one small new piece of domain surface (the parent/subclaim relation field, already specified, never coded) — not a new lifecycle system. Proposed slices (none started): R4.1 (pure `ClaimNode ↔ reasoning.domain.Claim` mapping, recommended next), R4.2 (validation orchestration resolving the real 38-pair finding), R4.3 (additive subclaim relation fields), R4.4 (persistence decision — deferred, since `ClaimNode` has no `status` property without a schema change).
+
+**Tests run (no code changed): `verify_r1_1/r1_3/r1_4(12/12)/r1_5(7/7)/r2_1(7/7)/phase8_5(6/6)/phase8_6(6/6)` — all exit 0, 0 failed, 0 skipped.** Recorded in `docs/Architecture.md` §0.66 and `docs/Phases.md`'s R4 entry (annotated, not marked built).
+
+---
+
 ## 2026-09-16 (continued, same day) — R3.2 built: ResearchTask wired into a real MasterAgent method, run() untouched
 
 Follows R3.1, same session, per an explicit autonomous-execution prompt naming R3.2 ("MasterAgent task-graph integration") as the immediate next target, with a full acceptance example (the DNS A/B/C task graph), 12 required test cases, and a non-negotiable rule set (inspect before editing, preserve existing behavior, one narrow slice, no invented infrastructure, commands/events/state stay distinct, epistemic object boundaries preserved, two-tier claim identity, confidence never controls lifecycle legality, respect Rules.md rule 9, MasterAgent is a coordinator not a source of truth, three dependency types stay distinct, no silent test skipping, test real shapes, provider failures explicit, no push).
