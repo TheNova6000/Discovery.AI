@@ -123,6 +123,23 @@ lands, so it can be inspected and eventually resolved -- never silently
 promoted to "active" just because it has the Claim shape now."""
 
 
+SubclaimRelation = Literal[
+    "SUPPORTED_BY",
+    "QUALIFIED_BY",
+    "ILLUSTRATED_BY",
+    "CONTRADICTED_BY",
+    "ALTERNATIVE_TO",
+    "DERIVED_FROM",
+]
+"""R4.3 (Architecture.md §0.49/§0.69): the already-specified subclaim relation
+vocabulary, implemented now for the first time. A "subclaim" is NOT a new
+class (explicitly rejected, per §0.49 and R4.3's own scope) -- it is a
+`Claim` that names another `Claim` as its parent via these two fields, on the
+SAME `Claim` model every other claim uses. Only `SUPPORTED_BY` means
+necessary support for the parent's own completeness (§0.49); the other five
+relate two claims without asserting that support relationship."""
+
+
 class Claim(BaseModel):
     """A proposition asserted about the world, sourced from Evidence. Not
     every claim fits a clean (subject, predicate, object) triple (causal,
@@ -163,6 +180,25 @@ class Claim(BaseModel):
     most-recent record, not a full audit log (matching this module's
     existing minimalism: `superseded_by`/`duplicate_of` are single
     references too, not lists)."""
+    parent_claim_id: Optional[str] = None
+    """R4.3 (Architecture.md §0.49/§0.69): this claim's single parent, if
+    any -- a tree, not a general graph. A claim may have AT MOST one parent
+    in this slice (deliberately, not an oversight: the current research
+    workflow's own decomposition is already tree-shaped -- one question
+    decomposes into sequential sub-questions -- and a single field is the
+    smallest representation that matches it; true multi-parent support
+    would need a separate edge/relation model, not justified here). A claim
+    CAN be both a parent (referenced by others' `parent_claim_id`) and a
+    subclaim (having one itself) at the same time -- that's the normal,
+    expected shape of nested support, not a special case."""
+    relation_to_parent: Optional[SubclaimRelation] = None
+    """R4.3: REQUIRED whenever `parent_claim_id` is set (enforced below) --
+    never a dangling reference with no stated reason. Only `"SUPPORTED_BY"`
+    means necessary support (§0.49); the model does not privilege any other
+    value. Setting/changing this pair is NOT a `transition_claim` concern --
+    it is established once, at construction, by whatever orchestration
+    builds the claim (e.g. a future decomposition step), not a status
+    transition with its own legality graph."""
 
     @model_validator(mode="after")
     def _status_consistency(self) -> "Claim":
@@ -172,6 +208,16 @@ class Claim(BaseModel):
             raise ValueError("a duplicate claim must record duplicate_of")
         if self.status != "candidate" and not self.provenance_note:
             raise ValueError(f"a {self.status!r} claim must record provenance_note explaining why (R1.4 generalization)")
+        return self
+
+    @model_validator(mode="after")
+    def _subclaim_consistency(self) -> "Claim":
+        if self.parent_claim_id is not None and self.relation_to_parent is None:
+            raise ValueError("a claim with parent_claim_id set must also record relation_to_parent -- never a dangling reference with no stated reason")
+        if self.relation_to_parent is not None and self.parent_claim_id is None:
+            raise ValueError("relation_to_parent requires parent_claim_id -- a relation needs something to relate to")
+        if self.parent_claim_id is not None and self.parent_claim_id == self.claim_id:
+            raise ValueError("a claim cannot be its own parent")
         return self
 
 
@@ -400,3 +446,97 @@ def transition_claim(
     # constructor makes the model's own invariant the actual source of
     # truth, not a second, hand-maintained copy of the same logic.
     return Claim(**{**claim.model_dump(), **updates})
+
+
+# R4.3 (docs/Phases.md, Architecture.md §0.49/§0.69): parent/subclaim
+# relation as pure functions over the two fields added to Claim above --
+# the same "fields first, real functions second" discipline R1.3 already
+# used for identity_floor/semantic_identity. No new Claim class, no new
+# lifecycle enum, no persistence, no automatic status/confidence
+# inheritance from a parent to its subclaims (or the reverse) -- a claim's
+# own status is decided the same way regardless of whether it has a
+# parent, exactly as confidence never gates a transition_claim decision.
+
+ParentRelation = tuple[str, SubclaimRelation]
+
+
+def subclaim_relation(claim: Claim) -> Optional[ParentRelation]:
+    """The optional, additive relation to a parent claim -- (parent_claim_id,
+    relation_to_parent), returned ONLY when both are set (the model's own
+    `_subclaim_consistency` validator already guarantees they're set
+    together or not at all, so this never returns a half-filled pair)."""
+    if claim.parent_claim_id is None or claim.relation_to_parent is None:
+        return None
+    return (claim.parent_claim_id, claim.relation_to_parent)
+
+
+def is_necessary_support(claim: Claim) -> bool:
+    """True iff `claim` is a SUPPORTED_BY subclaim of some parent -- the
+    ONLY relation §0.49 says feeds a parent's own completeness. The other
+    five relation values (QUALIFIED_BY/ILLUSTRATED_BY/CONTRADICTED_BY/
+    ALTERNATIVE_TO/DERIVED_FROM) relate two claims without asserting that a
+    parent needs this one to be considered supported."""
+    relation = subclaim_relation(claim)
+    return relation is not None and relation[1] == "SUPPORTED_BY"
+
+
+class SubclaimGraphError(Exception):
+    """Raised by validate_subclaim_graph for a parent_claim_id absent from
+    the given claim set, or a parent-chain cycle -- the same eager,
+    before-anything-else validation discipline R3.2's validate_task_graph
+    already established for ResearchTask dependencies, applied here to
+    Claim parent chains."""
+
+
+def validate_subclaim_graph(claims: list[Claim]) -> None:
+    """Pure: raises SubclaimGraphError if any claim's parent_claim_id is
+    absent from `claims`, or if the parent chain contains a cycle. Single-
+    parent-per-claim (R4.3's own scope: a tree, not a general graph) makes
+    a cycle mean exactly one thing -- some claim is, transitively, its own
+    ancestor."""
+    ids = {c.claim_id for c in claims}
+    parent_by_id = {c.claim_id: c.parent_claim_id for c in claims}
+    for c in claims:
+        if c.parent_claim_id is not None and c.parent_claim_id not in ids:
+            raise SubclaimGraphError(f"claim {c.claim_id} has parent_claim_id {c.parent_claim_id!r} not present in the given claim set")
+
+    UNVISITED, IN_PROGRESS, DONE = 0, 1, 2
+    state = {claim_id: UNVISITED for claim_id in ids}
+
+    def visit(claim_id: str, path: list[str]) -> None:
+        state[claim_id] = IN_PROGRESS
+        parent_id = parent_by_id[claim_id]
+        if parent_id is not None:
+            if state[parent_id] == IN_PROGRESS:
+                cycle = path[path.index(parent_id) :] + [parent_id]
+                raise SubclaimGraphError(f"parent-claim cycle detected: {' -> '.join(cycle)}")
+            if state[parent_id] == UNVISITED:
+                visit(parent_id, [*path, parent_id])
+        state[claim_id] = DONE
+
+    for claim_id in ids:
+        if state[claim_id] == UNVISITED:
+            visit(claim_id, [claim_id])
+
+
+_DISCREDITED_PARENT_STATUSES: frozenset[ClaimStatus] = frozenset({"rejected", "superseded", "duplicate", "legacy_invalid_claim"})
+
+
+def find_claims_with_invalid_parent(claims: list[Claim]) -> list[str]:
+    """Pure, read-only: which claim_ids name a parent that is either absent
+    from `claims` or has reached a discredited/terminal status. Reporting
+    only -- deliberately does NOT transition, demote, or otherwise touch
+    the orphaned subclaim itself (Rule: no automatic status/confidence
+    inheritance). What, if anything, to do about an orphaned subclaim is a
+    later, deliberate orchestration decision (the same "report first, act
+    later" split this session used for assess_claim_validity -> R4.2's
+    resolve_duplicate_claims), not this function's job."""
+    claims_by_id = {c.claim_id: c for c in claims}
+    orphaned: list[str] = []
+    for c in claims:
+        if c.parent_claim_id is None:
+            continue
+        parent = claims_by_id.get(c.parent_claim_id)
+        if parent is None or parent.status in _DISCREDITED_PARENT_STATUSES:
+            orphaned.append(c.claim_id)
+    return orphaned

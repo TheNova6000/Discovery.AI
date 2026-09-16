@@ -4,6 +4,24 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R4.3 built: the subclaim relation implemented on Claim itself, ten scoping questions answered explicitly
+
+Follows R4.2, same session, per an explicit R4.3 spec naming ten scoping questions to answer before/while implementing, plus guardrails (no persistence, no graph redesign, no semantic-similarity inference, no automatic status/confidence inheritance, don't touch duplicate resolution absent a concrete conflict).
+
+**Two new fields on `Claim`, not a new class** -- `parent_claim_id: Optional[str]`, `relation_to_parent: Optional[SubclaimRelation]` (the six-value vocabulary `Architecture.md §0.49` already specified before R1 existed: `SUPPORTED_BY`/`QUALIFIED_BY`/`ILLUSTRATED_BY`/`CONTRADICTED_BY`/`ALTERNATIVE_TO`/`DERIVED_FROM`). A subclaim IS a `Claim`, per that pre-existing design, re-confirmed rather than re-litigated.
+
+**Ten questions, each answered as an explicit decision:** one parent per claim, many children per parent (a tree, not a general graph -- matches the real research workflow's own tree-shaped decomposition; many-to-many explicitly out of scope, stated not assumed); always directional (child -> parent); a claim can be both a parent and a subclaim at once (tested as a real 3-level chain); an invalid/superseded parent triggers **no automatic cascading** -- `find_claims_with_invalid_parent` reports (never mutates) orphaned subclaims, mirroring the report-first/act-later split R4.2 already established; `duplicate_of` and `parent_claim_id` confirmed orthogonal by test, zero changes needed to `duplicate_resolution.py`; domain-only for this slice (no `ClaimNode`/Neo4j schema change, deferred to R4.4 alongside R4.2's own persistence question); a claim cannot be its own parent (new validator); `validate_subclaim_graph` (new, pure) rejects an unknown parent or any cycle, direct reuse of R3.2's `validate_task_graph` DFS pattern applied to `Claim` parent chains.
+
+**Setting the relation is not a `transition_claim` concern** -- established once at construction, not a status change with its own legality graph; `transition_claim` itself is untouched.
+
+**New pure functions, same discipline as R1.3's identity work:** `subclaim_relation` (the real pair or `None`, never fabricated), `is_necessary_support` (`True` only for `SUPPORTED_BY`, per §0.49's own completeness rule), `validate_subclaim_graph`/`SubclaimGraphError`, `find_claims_with_invalid_parent`.
+
+**Verified: `scripts/verify_r4_3.py`, 11/11, pure, no I/O.** Relation shape and `None`-when-absent; `is_necessary_support` correct across all six relations plus none; self-parent rejected; dangling half-set reference rejected both directions; a real 3-level chain validates; unknown parent and both direct/indirect cycles rejected, a real tree accepted; orphan reporting for missing and discredited parents, subclaim itself confirmed untouched; no automatic inheritance across a real parent transition; `duplicate_of`/`parent_claim_id` orthogonality confirmed; full serialization round-trip. All 90 pre-existing checks re-confirmed unaffected -- the two new `Optional` fields required zero changes to any existing construction call site.
+
+**Next slice: R4.4** -- the persistence scoping decision both this slice and R4.2 left open: should any of this (the relation, or R4.2's computed statuses) ever reach Neo4j, and how, given `ClaimNode` has neither property today. A real architectural decision, not attempted here.
+
+---
+
 ## 2026-09-16 (continued, same day) — R4.2 built: all 38 real Phase 8.6 duplicate pairs actually resolved via transition_claim, not just reported
 
 Follows R4.1-review, same session, per an explicit R4.2 spec naming a narrow boundary: resolve real `duplicate_pairs` via `transition_claim`, retain original `ClaimNode`s for provenance, report an exact accounting rather than a vague "orchestration ran successfully."

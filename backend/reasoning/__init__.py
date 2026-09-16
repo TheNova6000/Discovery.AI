@@ -32,6 +32,16 @@ compute_tasks_blocked_by_failed_dependency, still pure, still zero
 cross-package imports -- MasterAgent.run_task_graph (backend/agents/
 master_agent.py) is the actual wiring, kept in the orchestration layer
 where it belongs rather than imported back into this package.
+
+R4.3 (Architecture.md §0.49/§0.69): the subclaim relation, implemented
+directly on Claim (parent_claim_id + relation_to_parent) -- NOT a new
+class, per §0.49's own design ("a subclaim is a Claim in a relation to
+another Claim"). A tree, not a general graph: one parent per claim.
+subclaim_relation/is_necessary_support read the relation;
+validate_subclaim_graph rejects an unknown parent or a parent-chain cycle;
+find_claims_with_invalid_parent reports (never mutates) claims whose
+parent is missing or discredited -- no automatic status/confidence
+inheritance from a parent to its subclaims, ever.
 """
 
 from .domain import (
@@ -41,14 +51,21 @@ from .domain import (
     ClaimTransitionRejected,
     Evidence,
     IdentityFloor,
+    ParentRelation,
     RetrievalOutcome,
     SemanticIdentity,
+    SubclaimGraphError,
+    SubclaimRelation,
     classify_retrieval_outcome,
+    find_claims_with_invalid_parent,
     identity_floor,
     is_likely_duplicate,
+    is_necessary_support,
     reclassify_legacy_claim,
     semantic_identity,
+    subclaim_relation,
     transition_claim,
+    validate_subclaim_graph,
 )
 from .events import (
     ClaimCreated,
@@ -110,4 +127,11 @@ __all__ = [
     "detect_duplicate_task",
     "transition_task",
     "validate_task_graph",
+    "SubclaimRelation",
+    "ParentRelation",
+    "subclaim_relation",
+    "is_necessary_support",
+    "SubclaimGraphError",
+    "validate_subclaim_graph",
+    "find_claims_with_invalid_parent",
 ]
