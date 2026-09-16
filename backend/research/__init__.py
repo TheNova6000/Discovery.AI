@@ -49,11 +49,20 @@ validation logic, no lifecycle promotion, no Evidence fabrication; every
 mapped claim lands at `"requires_reclassification"`, the same sanctioned
 status R1.1's `reclassify_legacy_claim` already uses for real, persisted
 data that has never been run through this model's own checks.
+
+R4.2 (duplicate_resolution.py, docs/Architecture.md §0.68): the first real
+orchestration step consuming a validation finding to actually change a
+claim's status. `resolve_duplicate_claims` takes `assess_claim_validity`'s
+real `duplicate_pairs`, maps the non-canonical side of each through R4.1's
+bridge, and calls `transition_claim` (never a direct field assignment) to
+mark it `"duplicate"` -- closing the gap R4.0's audit named (Phase 8.6's
+38-pair finding, reported since Phase 8.5, never previously resolved).
 """
 
 from .artifact import assemble_research_artifact, compile_research_artifact
 from .claim_mapping import ClaimMappingRejected, claim_node_to_domain_claim
 from .coverage import assess_plan_readiness, assess_target_completeness, build_readiness_report
+from .duplicate_resolution import DuplicatePairResolution, DuplicateResolutionSummary, resolve_duplicate_claims
 from .investigate import close_coverage_gaps, plan_targeted_investigations, run_targeted_investigation
 from .models import (
     BASE_REQUIRED_FIELDS,
@@ -109,4 +118,7 @@ __all__ = [
     "EvidenceReference",
     "claim_node_to_domain_claim",
     "ClaimMappingRejected",
+    "resolve_duplicate_claims",
+    "DuplicatePairResolution",
+    "DuplicateResolutionSummary",
 ]

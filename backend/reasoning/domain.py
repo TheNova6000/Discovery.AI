@@ -319,6 +319,21 @@ _LEGAL_TRANSITIONS: dict[ClaimStatus, frozenset[ClaimStatus]] = {
     "supported": frozenset({"validated", "superseded"}),
     "validated": frozenset({"active", "disputed"}),
     "active": frozenset({"superseded", "disputed"}),
+    # R4.2 (docs/Architecture.md §0.68): the one real, proven use case R1.4's
+    # own comment below anticipated -- "not because one could never exist,
+    # but because inventing it now would be premature." It is no longer
+    # premature: R4.1's mapper lands every reconstructed ClaimNode at
+    # "requires_reclassification" (by design -- it carries no R1 lifecycle
+    # status to preserve), and R4.2's real duplicate-resolution orchestration
+    # needs a sanctioned way to move such a claim back into the normal
+    # lifecycle once a deliberate process (not the mapper) examines it. This
+    # mirrors "candidate" exactly -- a claim not yet run through this
+    # model's own checks -- rather than granting requires_reclassification
+    # any broader trust than a fresh candidate already has. Deliberately
+    # narrow: only "normalized", not "supported"/"validated"/"active"
+    # directly -- reaching those still requires the same real evidence/
+    # cross-check requirements every other claim must satisfy, unchanged.
+    "requires_reclassification": frozenset({"normalized"}),
     # No legal outgoing transition defined yet for these -- not because one
     # could never exist, but because inventing it now would be exactly the
     # "implement every possible transition before the meanings are proven"
@@ -329,7 +344,6 @@ _LEGAL_TRANSITIONS: dict[ClaimStatus, frozenset[ClaimStatus]] = {
     "disputed": frozenset(),
     "superseded": frozenset(),
     "legacy_invalid_claim": frozenset(),
-    "requires_reclassification": frozenset(),
 }
 
 

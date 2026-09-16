@@ -4,6 +4,26 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R4.2 built: all 38 real Phase 8.6 duplicate pairs actually resolved via transition_claim, not just reported
+
+Follows R4.1-review, same session, per an explicit R4.2 spec naming a narrow boundary: resolve real `duplicate_pairs` via `transition_claim`, retain original `ClaimNode`s for provenance, report an exact accounting rather than a vague "orchestration ran successfully."
+
+**One necessary, deliberate `domain.py` change:** added exactly one edge, `_LEGAL_TRANSITIONS["requires_reclassification"] = frozenset({"normalized"})`. Without it, R4.1's mapper output (always `requires_reclassification`) has no legal path to `duplicate` at all. This is the exact case R1.4's own comment already anticipated ("not because one could never exist, but because inventing it now would be premature") -- no longer premature. Narrow on purpose: only `-> normalized`, not directly to `supported`/`validated`/`active`. Full R1.1/R1.4 regression re-ran, confirmed unaffected.
+
+**`backend/research/duplicate_resolution.py`'s `resolve_duplicate_claims`** transitions only the duplicate side of each pair (`claim_id_a` = canonical/untouched, `claim_id_b` = duplicate, an arbitrary-but-deterministic tie-break stated as exactly that, never confidence-based).
+
+**A real correctness bug found by testing against realistic data, fixed before calling this done:** the same claim can appear as the duplicate side of multiple pairs (any 3+-claim cluster sharing one `source_url`, via `assess_claim_validity`'s own `combinations()`), and a pair's "canonical" can itself already be a demoted duplicate from an earlier pair in the same run (a chain, e.g. `(A,B)` then `(B,C)`). Naive independent processing would either illegally re-transition an already-`duplicate` claim or leave `C` pointing at the demoted `B` instead of the real root `A`. Fixed via an in-run-only `resolved_root_canonical` tracking map (never persisted -- `ClaimNode` carries no status to carry it in) -- confirmed on real Payment gateway data below, not just a synthetic worry.
+
+**Every pair produces exactly one of five explicit outcomes**, counts guaranteed (tested) to sum to `total_pairs`. `skipped_incompatible_status` confirmed, honestly, to be currently unreachable given today's pipeline -- kept as a defensive branch, not silently assumed exercised.
+
+**Verified, Part 1 (pure): `verify_r4_2.py`, 7/7.** **Part 2 (real data, the actual acceptance criterion): fetched "Payment gateway"'s real claims, ran the REAL, unmodified `assess_claim_validity`, found 38 duplicate pairs -- matching Phase 8.6's original finding exactly.** All 38 resolved: 15 newly transitioned to `duplicate` via real `transition_claim` calls, 23 correctly identified as in-run duplicates-of-duplicates via the chain-flattening fix, 0 skipped, 0 unresolved. Nothing persisted to Neo4j (R4.4 remains its own deferred decision). All 87 pre-existing checks re-confirmed unaffected.
+
+**This is the quantitative resolution R4's original acceptance criterion actually asked for** -- not "the mechanism works," but "all 38 real pairs were processed to an explicit, correct, inspectable outcome," demonstrated with real ids, not asserted.
+
+**Next slice: R4.3** (parent/subclaim relation fields, §0.49's vocabulary) or **R4.4** (the persistence question this slice's real transitions make concrete -- should computed `duplicate` statuses reach Neo4j, and how).
+
+---
+
 ## 2026-09-16 (continued, same day) — R4.1-review: three named concerns re-checked against real source before R4.2, all confirmed safe, three tests added
 
 Follows R4.1, same session, per an explicit "do not proceed to R4.2 yet" review instruction raising three specific concerns about the just-committed mapper: whether `ClaimNode.evidence -> normalized_form` confuses generated text with evidence, whether dropped provenance is truly lost, and whether "never promoted" was being conflated with "detected."
