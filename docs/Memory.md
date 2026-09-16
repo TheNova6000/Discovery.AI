@@ -4,6 +4,24 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R2 built (first slice): typed events/commands for what R1 already produces; the bus evaluation resolved "coexist vs. generalize" before any code was written
+
+Follows R1.5, same session, per the user's "Continue to R2" instruction (and, mid-verification, "loop until phase 3... rectify updates after phase 3 with different tests" — read as: finish R2 as scoped, continue through R3 with the same discipline, defer further polish beyond R3).
+
+**The MessageBus evaluation ran first, against the real files, and it changed the outcome rather than just confirming a guess.** Re-reading `backend/agents/bus.py`/`messages.py` directly (not from the design pass's memory of them) found the design pass's own citation was wrong: §0.52 had justified `MessageBus`'s vertical-only shape via "Rules.md rule 8," but rule 8 is about not pre-declaring fixed agent classes — unrelated. The real rule, confirmed load-bearing by `bus.py`'s own docstring, is **rule 9**: no lateral/peer-to-peer agent messaging, all coordination vertical. Recorded as a new, dated §0.52.1 addendum rather than a silent edit to §0.52, matching this session's correction discipline (same pattern as the R1.3 duplicate-count explanation).
+
+**This resolved R2's own "design decision to settle" outright:** extending the bus to carry sibling-to-sibling traffic would violate an explicit project rule, not just a preference. **Coexist, not generalize** — `bus.py`/`messages.py` are untouched by this phase, and correctly so; R2's biggest listed migration risk never materialized.
+
+**Second finding, same re-read:** `MessageType` already has 14 values (2 with concrete classes) — Phase 4's `GroundAgent`/`MasterAgent` execution-internal escalation protocol. Resolved as coexist-not-merge with R2's new investigation-level event vocabulary, the same precedent already established for `backend.evidence.models.Claim` vs. `backend.reasoning.domain.Claim`.
+
+**What was built:** `backend/reasoning/events.py` — `DomainEvent` base (mandatory `correlation_id`, optional `causation_id`), `RetrievalOutcomeRecorded`/`EvidenceCollected`/`ClaimCreated` (each wraps an already-produced R1 object unchanged), `ClaimTransitioned` (carries both `previous_status` and `new_status`), and `TransitionClaimCommand` (the one command, matching `transition_claim`'s one real operation, referencing the claim by `claim_id` rather than embedding the live object — the one intentional naming difference). Scoped strictly to what R1 already produces; deliberately did NOT define `InvestigationCreated`/`TaskCreated`/`CoverageUpdated` or any further command, since those name objects (`Investigation`, `ResearchTask`) that don't exist yet — inventing event types for them now would repeat the "type-safety without semantic correctness" trap §0.56 already rejected for claim migration. Also deliberately no bus wiring yet (types/builders only) — a later, separate R2 sub-slice, mirroring R1.1 → R1.2's "types first, wire second" precedent.
+
+**Verified: `scripts/verify_r2_1.py`, 7/7, pure, no I/O.** Builders wrap real objects unchanged; a 3-event causation chain traces back to a root event with no `causation_id`; empty `correlation_id` rejected on every event/command; `ClaimTransitioned` carries both statuses; `TransitionClaimCommand`'s fields verified against `transition_claim`'s real signature via `inspect.signature`; every type round-trips through `model_dump_json`/`model_validate_json`; `events.py`'s own source inspected directly to confirm zero cross-package imports. All 69 pre-existing checks (Phase 6/8.1-8.6/R1.1/R1.3/R1.4/R1.5) re-confirmed unaffected.
+
+**R2 is complete as scoped.** Next, per the user's own instruction: R3 (Explicit Research Task Graph), starting with a real evaluation of `backend/agents/master_agent.py` read directly, same discipline as this evaluation.
+
+---
+
 ## 2026-09-16 (continued, same day) — R1.5 built: closed R1's own coverage gaps. R1 (all five sub-slices) is now fully built.
 
 Follows R1.4, same session. R1.5 was scoped as consolidation, not new capability — auditing R1.1-R1.4's own test coverage rather than adding anything genuinely new to the domain model.

@@ -1,16 +1,26 @@
-"""Discovery.AI core reasoning domain model (R1.1, docs/Phases.md's
-Reasoning Engine Evolution track, docs/Architecture.md §0.47-§0.57).
+"""Discovery.AI core reasoning domain model (R1.1-R1.5 + R2's first slice,
+docs/Phases.md's Reasoning Engine Evolution track, docs/Architecture.md
+§0.47-§0.62).
 
 Pure domain types with validation invariants only -- no Neo4j, no LLM, no
-event bus, no orchestration. See domain.py's own module docstring for the
-full scope statement and the dependency-direction principle this package
-exists to establish at the bottom of the stack.
+event bus wiring, no orchestration. See domain.py's own module docstring for
+the full scope statement and the dependency-direction principle this
+package exists to establish at the bottom of the stack.
 
-The core invariant: RetrievalOutcome != Evidence != Claim != Answer. A
+The core invariant (R1): RetrievalOutcome != Evidence != Claim != Answer. A
 retrieval failure cannot become Evidence or a Claim just because it has
 text and a confidence-shaped number -- classify_retrieval_outcome and
 reclassify_legacy_claim are the only two functions that construct Evidence
 or a migration-sourced Claim, and both enforce this structurally.
+
+R2 (events.py), first slice: typed events/commands for what R1 already
+produces (RetrievalOutcome/Evidence/Claim creation, and transition_claim's
+one real operation) -- types only, no bus wiring yet (that's a later R2
+sub-slice, mirroring R1.1 -> R1.2). A deliberately separate vocabulary from
+backend.agents.messages.MessageType (Phase 4's GroundAgent/MasterAgent
+execution-internal escalation protocol, still vertical-only per Rules.md
+rule 9) -- coexisting, not merged, same as this project's existing
+backend.evidence.models.Claim / backend.reasoning.domain.Claim precedent.
 """
 
 from .domain import (
@@ -29,6 +39,18 @@ from .domain import (
     semantic_identity,
     transition_claim,
 )
+from .events import (
+    ClaimCreated,
+    ClaimTransitioned,
+    DomainEvent,
+    EvidenceCollected,
+    RetrievalOutcomeRecorded,
+    TransitionClaimCommand,
+    record_claim_created,
+    record_claim_transitioned,
+    record_evidence_collected,
+    record_retrieval_outcome,
+)
 
 __all__ = [
     "RetrievalOutcome",
@@ -45,4 +67,14 @@ __all__ = [
     "SemanticIdentity",
     "transition_claim",
     "ClaimTransitionRejected",
+    "DomainEvent",
+    "RetrievalOutcomeRecorded",
+    "EvidenceCollected",
+    "ClaimCreated",
+    "ClaimTransitioned",
+    "TransitionClaimCommand",
+    "record_retrieval_outcome",
+    "record_evidence_collected",
+    "record_claim_created",
+    "record_claim_transitioned",
 ]
