@@ -40,9 +40,19 @@ results in.
 
 Curriculum compilation and lesson/exercise generation are explicitly later
 phases, not this module's job.
+
+R4.1 (claim_mapping.py, docs/Architecture.md §0.66/§0.67): the pure bridge
+from a persisted `ClaimNode` (this package's existing representation) to
+`backend.reasoning.domain.Claim` (R1's lifecycle-bearing canonical model)
+that R4.0's audit found was missing. Representation conversion only -- no
+validation logic, no lifecycle promotion, no Evidence fabrication; every
+mapped claim lands at `"requires_reclassification"`, the same sanctioned
+status R1.1's `reclassify_legacy_claim` already uses for real, persisted
+data that has never been run through this model's own checks.
 """
 
 from .artifact import assemble_research_artifact, compile_research_artifact
+from .claim_mapping import ClaimMappingRejected, claim_node_to_domain_claim
 from .coverage import assess_plan_readiness, assess_target_completeness, build_readiness_report
 from .investigate import close_coverage_gaps, plan_targeted_investigations, run_targeted_investigation
 from .models import (
@@ -97,4 +107,6 @@ __all__ = [
     "ResearchArtifact",
     "ConceptResearchArtifact",
     "EvidenceReference",
+    "claim_node_to_domain_claim",
+    "ClaimMappingRejected",
 ]

@@ -4,6 +4,26 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R4.1 built: the pure ClaimNode -> reasoning.domain.Claim bridge, every mapped claim lands at the same honest status
+
+Follows the R4.0 audit, same session, per an explicit "proceed with R4.1" instruction with a detailed spec (semantic rules A-E on invented truth, automatic promotion, identity honesty, evidence boundaries, retrieval failures) and a 10-test acceptance list.
+
+**`backend/research/claim_mapping.py`'s `claim_node_to_domain_claim(node, *, entity_id, source_question_id) -> Claim`** is the one sanctioned forward mapping the R4.0 audit identified as missing. `entity_id`/`source_question_id` are required, caller-supplied, never derived or fabricated -- a `ClaimNode` alone carries neither. `ClaimMappingRejected` rejects empty values on either, or empty/whitespace `evidence` text, explicitly.
+
+**Every mapped claim lands at `status="requires_reclassification"`, unconditionally -- one uniform rule, not a per-case judgment.** `ClaimNode` carries no R1-lifecycle status information at all (only a binary `superseded_by`-or-not fact), so this reuses `reclassify_legacy_claim`'s (R1.1) already-sanctioned status rather than inventing a new one. Two guarantees this was built to produce, both tested: a `confidence=0.99` claim still isn't promoted (Rule B: confidence never substitutes for lifecycle status); a `ClaimNode` whose text is R0's own real DNS non-answer string also lands at `requires_reclassification`, never a trusted status -- the mapper can't reliably *detect* a retrieval failure from `ClaimNode`'s fields alone (that information was never preserved for legacy persisted claims, R0's own unrecoverable founding finding), so the uniform rule makes detection unnecessary rather than attempting an unreliable heuristic (which would have violated "no invented truth").
+
+**`superseded_by` is carried through as real, independent data** regardless of status -- the model's validator only requires it when status=="superseded", never forbids it otherwise, so the graph's real fact is preserved without asserting the stronger, unearned claim that it maps cleanly onto R1.4's own superseded semantics.
+
+**Deliberately, honestly lossy, documented and tested as such:** `reasoning`/`source_title`/`source_url`/`source_type`/`valid_from` never reach the result -- `reasoning.domain.Claim` has no field for raw source text (that's `Evidence`'s job, and constructing an `Evidence` object here would mean fabricating a `retrieval_outcome_id` that doesn't exist, exactly the red flag this slice's own review warned against). `evidence_ids` stays empty. No reverse mapping was implemented (`domain_claim_to_claim_node` doesn't exist, confirmed by inspection) -- it would have to fabricate exactly what's already dropped going forward.
+
+**New dependency edge, confirmed safe:** lives in `backend/research/` (not `backend/reasoning/`, which would break its zero-cross-package-import contract by needing `ClaimNode`) -- the first time `backend.research` imports `backend.reasoning`, mirroring R3.2's `backend.agents -> backend.reasoning` precedent, no cycle.
+
+**Verified: `scripts/verify_r4_1.py`, 9/9, pure, no I/O.** Valid mapping; required-field failures rejected; source `ClaimNode` unmutated; no promotion despite high confidence; semantic identity unavailable while the deterministic floor works; retrieval-failure-shaped input never promoted; two independent mappings show no cross-contamination and are confirmed (via `hasattr`) to genuinely lack the dropped fields; both of `ClaimNode`'s real status signals map through the identical rule; no reverse mapping exists. All 79 pre-existing checks re-confirmed unaffected.
+
+**Next slice: R4.2** -- validation orchestration, consuming `assess_claim_validity`'s real duplicate-pair findings (through this bridge) to actually call `transition_claim`, finally resolving Phase 8.6's still-open 38-pair acceptance criterion.
+
+---
+
 ## 2026-09-16 (continued, same day) — R4.0 audit (no code changed): three disconnected Claim representations, not a missing lifecycle system
 
 Follows R3.2, same session, per an explicit "evaluation-only, do not implement R4 yet" instruction with a full 10-section audit template. No production code was touched — this is a docs-only entry recording the audit's findings so the next session doesn't have to re-derive them.
