@@ -9,12 +9,20 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, START, StateGraph
 
 from backend.questions import Question
+from backend.reasoning import (
+    ResearchTask,
+    compute_runnable_tasks,
+    compute_tasks_blocked_by_failed_dependency,
+    detect_duplicate_task,
+    transition_task,
+    validate_task_graph,
+)
 
 from .bus import MessageBus
 from .ground_agent import DEFAULT_MAX_DEPTH as GROUND_DEFAULT_MAX_DEPTH
 from .ground_agent import GroundAgent
 from .messages import BoundaryHitMessage, ExpansionDecision, ExpansionRequestMessage
-from .models import GroundResult, MasterResult
+from .models import AgentStatus, GroundResult, MasterResult, TaskGraphResult
 
 DEFAULT_SPAWN_BUDGET = 3
 """Default number of top-level Ground Agents spawned for a "simple" query
@@ -54,6 +62,24 @@ class MasterState(TypedDict, total=False):
     ground_results: list[dict]
     expansion_decisions: list[dict]
     spawned_count: int
+
+
+class TaskGraphState(TypedDict, total=False):
+    """LangGraph state for `MasterAgent.run_task_graph` (R3.2, docs/Architecture.md
+    §0.65) — a separate state shape from `MasterState` above, not an extension of
+    it: `run()`'s flat one-shot pipeline and this multi-round scheduling loop have
+    different shapes for a real reason (§0.54.1's evaluation), not an oversight.
+    Plain JSON-shaped data for the same checkpointing reason as `MasterState`.
+    """
+
+    tasks: list[dict]
+    task_questions: dict[str, dict]
+    task_budget: int
+    actor: str
+    executed_task_ids: list[str]
+    duplicate_task_ids: dict[str, str]
+    rounds_run: int
+    stopped_reason: str
 
 
 class MasterAgent:
@@ -192,4 +218,164 @@ class MasterAgent:
             effective_budget=final_state["effective_budget"],
             ground_results=[GroundResult(**r) for r in final_state["ground_results"]],
             expansion_decisions=[ExpansionRequestMessage(**d) for d in final_state["expansion_decisions"]],
+        )
+
+    async def run_task_graph(
+        self,
+        tasks: list[ResearchTask],
+        task_questions: dict[str, Question],
+        *,
+        actor: str = "master_agent",
+        task_budget: int | None = None,
+    ) -> TaskGraphResult:
+        """R3.2 (docs/Architecture.md §0.65): schedule and execute a real
+        `ResearchTask` graph, `GroundAgent` remaining the worker exactly as
+        §0.53 requires — this method does not change how a single
+        investigation runs, only how many of them run, in what order, and
+        whether a given one runs at all.
+
+        `task_questions` maps `task_id -> Question` — `ResearchTask` (R3.1)
+        deliberately carries no `Question` field (keeping `backend.reasoning`
+        free of any import from `backend.questions`, per its own zero-cross-
+        package-import contract), so the caller supplies the actual
+        investigation payload for each task separately, at the orchestration
+        layer where such a dependency is allowed.
+
+        `task_budget` bounds how many tasks THIS call will execute in total,
+        independent of `spawn_budget` (which still governs `run()`'s
+        top-level width) — defaults to `spawn_budget` only because that is
+        this instance's already-configured "how much work at once" number,
+        not because the two concepts are the same thing.
+
+        Validation (missing dependency ids, dependency cycles) happens
+        before any LangGraph state is created — an unschedulable graph is
+        rejected outright (TaskGraphValidationError), never silently
+        scheduled as if every task were runnable.
+
+        The round-robin scheduling loop is deliberately a plain Python loop
+        inside ONE checkpointed LangGraph node in this first wiring slice,
+        not yet a graph-level conditional-edge cycle — both are legitimate
+        LangGraph usage; promoting it to real graph edges (enabling
+        mid-round checkpoint resumption after a process restart) is a real,
+        deferred extension, not a limitation this slice hides.
+        """
+        validate_task_graph(tasks)
+
+        effective_budget = task_budget if task_budget is not None else self.spawn_budget
+        safety_cap = len(tasks) + 1  # Rule: no infinite loop, ever, regardless of graph shape
+
+        async def schedule_and_execute(state: TaskGraphState) -> dict:
+            current: list[ResearchTask] = [ResearchTask(**t) for t in state["tasks"]]
+            questions = {task_id: Question(**q) for task_id, q in state["task_questions"].items()}
+            budget = state["task_budget"]
+            actor_ = state["actor"]
+            executed: list[str] = []
+            duplicates: dict[str, str] = {}
+            rounds = 0
+            stopped_reason = "round_limit_reached"
+
+            def replace(task_id: str, updated: ResearchTask) -> None:
+                nonlocal current
+                current = [updated if t.task_id == task_id else t for t in current]
+
+            while rounds < safety_cap:
+                rounds += 1
+
+                for task_id in compute_runnable_tasks(current):
+                    blocked_task = next(t for t in current if t.task_id == task_id)
+                    replace(task_id, transition_task(blocked_task, "runnable", reason="dependencies satisfied", actor=actor_))
+
+                runnable_now = [t for t in current if t.status == "runnable"]
+                if not runnable_now:
+                    still_blocked = [t for t in current if t.status == "blocked"]
+                    stopped_reason = "complete" if not still_blocked else "no_runnable_tasks"
+                    break
+
+                to_execute: list[ResearchTask] = []
+                for task in runnable_now:
+                    canonical_id = detect_duplicate_task(task, current)
+                    canonical = next((t for t in current if t.task_id == canonical_id), None) if canonical_id else None
+                    if canonical is not None and canonical.status in ("complete", "running"):
+                        duplicates[task.task_id] = canonical.task_id
+                        running_dup = transition_task(task, "running", reason=f"duplicate of {canonical.task_id}, reusing its result", actor=actor_)
+                        completed_dup = transition_task(running_dup, "complete", reason=f"duplicate of {canonical.task_id}, not independently executed", actor=actor_)
+                        replace(task.task_id, ResearchTask(**{**completed_dup.model_dump(), "result_refs": list(canonical.result_refs)}))
+                    else:
+                        to_execute.append(task)
+
+                if not to_execute:
+                    continue  # this round only resolved duplicates; re-derive runnable state next round
+
+                remaining_budget = budget - len(executed)
+                if remaining_budget <= 0:
+                    stopped_reason = "budget_exhausted"
+                    break
+                batch = to_execute[:remaining_budget]
+
+                for task in batch:
+                    replace(task.task_id, transition_task(task, "running", reason="spawned by run_task_graph's coordinator", actor=actor_))
+
+                agents = {task.task_id: GroundAgent(
+                    questions[task.task_id],
+                    max_depth=self.ground_max_depth,
+                    db_path=self.ground_db_path,
+                    gather_evidence=self.ground_gather_evidence,
+                    persist_to_graph=self.ground_persist_to_graph,
+                ) for task in batch}
+                results = await asyncio.gather(*(agents[task.task_id].run() for task in batch), return_exceptions=True)
+
+                for task, result in zip(batch, results):
+                    running_task = next(t for t in current if t.task_id == task.task_id)
+                    if isinstance(result, BaseException):
+                        replace(task.task_id, transition_task(running_task, "failed", reason=f"GroundAgent raised: {result}", actor=actor_))
+                    elif result.status == AgentStatus.FAILED:
+                        # AgentStatus.BOUNDARY_HIT deliberately falls through to
+                        # "complete" below, matching this repo's own existing
+                        # convention (scripts/verify_phase4.py's own assertion
+                        # treats COMPLETE and BOUNDARY_HIT alike as "not failed").
+                        # Acting on a task-graph-spawned boundary hit (escalating,
+                        # spawning a new branch) is Phase 7 territory and an
+                        # explicit R3.2 non-goal -- a real, stated limitation, not
+                        # a silently swallowed case.
+                        replace(task.task_id, transition_task(running_task, "failed", reason="GroundAgent reported AgentStatus.FAILED", actor=actor_))
+                    else:
+                        replace(task.task_id, transition_task(running_task, "complete", reason="GroundAgent finished", actor=actor_))
+                        completed_task = next(t for t in current if t.task_id == task.task_id)
+                        replace(task.task_id, ResearchTask(**{**completed_task.model_dump(), "result_refs": [agents[task.task_id].agent_id]}))
+                    executed.append(task.task_id)
+
+            return {
+                "tasks": [t.model_dump() for t in current],
+                "executed_task_ids": executed,
+                "duplicate_task_ids": duplicates,
+                "rounds_run": rounds,
+                "stopped_reason": stopped_reason,
+            }
+
+        builder = StateGraph(TaskGraphState)
+        builder.add_node("schedule_and_execute", schedule_and_execute)
+        builder.add_edge(START, "schedule_and_execute")
+        builder.add_edge("schedule_and_execute", END)
+
+        initial_state: TaskGraphState = {
+            "tasks": [t.model_dump() for t in tasks],
+            "task_questions": {task_id: q.model_dump() for task_id, q in task_questions.items()},
+            "task_budget": effective_budget,
+            "actor": actor,
+        }
+
+        async with AsyncSqliteSaver.from_conn_string(self.checkpoint_db_path) as saver:
+            graph = builder.compile(checkpointer=saver)
+            final_state = await graph.ainvoke(
+                initial_state, config={"configurable": {"thread_id": f"{self.agent_id}-task-graph"}}
+            )
+
+        final_tasks = [ResearchTask(**t) for t in final_state["tasks"]]
+        return TaskGraphResult(
+            tasks=final_tasks,
+            executed_task_ids=final_state["executed_task_ids"],
+            duplicate_task_ids=final_state["duplicate_task_ids"],
+            blocked_by_failed_dependency=compute_tasks_blocked_by_failed_dependency(final_tasks),
+            rounds_run=final_state["rounds_run"],
+            stopped_reason=final_state["stopped_reason"],
         )

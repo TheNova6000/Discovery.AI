@@ -50,6 +50,14 @@ class TaskTransitionRejected(Exception):
     the nearest legal status."""
 
 
+class TaskGraphValidationError(Exception):
+    """Raised by validate_task_graph for a structurally unschedulable graph
+    (R3.2, docs/Architecture.md §0.65) -- an unknown dependency id or a
+    dependency cycle. Raised eagerly, before any scheduling round runs, so
+    the caller gets an explicit rejection instead of watching tasks sit
+    'blocked' forever with no way to tell why."""
+
+
 class ResearchTask(BaseModel):
     """A single unit of research work in the explicit task graph
     (Architecture.md §0.53). `GroundAgent` remains the worker that executes
@@ -115,6 +123,51 @@ def detect_duplicate_task(candidate: ResearchTask, existing_tasks: list[Research
         if (existing.investigation_id, existing.target_entity_id, existing.research_field, existing.task_type) == identity:
             return existing.task_id
     return None
+
+
+def validate_task_graph(tasks: list[ResearchTask]) -> None:
+    """Pure: raises TaskGraphValidationError if any task depends on a
+    task_id absent from `tasks`, or if the dependency graph contains a
+    cycle. R3.2's coordinator calls this once, before scheduling begins --
+    catching an unschedulable graph structurally (Rule 5's acceptance
+    criteria: "reject the task graph... do not silently treat the task as
+    runnable"), rather than discovering it only as tasks silently never
+    become runnable."""
+    ids = {t.task_id for t in tasks}
+    deps_by_id = {t.task_id: t.dependencies for t in tasks}
+    for t in tasks:
+        missing = [dep for dep in t.dependencies if dep not in ids]
+        if missing:
+            raise TaskGraphValidationError(f"task {t.task_id} depends on unknown task_id(s): {missing}")
+
+    UNVISITED, IN_PROGRESS, DONE = 0, 1, 2
+    state = {task_id: UNVISITED for task_id in ids}
+
+    def visit(task_id: str, path: list[str]) -> None:
+        state[task_id] = IN_PROGRESS
+        for dep in deps_by_id[task_id]:
+            if state[dep] == IN_PROGRESS:
+                cycle = path[path.index(dep) :] + [dep]
+                raise TaskGraphValidationError(f"dependency cycle detected: {' -> '.join(cycle)}")
+            if state[dep] == UNVISITED:
+                visit(dep, [*path, dep])
+        state[task_id] = DONE
+
+    for task_id in ids:
+        if state[task_id] == UNVISITED:
+            visit(task_id, [task_id])
+
+
+def compute_tasks_blocked_by_failed_dependency(tasks: list[ResearchTask]) -> list[str]:
+    """Pure: returns the task_ids of every 'blocked' task that depends on a
+    task now 'budget_exhausted' (permanently, no retries left) -- distinct
+    from a task depending on a merely 'failed' (still retryable) task,
+    which correctly stays ordinary 'blocked' since its dependency might
+    still succeed on retry. Reported by the coordinator as an explicit fact
+    (R3.2's Test 7: "do not execute B as if A succeeded"), not left as
+    silent, indistinguishable-from-normal 'blocked' status."""
+    exhausted_ids = {t.task_id for t in tasks if t.status == "budget_exhausted"}
+    return [t.task_id for t in tasks if t.status == "blocked" and any(dep in exhausted_ids for dep in t.dependencies)]
 
 
 def transition_task(task: ResearchTask, target_status: TaskStatus, *, reason: str, actor: str) -> ResearchTask:

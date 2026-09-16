@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
 from backend.evidence import Claim
 from backend.questions import Question
+from backend.reasoning import ResearchTask
 
 from .messages import ExpansionRequestMessage
 
@@ -85,3 +86,27 @@ class MasterResult(BaseModel):
     effective_budget: int
     ground_results: list[GroundResult]
     expansion_decisions: list[ExpansionRequestMessage] = Field(default_factory=list)
+
+
+class TaskGraphResult(BaseModel):
+    """What `MasterAgent.run_task_graph()` returns (R3.2, docs/Architecture.md
+    §0.65) -- the first real consumer of `backend.reasoning.ResearchTask`
+    from the orchestration layer. `tasks` is the full graph's final state
+    (every `ResearchTask`, whatever status it ended in) -- a caller re-runs
+    with this same list to resume (R3.2's idempotent-re-entry guarantee:
+    already-'complete'/'failed'/'budget_exhausted' tasks are never
+    re-selected for execution).
+    """
+
+    tasks: list[ResearchTask]
+    executed_task_ids: list[str] = Field(default_factory=list)
+    duplicate_task_ids: dict[str, str] = Field(default_factory=dict)
+    """Maps a duplicate task's id -> the canonical task id it reused a result
+    from, instead of being independently executed."""
+    blocked_by_failed_dependency: list[str] = Field(default_factory=list)
+    """Task ids that can never become runnable in this graph's current state
+    because a dependency reached 'budget_exhausted' (permanently failed, no
+    retries left) -- distinct from ordinary 'blocked' (still legitimately
+    waiting on a dependency that may yet succeed)."""
+    rounds_run: int
+    stopped_reason: Literal["complete", "no_runnable_tasks", "budget_exhausted", "round_limit_reached"]

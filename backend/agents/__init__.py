@@ -19,7 +19,7 @@ from .messages import (
     ExpansionRequestMessage,
     MessageType,
 )
-from .models import AgentState, AgentStatus, GroundResult, MasterResult
+from .models import AgentState, AgentStatus, GroundResult, MasterResult, TaskGraphResult
 from .policy import EXPLORATORY_POLICY, ResearchMode, ResearchPolicy
 from .provenance import ClaimProvenance, ProvenanceType, find_root_agent_id, trace_claim
 
@@ -43,6 +43,7 @@ __all__ = [
     "AgentStatus",
     "GroundResult",
     "MasterResult",
+    "TaskGraphResult",
     "AgentError",
     "ResearchPolicy",
     "ResearchMode",

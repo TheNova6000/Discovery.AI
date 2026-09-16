@@ -25,9 +25,13 @@ backend.evidence.models.Claim / backend.reasoning.domain.Claim precedent.
 R3 (tasks.py), first slice: the ResearchTask domain type (Architecture.md
 §0.53), plus pure scheduling (compute_runnable_tasks), duplicate-detection
 (detect_duplicate_task), and lifecycle (transition_task) functions -- the
-two gaps §0.54's MasterAgent evaluation marked "New." No MasterAgent/
-LangGraph/GroundAgent/bus wiring yet -- that's a later R3 sub-slice,
-mirroring R1.1 -> R1.2's own "types first, wire second" precedent.
+two gaps §0.54's MasterAgent evaluation marked "New."
+
+R3.2 adds validate_task_graph (missing-dependency/cycle rejection) and
+compute_tasks_blocked_by_failed_dependency, still pure, still zero
+cross-package imports -- MasterAgent.run_task_graph (backend/agents/
+master_agent.py) is the actual wiring, kept in the orchestration layer
+where it belongs rather than imported back into this package.
 """
 
 from .domain import (
@@ -60,12 +64,15 @@ from .events import (
 )
 from .tasks import (
     ResearchTask,
+    TaskGraphValidationError,
     TaskStatus,
     TaskTransitionRejected,
     compute_runnable_tasks,
+    compute_tasks_blocked_by_failed_dependency,
     detect_duplicate_task,
     initial_status,
     transition_task,
+    validate_task_graph,
 )
 
 __all__ = [
@@ -96,8 +103,11 @@ __all__ = [
     "ResearchTask",
     "TaskStatus",
     "TaskTransitionRejected",
+    "TaskGraphValidationError",
     "initial_status",
     "compute_runnable_tasks",
+    "compute_tasks_blocked_by_failed_dependency",
     "detect_duplicate_task",
     "transition_task",
+    "validate_task_graph",
 ]
