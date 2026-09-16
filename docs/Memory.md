@@ -4,6 +4,22 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — Phase 8.2 built: Learning Research Planner, deliberately scoped narrower than the original design sketch
+
+Directly follows the Phase 8.1 entry immediately below — same session, own commit per the same "keep phases separable" instruction that shaped Phase 8.1's commit boundary.
+
+**The instruction that started this phase ("deterministic planner, unit tests with no LLM calls") didn't match Phases.md's own original Phase 8.2 sketch** ("given a topic, produces a research plan... plan content is inherently LLM-shaped"). Rather than silently building something LLM-driven and calling it deterministic, or silently dropping the "no LLM" constraint, resolved it honestly: the planner operates over an *already-investigated* subgraph (same `get_subgraph` source `generate_roadmap`/Phase 6 already reads), producing one `ConceptResearchTarget` per already-discovered entity — never deciding what concepts *should* exist that aren't there yet (a real, separate, genuinely LLM-shaped question, deliberately left for later). This turned out to be a better architectural fit than the original sketch, not just a workaround: it mirrors Phase 6's `order_roadmap_steps` exactly (sequences/annotates what's already in the graph, doesn't decide what's in it).
+
+**What "required fields" actually means, built on Phase 8.1's existing (previously inert) policy fields:** two base fields (`definition`, `mechanism`) unconditional for every concept, plus four fields gated one-to-one on `ResearchPolicy`'s `require_prerequisites`/`require_examples`/`require_misconceptions`/`require_evidence_validation` (Phase 8.1 defined these but nothing read them until now). Implemented as a `getattr`-over-a-dict fold (`REQUIRED_FIELD_POLICY_GATES`), not a hardcoded if-chain, so a new gated field later is one dict entry. Confirmed: `EXPLORATORY_POLICY` yields `{definition, mechanism}` only; an all-flags-`True` `"learning"`-shaped policy yields all six.
+
+**Followed Phase 8.1's own "don't add a field with nothing real behind it" discipline once more:** `ConceptResearchTarget` doesn't carry prerequisite-entity edges, because the `requires`/`prerequisite_of` relation type that would populate them doesn't exist in the graph until Phase 8.4. Left out rather than added-but-empty.
+
+**`backend/research/` mirrors `backend/roadmap/`'s exact shape** (I/O shell around pure logic, own module, one-directional dependency on `backend.agents.policy`/`backend.graph.models`, neither depending back) — same precedent, applied one phase later in the pipeline.
+
+**Verification, same two layers as Phase 8.1, both passed clean on the first real run:** `scripts/verify_phase8_2.py` (5/5, pure logic, no LLM/Neo4j call) plus a real live call — `build_research_plan` against the actual "online payment" `Abstraction` from Phase 6/6.1's own live-verified data, real Aura Neo4j — correctly returned a `ResearchPlan` with all 5 real member entities as targets, correct required fields under the exploratory policy.
+
+---
+
 ## 2026-09-16 (continued, same day) — Phase 8.1 built: `ResearchPolicy`, wired into the one real `/chat` call site, real values not invented ones
 
 Directly follows the Phase 6.1 / Learning Research Mode entry immediately below — same session, committed as its own separate commit per explicit instruction (Phase 6.1 + design docs must not be held hostage to Phase 8.1 landing too).
