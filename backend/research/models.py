@@ -145,3 +145,88 @@ class TargetedInvestigationRequest(BaseModel):
     entity_id: str
     entity_name: str
     field: str
+
+
+# Phase 8.5 (docs/Phases.md, docs/Architecture.md §0.45): Evidence and
+# contradiction validation. Split the same way every phase in this track has
+# split real vs. LLM-shaped work: a deterministic layer (duplicate/superseded/
+# weak-evidence detection -- string/field comparisons over already-fetched
+# ClaimNodes, no LLM call, unit-tested with fixtures) and a bounded, OPT-IN
+# LLM layer reusing the existing epistemic-layer machinery
+# (backend.questions.analyze_claim_relationships, Post-Phase-5) rather than
+# inventing new contradiction-detection logic. The LLM layer defaults OFF in
+# the main validation entrypoint -- Architecture.md §0.5 already documents
+# that analyze_claim_relationships' real-world reliability at genuine
+# competing-explanation detection is not yet proven at scale (the controlled
+# follow-up experiment Phase 7 itself is still waiting on); Phase 8.5 reuses
+# it as-is rather than re-litigating or re-proving that here, and is honest
+# that turning it on inherits that same open question.
+
+
+class DuplicateClaimPair(BaseModel):
+    """Two claims flagged as duplicates of the same underlying evidence --
+    exact-match only (identical source_url, or identical evidence text) on
+    purpose: a near-duplicate/paraphrase detector would need an LLM or
+    embedding comparison, which is exactly the kind of judgment this
+    deterministic layer explicitly excludes (see module-level note above)."""
+
+    claim_id_a: str
+    claim_id_b: str
+    reason: str  # "identical source_url" | "identical evidence text"
+
+
+class ClaimValidationReport(BaseModel):
+    """Deterministic quality signals for one concept's claim set -- computed
+    by `validation.assess_claim_validity`, no LLM call. Distinct from Phase
+    8.3's `ConceptCompleteness` (which asks "is this field covered at all")
+    -- this asks "is what's covering it actually trustworthy," surfacing
+    duplicate/superseded/weak evidence Phase 8.3 either doesn't check for
+    (duplicates) or silently filters without reporting (superseded)."""
+
+    entity_id: str
+    entity_name: str
+    active_claim_count: int
+    superseded_claim_ids: list[str] = Field(default_factory=list)
+    weak_claim_ids: list[str] = Field(default_factory=list)
+    """Active claims below the confidence threshold used for this check --
+    individually weak, distinct from Phase 8.3's aggregate max-confidence
+    gate (a concept can have one strong claim and several weak ones; this
+    surfaces the weak ones specifically, Phase 8.3 doesn't)."""
+    duplicate_pairs: list[DuplicateClaimPair] = Field(default_factory=list)
+    distinct_source_count: int
+    """Count of distinct, non-superseded source_urls -- a deterministic
+    proxy for "how many independent sources actually support this," used by
+    `has_independent_support` below rather than raw claim count (which
+    duplicates would inflate)."""
+    has_independent_support: bool
+    """True iff distinct_source_count >= 2 -- a concept "supported" by three
+    duplicate claims citing the same URL is NOT independently supported,
+    even though Phase 8.3's confidence check alone wouldn't catch that."""
+
+
+class ContradictionFinding(BaseModel):
+    """One pair of claims `backend.questions.analyze_claim_relationships`
+    (Post-Phase-5's epistemic layer, reused unchanged) classified as
+    genuinely "contradictory" with respect to a specific question -- never
+    silently resolved one way, always carries the model's own reasoning so a
+    reader can judge the finding rather than trust a bare label."""
+
+    claim_id_a: str
+    claim_id_b: str
+    reasoning: str
+    confidence: float
+
+
+class ContradictionReport(BaseModel):
+    """Phase 8.5's optional LLM layer output for one concept -- `checked` is
+    False whenever detect_contradictions wasn't run or was skipped (e.g. too
+    many claims for the bounded max_claims cap, Architecture.md §0.45), so a
+    caller can always tell "no contradictions found" apart from "never
+    actually checked" -- the same empty-vs-unknown honesty bar Rules.md rule
+    9 already sets for claims."""
+
+    entity_id: str
+    entity_name: str
+    checked: bool
+    skipped_reason: str | None = None
+    findings: list[ContradictionFinding] = Field(default_factory=list)

@@ -1,5 +1,6 @@
 """Learning Research Planner + Coverage/Completeness model + targeted
-investigation orchestration (Phases 8.2-8.4, docs/PRD.md §9.3a, docs/Phases.md).
+investigation orchestration + evidence validation (Phases 8.2-8.5,
+docs/PRD.md §9.3a, docs/Phases.md).
 
 Phase 8.2 (planner.py): turns an already-investigated abstraction's subgraph
 plus an active ResearchPolicy (Phase 8.1, backend.agents.policy) into a
@@ -21,8 +22,17 @@ LLM/retriever calls. plan_targeted_investigations (pure, bounded) decides
 which (entity, field) gaps to close; run_targeted_investigation (I/O) runs
 one bounded, non-recursive GroundAgent investigation per gap and tags its
 Question with research_field; close_coverage_gaps orchestrates both and
-returns a fresh coverage report. Curriculum compilation and lesson/exercise
-generation are explicitly later phases, not this module's job.
+returns a fresh coverage report.
+
+Phase 8.5 (validation.py): evidence quality, distinct from field coverage.
+assess_claim_validity (pure, deterministic) flags duplicate/superseded/weak
+claims and independent-source count. detect_contradictions (I/O, the one
+real LLM call, bounded and opt-in) reuses the existing epistemic layer's
+analyze_claim_relationships (Post-Phase-5) rather than inventing new
+contradiction logic.
+
+Curriculum compilation and lesson/exercise generation are explicitly later
+phases, not this module's job.
 """
 
 from .coverage import assess_plan_readiness, assess_target_completeness, build_readiness_report
@@ -32,14 +42,19 @@ from .models import (
     CONFIDENCE_GATED_FIELDS,
     REQUIRED_FIELD_POLICY_GATES,
     UNCLASSIFIED_FIELDS,
+    ClaimValidationReport,
     ConceptCompleteness,
     ConceptResearchTarget,
+    ContradictionFinding,
+    ContradictionReport,
+    DuplicateClaimPair,
     FieldCoverage,
     ResearchPlan,
     ResearchReadinessReport,
     TargetedInvestigationRequest,
 )
 from .planner import build_research_plan, plan_targets
+from .validation import assess_claim_validity, detect_contradictions
 
 __all__ = [
     "build_research_plan",
@@ -60,4 +75,10 @@ __all__ = [
     "run_targeted_investigation",
     "close_coverage_gaps",
     "TargetedInvestigationRequest",
+    "assess_claim_validity",
+    "detect_contradictions",
+    "ClaimValidationReport",
+    "DuplicateClaimPair",
+    "ContradictionFinding",
+    "ContradictionReport",
 ]

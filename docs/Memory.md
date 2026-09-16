@@ -4,6 +4,26 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — Phase 8.5 built: Evidence and contradiction validation, reusing the epistemic layer exactly as its original design called for
+
+Directly follows the Phase 8.4 entry immediately below — same session, own commit. Sixth and (for this session) final phase in the 8.1-8.5 track.
+
+**Motivated directly by Phase 8.4's own live result:** that phase's real finding was "the mechanism works, evidence quality is the bottleneck." Phase 8.5 doesn't try to fix quality (a retriever problem) — it makes the quality signals that already exist in the graph visible and checkable, a narrower, achievable job.
+
+**Same deterministic/LLM split as every phase in this track, and this time it maps naturally onto the user's own framing:** "supported/weakly sourced/duplicated/superseded" are all real field comparisons over already-fetched `ClaimNode`s — zero LLM call, `assess_claim_validity`. "Contradictory" is the one genuine semantic judgment on that list — `detect_contradictions` is the one function that calls out, reusing `backend.questions.analyze_claim_relationships` (Post-Phase-5's epistemic layer) **completely unchanged**, exactly the reuse the original Phase 8.5 sketch specified, rather than inventing a second contradiction mechanism.
+
+**Duplicate detection is grounded in a real, previously-recorded failure mode:** this project already observed duplicate `Question` nodes from repeated decomposition/retry passes (Phase 6's live verification). The same pattern plausibly produces duplicate `Claim`s, and nothing before this phase could catch it — Phase 8.3's coverage model only looks at aggregate confidence, so duplicate claims citing the same source would look just as "supported" as independent ones. Caught two ways, both exact-match only (identical `source_url`, identical evidence text) — a near-duplicate/paraphrase detector would need an LLM, deliberately excluded from this deterministic layer, same line Phase 8.3 already drew for UNCLASSIFIED_FIELDS.
+
+**`has_independent_support` is what this phase adds that Phase 8.3 genuinely couldn't see:** requires `distinct_source_count >= 2` over non-superseded claims' DISTINCT source URLs, not raw claim count — three claims citing the same URL would sail through Phase 8.3's confidence check but correctly fail this one.
+
+**`detect_contradictions`' bound (`max_claims=5` default) is Phase 8.4's "bounded, not uncontrolled" discipline applied to prompt size instead of investigation depth** — skips outright with an honest `skipped_reason` rather than silently truncating, so "checked, found nothing" stays distinguishable from "never checked."
+
+**Explicitly inherited, not re-proven:** `analyze_claim_relationships`' reliability at genuine contradiction detection (as opposed to reliably avoiding false conflict, which the earlier experiment did establish) isn't proven at scale — Phase 7 is still waiting on the controlled follow-up. This phase reuses the function as-is; findings carry the model's own reasoning for a reader to judge.
+
+**Verified live against real data, two deliberately different cases, both confirmed:** "card network" (4 real claims) — `assess_claim_validity`: all 4 individually weak (matches Phase 6's already-recorded low confidence for this entity), zero duplicates, 4 distinct sources, genuinely independent support. `detect_contradictions` on the same claims: `checked=True, findings=0` — the real LLM call succeeded (after normal free-tier retry churn) and correctly found no contradictions among claims that were essentially all "this resource doesn't answer the question" — non-contradictory, just unhelpful, exactly the false-positive-avoidance behavior §0.5's original experiment was built to confirm, now reproduced on real, live, un-mocked data. "Payment gateway" (23 real claims) — `detect_contradictions`: `checked=False`, the `max_claims` bound fired for real, not just in a fixture. Both a real success and a real bound-triggered skip, observed in the same run.
+
+---
+
 ## 2026-09-16 (continued, same day) — Phase 8.4 built: Deep investigation orchestration, bounded on purpose; live result was honest, not a clean "success"
 
 Directly follows the Phase 8.3 entry immediately below — same session, own commit. First module in the whole 8.1-8.4 track that makes real LLM/retriever calls (8.1-8.3 were deliberately deterministic).
