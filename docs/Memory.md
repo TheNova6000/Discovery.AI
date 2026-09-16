@@ -4,6 +4,20 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R1.5 built: closed R1's own coverage gaps. R1 (all five sub-slices) is now fully built.
+
+Follows R1.4, same session. R1.5 was scoped as consolidation, not new capability — auditing R1.1-R1.4's own test coverage rather than adding anything genuinely new to the domain model.
+
+**Two real, honest gaps found by that audit:** (1) only `Claim` had ever gotten a serialization round-trip test across R1.1-R1.4 — `RetrievalOutcome`, `Evidence`, and `Answer` never did, meaning a field that silently failed to survive `model_dump_json`/`model_validate_json` on any of those three types would never have been caught. (2) Several identifier-shaped required fields (`question_id`, `entity_id`, `source_question_id`, `retrieval_outcome_id`, `source_url`, etc., across all four types) had no non-empty constraint at all — an empty string was silently valid everywhere. Added `Field(min_length=1)` to all of them; confirmed no existing test anywhere in R1.1/R1.3/R1.4 constructs these with empty strings before making the change (zero regression risk, verified not assumed).
+
+**One genuinely new kind of test, not just filling a template gap:** confirmed a validation invariant (`RetrievalOutcome`'s success/relevant consistency) fires when hand-built JSON is deserialized via `model_validate_json`, not only when constructed directly through Python's `__init__`. Pydantic v2 guarantees these run identically either way, but this whole track exists because "should, by the framework's contract" and "confirmed, against this actual model" have turned out to be different things before (R1.2's own smoke-test-caught bug) — worth the one explicit check.
+
+**Verified: 7/7, pure, no I/O.** All 4 core types now round-trip-tested (both fully-populated and sparse-default `Claim` cases). All 69 pre-existing checks re-confirmed unaffected by the new constraints.
+
+**R1 is now fully built.** Next, per the user's own explicit ordering: the bus (R2) or the task graph (R3) — not started, and R1's completion isn't itself an invitation to start either without a fresh scoping conversation, same discipline every phase this session has followed.
+
+---
+
 ## 2026-09-16 (continued, same day) — R1.4 built: pure claim lifecycle transitions, confidence never gates status
 
 Follows R1.3, same session. Recorded one architectural warning first (before writing any R1.4 code, per the user's own instruction): `identity_floor` is a provisional, investigation-scoped identity signal (one `entity_id` + one `source_question_id`), not yet a globally unique claim identity across all of Discovery.AI — a real limitation, not a bug, and explicitly not something R1.3 claimed to solve.

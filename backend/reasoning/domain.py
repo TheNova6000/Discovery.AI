@@ -57,10 +57,10 @@ class RetrievalOutcome(BaseModel):
     """
 
     outcome_id: str = Field(default_factory=_new_id)
-    question_id: str
-    source_title: str
-    source_url: str
-    source_type: str
+    question_id: str = Field(min_length=1)
+    source_title: str = Field(min_length=1)
+    source_url: str = Field(min_length=1)
+    source_type: str = Field(min_length=1)
     success: bool
     relevant: bool
     failure_reason: Optional[str] = None
@@ -92,15 +92,15 @@ class Evidence(BaseModel):
     """
 
     evidence_id: str = Field(default_factory=_new_id)
-    retrieval_outcome_id: str
+    retrieval_outcome_id: str = Field(min_length=1)
     """Provenance back to the RetrievalOutcome this was extracted from --
     always required. Evidence is never constructed without a real retrieval
     attempt behind it (see classify_retrieval_outcome below, the only
     sanctioned constructor)."""
     excerpt: str = Field(min_length=1)
-    source_title: str
-    source_url: str
-    source_type: str
+    source_title: str = Field(min_length=1)
+    source_url: str = Field(min_length=1)
+    source_type: str = Field(min_length=1)
 
 
 ClaimStatus = Literal[
@@ -132,7 +132,7 @@ class Claim(BaseModel):
     """
 
     claim_id: str = Field(default_factory=_new_id)
-    entity_id: str
+    entity_id: str = Field(min_length=1)
     """R1.3 addition (Architecture.md §0.50/§0.60): required, not optional --
     identity_floor below is meaningless without it. Two claims with
     identical normalized_form about DIFFERENT entities must never collide
@@ -144,7 +144,7 @@ class Claim(BaseModel):
     modality: Optional[str] = None
     conditions: list[str] = Field(default_factory=list)
     normalized_form: str = Field(min_length=1)
-    source_question_id: str
+    source_question_id: str = Field(min_length=1)
     evidence_ids: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
     status: ClaimStatus = "candidate"
