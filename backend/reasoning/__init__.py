@@ -1,6 +1,6 @@
-"""Discovery.AI core reasoning domain model (R1.1-R1.5 + R2's first slice,
-docs/Phases.md's Reasoning Engine Evolution track, docs/Architecture.md
-§0.47-§0.62).
+"""Discovery.AI core reasoning domain model (R1.1-R1.5 + R2's first slice +
+R3's first slice, docs/Phases.md's Reasoning Engine Evolution track,
+docs/Architecture.md §0.47-§0.63).
 
 Pure domain types with validation invariants only -- no Neo4j, no LLM, no
 event bus wiring, no orchestration. See domain.py's own module docstring for
@@ -21,6 +21,13 @@ backend.agents.messages.MessageType (Phase 4's GroundAgent/MasterAgent
 execution-internal escalation protocol, still vertical-only per Rules.md
 rule 9) -- coexisting, not merged, same as this project's existing
 backend.evidence.models.Claim / backend.reasoning.domain.Claim precedent.
+
+R3 (tasks.py), first slice: the ResearchTask domain type (Architecture.md
+§0.53), plus pure scheduling (compute_runnable_tasks), duplicate-detection
+(detect_duplicate_task), and lifecycle (transition_task) functions -- the
+two gaps §0.54's MasterAgent evaluation marked "New." No MasterAgent/
+LangGraph/GroundAgent/bus wiring yet -- that's a later R3 sub-slice,
+mirroring R1.1 -> R1.2's own "types first, wire second" precedent.
 """
 
 from .domain import (
@@ -51,6 +58,15 @@ from .events import (
     record_evidence_collected,
     record_retrieval_outcome,
 )
+from .tasks import (
+    ResearchTask,
+    TaskStatus,
+    TaskTransitionRejected,
+    compute_runnable_tasks,
+    detect_duplicate_task,
+    initial_status,
+    transition_task,
+)
 
 __all__ = [
     "RetrievalOutcome",
@@ -77,4 +93,11 @@ __all__ = [
     "record_evidence_collected",
     "record_claim_created",
     "record_claim_transitioned",
+    "ResearchTask",
+    "TaskStatus",
+    "TaskTransitionRejected",
+    "initial_status",
+    "compute_runnable_tasks",
+    "detect_duplicate_task",
+    "transition_task",
 ]
