@@ -1853,8 +1853,43 @@ function buildMessageOptions(wrap) {
     }
   };
 
+  // Phase 6.1 (docs/Phases.md, docs/Architecture.md §0.39.2): the entrypoint
+  // Phase 6's own live verification found missing -- a real user previously
+  // had no way to reach a working roadmap link at all. Mirrors resourcesBtn's
+  // pattern (uses wrap.dataset.entityName, the same entity a "Resources" click
+  // already resolves against) rather than introducing a new lookup path.
+  const roadmapBtn = document.createElement('button');
+  roadmapBtn.className = 'msg-option-btn';
+  roadmapBtn.type = 'button';
+  roadmapBtn.textContent = 'Build Roadmap';
+  roadmapBtn.onclick = async () => {
+    const entityName = wrap.dataset.entityName;
+    if (!entityName) { alert('No entity associated with this reply.'); return; }
+    roadmapBtn.disabled = true;
+    roadmapBtn.textContent = 'Building…';
+    try {
+      const res = await fetch(apiUrl('/roadmap/build'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ entity_name: entityName }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      const data = await res.json();
+      // Site-relative on purpose, resolved against THIS page's own origin, not
+      // apiUrl()'s backend origin -- roadmap.html is a frontend page, and in the
+      // deployed split (README's Vercel+Render setup) the two are different hosts.
+      window.open('/roadmap.html?abstraction_id=' + encodeURIComponent(data.abstraction_id), '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      alert('Build roadmap failed: ' + err.message);
+    } finally {
+      roadmapBtn.disabled = false;
+      roadmapBtn.textContent = 'Build Roadmap';
+    }
+  };
+
   panel.appendChild(resourcesBtn);
   panel.appendChild(regenerateBtn);
+  panel.appendChild(roadmapBtn);
   panel.appendChild(resourcesPanel);
   container.appendChild(toggleBtn);
   container.appendChild(panel);

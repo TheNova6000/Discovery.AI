@@ -1030,11 +1030,19 @@ async def _find_abstraction_by_name(name: str) -> Optional[Abstraction]:
         raise GraphInterfaceError(f"_find_abstraction_by_name lookup failed: {exc}") from exc
 
 
-async def zoom_in(entity_id: str) -> Optional[Abstraction]:
+async def materialize_abstraction(entity_id: str) -> Optional[Abstraction]:
     """Materialize an Abstraction view over an entity's already-discovered
     decomposition (docs/Phases.md Phase 6's deferred "active abstraction" concept
     — first concrete step). Deliberately exposes only what `get_decomposition`
     already contains — never invents structure that isn't already in the graph.
+
+    Renamed from `zoom_in` (docs/Architecture.md §0.39.2, docs/Memory.md
+    2026-09-16): the old name collided with `backend/api/app.py`'s unrelated
+    `handle_zoom_in` chat-intent handler (pure navigation, never touches
+    Abstraction nodes) and, worse, had zero callers anywhere in the live app —
+    the collision let that gap hide for a whole Phase 6 build-and-verify pass.
+    This is the function `POST /roadmap/build` and the `"build_roadmap"` chat
+    intent both call to actually get a usable `abstraction_id`.
 
     An entity with no discovered decomposition returns `None`, not a manufactured
     empty Abstraction — callers can tell "nothing discovered here yet" apart from
@@ -1042,7 +1050,7 @@ async def zoom_in(entity_id: str) -> Optional[Abstraction]:
 
     Idempotent by entity name (docs/Rules.md rule 12's canonical-not-duplicated
     spirit, applied to Abstractions the same way `find_or_create_entity` applies
-    it to entities): zooming into the same entity twice reuses the same
+    it to entities): calling this on the same entity twice reuses the same
     Abstraction rather than creating a duplicate on every call. Exact-name match
     only, same limitation as `find_or_create_entity`.
     """
@@ -1055,7 +1063,7 @@ async def zoom_in(entity_id: str) -> Optional[Abstraction]:
     if abstraction is None:
         abstraction = await create_abstraction(
             entity.name,
-            description=f"Zoomed-in view of {entity.name!r}'s discovered decomposition",
+            description=f"Roadmap-ready view of {entity.name!r}'s discovered decomposition",
         )
     for child in children:
         await attach_entity(child.id, abstraction.id)

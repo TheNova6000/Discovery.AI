@@ -313,6 +313,17 @@ class SwitchSessionRequest(BaseModel):
     session_id: str = Field(min_length=1)
 
 
+class BuildRoadmapRequest(BaseModel):
+    """POST /roadmap/build (Phase 6.1, docs/Architecture.md §0.39.2 /
+    docs/Phases.md Phase 6.1): the real-user entrypoint to a working
+    `abstraction_id` that Phase 6's live verification found missing.
+    `entity_name` is whatever the frontend already has focused (chat.html's
+    `wrap.dataset.entityName`) -- not free text the user types here."""
+
+    entity_name: str = Field(min_length=1)
+    scope_hint: Optional[str] = None
+
+
 class SettingsUpdateRequest(BaseModel):
     """A field left as None means "don't change this key"; an explicit empty
     string clears it back to using the shared server pool. Never round-tripped

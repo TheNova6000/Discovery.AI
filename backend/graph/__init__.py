@@ -33,7 +33,7 @@ from .interface import (
     resolve_entity,
     set_boundary_kind,
     supersede_claim,
-    zoom_in,
+    materialize_abstraction,
 )
 from .models import (
     Abstraction,
@@ -72,7 +72,7 @@ __all__ = [
     "supersede_claim",
     "get_decomposition",
     "get_decomposition_typed",
-    "zoom_in",
+    "materialize_abstraction",
     "explain_entity",
     "resolve_entity",
     "set_boundary_kind",

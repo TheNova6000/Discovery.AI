@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roadmap — Discovery.AI</title>
+<style>
+  /* docs/Design.md's Learning Portal section: light-first, humanist-sans UI
+     font, distinct from the graph-exploration UI's dark-first direction.
+     Vanilla CSS, no build step -- matches frontend/chat.html's own stack
+     (docs/Architecture.md §0.38.3's frontend-approach correction). */
+  :root {
+    color-scheme: light;
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e5e5e0;
+    --text: #1c1c1a;
+    --text-dim: #6b6b64;
+    --accent: #2f6f4f;
+    --master: #2f5f8f;
+    --ground: #6b6b64;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    max-width: 860px;
+    margin-inline: auto;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  p.subtitle { color: var(--text-dim); margin-top: 0; font-size: 0.9rem; }
+  .load-row { display: flex; gap: 0.5rem; margin: 1.25rem 0; }
+  input[type=text] {
+    flex: 1;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.95rem;
+  }
+  button {
+    padding: 0.6rem 1rem;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent);
+    color: white;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { color: var(--text-dim); font-size: 0.9rem; min-height: 1.2em; }
+  .step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.9rem 1.1rem;
+    margin-bottom: 0.6rem;
+  }
+  .step-meta {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.35rem;
+  }
+  .badge-level {
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    color: white;
+    font-weight: 600;
+  }
+  .badge-level.master { background: var(--master); }
+  .badge-level.ground { background: var(--ground); }
+  .step-entity { color: var(--text-dim); }
+  .step-question { font-size: 1rem; margin: 0.15rem 0 0.35rem; }
+  .step-rationale { font-size: 0.85rem; color: var(--text-dim); margin: 0 0 0.4rem; }
+  .claims { margin-top: 0.4rem; }
+  .claim {
+    font-size: 0.85rem;
+    border-left: 2px solid var(--border);
+    padding-left: 0.6rem;
+    margin-bottom: 0.3rem;
+  }
+  .claim a { color: var(--accent); }
+  .empty-note {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+  <h1>Roadmap</h1>
+  <p class="subtitle">
+    PRD.md §4a / Phases.md Phase 6 — the ordered, sequenced reading of an already-investigated
+    abstraction. Distinct from free graph exploration (<a href="/chat">/chat</a>). This is a
+    read-only view: nothing here triggers new investigation.
+  </p>
+
+  <div class="load-row">
+    <input type="text" id="abstraction-id" placeholder="abstraction id (from /graph, or the chat session's current abstraction)">
+    <button id="load-btn">Load roadmap</button>
+  </div>
+  <div id="status"></div>
+  <div id="steps"></div>
+
+  <script>
+    // Same same-origin-by-default pattern as frontend/chat.html's CONFIG:
+    // leave BACKEND_URL blank to call this same server (the local/VM dev
+    // default per docs/Architecture.md §0.38.2 -- everything on one laptop,
+    // one process, no separate frontend server).
+    const CONFIG = { BACKEND_URL: '' };
+    function apiUrl(path) { return CONFIG.BACKEND_URL + path; }
+
+    const statusEl = document.getElementById('status');
+    const stepsEl = document.getElementById('steps');
+    const inputEl = document.getElementById('abstraction-id');
+    const loadBtn = document.getElementById('load-btn');
+
+    // Prefill from ?abstraction_id=... if the page was linked to directly.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('abstraction_id')) inputEl.value = params.get('abstraction_id');
+
+    async function loadRoadmap() {
+      const abstractionId = inputEl.value.trim();
+      if (!abstractionId) { statusEl.textContent = 'Enter an abstraction id first.'; return; }
+
+      loadBtn.disabled = true;
+      statusEl.textContent = 'Loading…';
+      stepsEl.innerHTML = '';
+
+      try {
+        const res = await fetch(apiUrl('/roadmap?abstraction_id=' + encodeURIComponent(abstractionId)));
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail || ('HTTP ' + res.status));
+        }
+        const roadmap = await res.json();
+        render(roadmap);
+      } catch (err) {
+        statusEl.textContent = 'Failed to load roadmap: ' + err.message;
+      } finally {
+        loadBtn.disabled = false;
+      }
+    }
+
+    function render(roadmap) {
+      statusEl.textContent = roadmap.abstraction_name
+        ? (roadmap.steps.length + ' step(s) for "' + roadmap.abstraction_name + '"')
+        : '';
+
+      if (roadmap.steps.length === 0) {
+        stepsEl.innerHTML = '<p class="empty-note">' +
+          'No questions have been investigated under this abstraction yet — the Roadmap ' +
+          'surfaces this as an honest gap (PRD.md §9.3\'s provenance principle), it does not ' +
+          'invent content to fill it. Investigate this topic in <a href="/chat">/chat</a> first.' +
+          '</p>';
+        return;
+      }
+
+      stepsEl.innerHTML = roadmap.steps.map(stepHtml).join('');
+    }
+
+    function stepHtml(step) {
+      const claimsHtml = (step.claims || []).map(c =>
+        '<div class="claim">' +
+          escapeHtml(c.evidence) +
+          ' — <a href="' + escapeAttr(c.source_url) + '" target="_blank" rel="noopener">' +
+            escapeHtml(c.source_title) +
+          '</a> (confidence ' + Math.round(c.confidence * 100) + '%)' +
+        '</div>'
+      ).join('');
+
+      return (
+        '<div class="step">' +
+          '<div class="step-meta">' +
+            '<span class="badge-level ' + step.level + '">' + step.level + '</span>' +
+            '<span class="step-entity">' + escapeHtml(step.entity_name) + ' · depth ' + step.zoom_depth + '</span>' +
+          '</div>' +
+          '<div class="step-question">' + escapeHtml(step.question_text) + '</div>' +
+          '<div class="step-rationale">' + escapeHtml(step.question_rationale) + '</div>' +
+          '<div class="claims">' + (claimsHtml || '<span class="empty-note">No evidence attached to this question yet.</span>') + '</div>' +
+        '</div>'
+      );
+    }
+
+    function escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function escapeAttr(s) { return escapeHtml(s); }
+
+    loadBtn.addEventListener('click', loadRoadmap);
+    inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') loadRoadmap(); });
+    if (inputEl.value) loadRoadmap();
+  </script>
+</body>
+</html>

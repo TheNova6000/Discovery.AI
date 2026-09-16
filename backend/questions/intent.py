@@ -69,6 +69,15 @@ named), `dimension_name` (a short label, e.g. "Economic"), and \
 - "compare": the user wants to understand how two entities relate or differ \
 (e.g. "Compare PayPal and Mastercard," "Is PayPal solving the same problem as \
 Mastercard?"). Set `entity_name` and `entity_b_name`.
+- "build_roadmap" (docs/Phases.md Phase 6.1): the user wants to turn what's \
+already been discovered about an entity into a sequenced learning roadmap — a \
+packaging/output request, not a viewing or learning request (e.g. "Build me a \
+learning roadmap for this," "Turn this into a roadmap," "Create a learning \
+path from what we've found," "Make a study guide out of this"). This NEVER \
+investigates and never just views — it packages the entity's ALREADY-known \
+decomposition into an ordered reading sequence on a separate page. Set \
+`entity_name` (use CONTEXT's current entity if the message says "this"/"here" \
+without naming one explicitly).
 - "enter_space" (docs/Architecture.md §0.24): the user wants to make an entity's \
 OWN compositional subgraph the current view — re-rooting into its region of the \
 world, not just glancing at it from outside (e.g. "Enter PayPal," "Go into \
@@ -160,11 +169,12 @@ class Intent(BaseModel):
         "enter_space",
         "exit_space",
         "set_projection",
+        "build_roadmap",
         "no_action",
     ]
     question_text: Optional[str] = Field(default=None, description="Required for 'new_investigation'.")
     entity_name: Optional[str] = Field(
-        default=None, description="The primary/resolved entity for zoom_in, explain, change_dimension, compare."
+        default=None, description="The primary/resolved entity for zoom_in, explain, change_dimension, compare, build_roadmap."
     )
     projection: Optional[Literal["structure", "flow", "causal", "dependency", "network", "all"]] = Field(
         default=None,

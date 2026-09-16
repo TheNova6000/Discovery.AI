@@ -12,13 +12,16 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.agents import GroundAgent
 from backend.graph import (
+    GraphInterfaceError,
     explain_entity,
     find_or_create_entity,
     get_claims_for_question,
     get_decomposition,
     get_decomposition_typed,
     get_questions_for_entity,
+    materialize_abstraction,
 )
+from backend.roadmap import generate_roadmap
 from backend.questions import (
     PROJECTION_FAMILIES,
     Intent,
@@ -42,6 +45,7 @@ from backend.telemetry import (
 from . import db
 from .auth import get_current_user_id
 from .session import (
+    BuildRoadmapRequest,
     ChatRequest,
     ChatResponse,
     CursorPathIn,
@@ -654,6 +658,34 @@ async def handle_no_action(session: SessionState, intent: Intent) -> str:
     return intent.chat_reply or "I'm not sure what to do with that — could you rephrase, or tell me what you'd like to explore?"
 
 
+async def handle_build_roadmap(session: SessionState, intent: Intent) -> str:
+    """Phase 6.1's chat-command path to `POST /roadmap/build` (docs/Phases.md,
+    docs/Architecture.md §0.39.2) -- lets "build me a learning roadmap for
+    this" work without the frontend button. Same resolve-then-materialize
+    steps as the REST endpoint, just returning a chat-rendered markdown link
+    (chat.html's addMessage() already runs replies through marked+DOMPurify)
+    instead of a JSON body, since this handler talks to the user directly.
+    """
+    entity_name = intent.entity_name or session.current_entity
+    if not entity_name:
+        return "I don't have an entity in focus yet — investigate a topic first, then ask me to build a roadmap for it."
+
+    entity = await find_or_create_entity(entity_name, scope_hint=intent.scope_hint)
+    # Set even on failure below, matching handle_zoom_in's pattern -- found live
+    # (Phase 6.1 browser verification, docs/Memory.md) that skipping this left
+    # ChatResponse.graph.current_entity empty, so chat.html's "Build Roadmap"
+    # button on THIS reply's own message had no entity to act on: clicking the
+    # button that just built you a roadmap couldn't rebuild it.
+    session.current_entity = entity_name
+    abstraction = await materialize_abstraction(entity.id)
+    if abstraction is None:
+        return (
+            f"{entity_name} doesn't have any discovered structure yet — investigate it further "
+            f'before I can build a roadmap. Try "go deeper into {entity_name}."'
+        )
+    return f"Roadmap ready: [open the {entity_name} roadmap](/roadmap.html?abstraction_id={abstraction.id})"
+
+
 _HANDLERS = {
     "new_investigation": handle_new_investigation,
     "zoom_in": handle_zoom_in,
@@ -664,6 +696,7 @@ _HANDLERS = {
     "enter_space": handle_enter_space,
     "exit_space": handle_exit_space,
     "set_projection": handle_set_projection,
+    "build_roadmap": handle_build_roadmap,
     "no_action": handle_no_action,
 }
 
@@ -945,6 +978,53 @@ async def node_detail(entity_name: str, user_id: str = Depends(get_current_user_
         "questions": questions,
         "leads_to": [c.name for c in children],
     }
+
+
+@app.get("/roadmap")
+async def roadmap(abstraction_id: str, user_id: str = Depends(get_current_user_id)) -> dict:
+    """Phase 6 (Phases.md) / PRD.md §4a -- the ordered, readable (Question ->
+    Resource -> summary) reading sequence through an already-investigated
+    abstraction, distinct from free graph exploration (/graph, /node_detail
+    above). Entirely a read over what's already in Neo4j via
+    `backend.roadmap.generate_roadmap` -- no new graph writes, no LLM call,
+    same as /resources and /node_detail. 404s (not 500s) when the abstraction
+    id doesn't exist, since that's a normal "wrong/stale id" client error, not
+    a server fault.
+    """
+    try:
+        result = await generate_roadmap(abstraction_id)
+    except GraphInterfaceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return result.model_dump()
+
+
+@app.post("/roadmap/build")
+async def build_roadmap_endpoint(
+    req: BuildRoadmapRequest, user_id: str = Depends(get_current_user_id)
+) -> dict:
+    """Phase 6.1 (docs/Phases.md, docs/Architecture.md §0.39.2) -- the real
+    entrypoint `GET /roadmap` was missing: the only function that can ever
+    produce a valid `abstraction_id`, `backend.graph.materialize_abstraction`
+    (renamed from `zoom_in` this same phase -- see its docstring), had zero
+    callers anywhere in the live app until this endpoint. Unlike /roadmap,
+    this DOES write to the graph -- it materializes an Abstraction node over
+    an already-investigated entity's existing decomposition, never invents
+    structure or calls an LLM (materialize_abstraction's own contract).
+    Idempotent: calling this again for the same entity reuses the same
+    Abstraction rather than duplicating it.
+
+    400s (not 404) when the entity has no discovered decomposition yet --
+    that's "investigate it further first," a client-actionable state, not a
+    missing-resource error.
+    """
+    entity = await find_or_create_entity(req.entity_name, scope_hint=req.scope_hint)
+    abstraction = await materialize_abstraction(entity.id)
+    if abstraction is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{req.entity_name!r} has no discovered decomposition yet -- investigate it further before building a roadmap.",
+        )
+    return {"abstraction_id": abstraction.id, "abstraction_name": abstraction.name}
 
 
 # Clean-URL routes for the two real pages. StaticFiles(html=True) below only
