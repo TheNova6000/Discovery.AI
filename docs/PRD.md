@@ -196,3 +196,62 @@ Given a topic with an already-investigated graph (per §8's existing criteria), 
 3. **[VISION]** Contain a deliberately hostile submission (infinite loop, fork bomb, network call) without it affecting the host process or any other learner's session.
 4. **[VISION]** Trace every sentence of a sampled lesson back to a real retrieved source, the same way `audit_synthesis` already does for synthesized answers.
 5. **[VISION]** Demonstrate the remedial loop: a simulated learner who fails one concept's exercise twice is routed through a remedial step before the main curriculum resumes.
+
+## 10. Reasoning Engine Evolution — Discovery.AI as an independent research/reasoning engine [DESIGN PASS, 2026-09-16 — R0 done, R1-R5 all VISION, no code]
+
+**A controlled generalization, not a rewrite.** Everything below reframes and extends capability that already exists and already works (`ResearchPolicy`, the Planner, Coverage model, Deep investigation orchestration, Evidence validation, Contradiction validation, the Research artifact, `MasterAgent`, `MessageBus`, `GroundAgent`, the Neo4j world model) into one coherent Discovery.AI core, with clarified ownership and a stronger contract. Nothing here proposes discarding or replacing that work. See §10.6 and Architecture.md §0.56 for the concrete migration mapping.
+
+### 10.1 The correction this section makes
+
+Phase 8 (Architecture.md §0.40-§0.46) built real, working machinery, but framed it as a Learning Portal feature — a place where a downstream client's unmet needs get patched from outside the engine. That framing was wrong. The actual shape is:
+
+```
+Client system (Learning Portal, a future research UI, a future CLI, ...)
+        ↓ (a research request)
+Discovery.AI Research API
+        ↓
+Discovery.AI's own reasoning/research core
+        ↓
+Structured, evidence-backed investigation state
+```
+
+Discovery.AI decides what concepts are required, what questions must be answered, what's still missing, and whether an investigation is complete. The Learning Portal is the **first client** of that capability, not the place where the capability is built.
+
+### 10.2 Canonical output: structured investigation state, not an answer
+
+**Central statement:** Discovery.AI constructs and maintains an evidence-backed, dependency-aware, provenance-preserving investigation state. Answers, roadmaps, curricula, lessons, and other outputs are projections of that state, not separate things the engine produces alongside it.
+
+This is not a new capability to build — it's an explicit statement of something the codebase already does partially and inconsistently. `GroundResult` already carries `claims` beside `answer`; `EntityExplanation`/`QuestionProvenance` (§2) already expose structured state beyond prose. What's been missing is the contract that says the prose answer is *derived from* the claims, not the other way around. See Architecture.md §0.47 for the full reasoning and a real worked example (the actual "How does DNS resolution work?" investigation run live during Phase 8.1, walked through end to end in this new vocabulary).
+
+### 10.3 Ownership boundary
+
+**Discovery.AI owns:** research objectives, research policies, research tasks and their dependencies, questions, sources, evidence, claims, subclaims, claim identity, claim validation, contradictions, confidence, provenance, the knowledge graph, and the investigation lifecycle. Its output is a structured, inspectable knowledge state.
+
+**The Learning Portal (or any other client) owns:** curriculum presentation, learning sequence, lesson rendering, exercises, code execution, hints, learner progress/attempts/mastery, and gamification. A client may *request* research suited to its purpose ("research this for a beginner learning path, and include prerequisites/examples/misconceptions") but does not invent the epistemic structure of the research itself — it does not decide what concepts exist, what claims explain them, or which evidence supports them.
+
+**Three distinct dependency kinds, not one overloaded `requires` edge (Architecture.md §0.49 has the full relation vocabulary):**
+- **Research dependency** — Discovery.AI needed concept A to investigate concept B.
+- **Conceptual dependency** — concept B logically depends on concept A, independent of any teaching context.
+- **Teaching prerequisite** — a *client's* judgment that a learner should understand A before B, informed by but not identical to the conceptual dependency above.
+
+Discovery.AI can supply the first two. Only a client with pedagogical context (learner level, course goals) should decide the third — this is what prevents a client from silently turning every graph edge into a curriculum prerequisite.
+
+### 10.4 Research request/response contract, high level (Architecture.md §0.57 has the full boundary)
+
+A client expresses an objective, not a procedure:
+
+> "Build a beginner-level, evidence-backed understanding of C++ pointers, covering definition, mechanism, prerequisites, examples, misconceptions, and evidence."
+
+Discovery.AI returns a structured investigation state — entities, relationships, questions, claims, subclaims, evidence, coverage, contradictions, unresolved work, and provenance — not a finished narrative. The client (e.g. the Curriculum Compiler, Phase 9) is responsible for turning that state into its own kind of output.
+
+### 10.5 Non-goals for this design pass (R1-R5)
+
+- No new communication infrastructure (no Kafka/Redis Streams/RabbitMQ, no distributed services) — an in-process typed bus, generalized from what already exists, is the entire scope.
+- No rewrite of `GroundAgent`'s actual investigation loop — it remains the worker; only its visibility to a coordinator changes.
+- No Neo4j schema migration, no new node/relation types beyond what's already been introduced (`research_field`) or explicitly deferred (`requires`/`prerequisite_of`).
+- No API implementation, no frontend changes, no curriculum compiler work (that stays Phase 9, now explicitly a *client* of whatever this design pass defines).
+- No claim re-extraction or backfill of the existing graph's claims into any new identity model — this design pass defines the model; migrating existing data is separate, later work.
+
+### 10.6 Relationship to §9.3a (Learning Research Mode) and Phase 8
+
+§9.3a's `exploratory`/`learning` mode split and the six-field completeness model don't disappear — they become one concrete instance of a `ResearchPolicy`-shaped request Discovery.AI's reasoning core can be configured with. Phase 8's actual code (`backend/agents/policy.py`, `backend/research/*`) is the first working prototype of this reasoning core, not a Learning-Portal-only feature to be superseded — see Architecture.md §0.56 for the concrete per-module migration mapping.

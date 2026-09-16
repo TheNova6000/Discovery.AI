@@ -2240,3 +2240,213 @@ The instruction that shaped this phase was explicit and narrow: *package and exp
 **Verified the same two-layer way as every phase in this track:** `scripts/verify_phase8_6.py`, 6/6, pure logic, no LLM/Neo4j call. Then, live: `compile_research_artifact` against the real "online payment" abstraction under `EXPLORATORY_POLICY` — `is_ready=True`, 5/5 concepts, a real `generated_at` timestamp, real evidence-ref lists (4 to 23 entries per concept) with real claim ids and confidences, `contradictions=None` for every concept (correct — no contradiction reports were supplied, and the function never generated its own), `prerequisite_entity_ids=[]` for every concept (correct, the documented gap).
 
 **A genuinely new, real finding, not something this phase set out to look for:** this was the first time `assess_claim_validity` (Phase 8.5, built but never previously run against every concept in one pass) got applied to the whole "online payment" abstraction at once. "Payment gateway" — 23 real claims — has **38 duplicate claim pairs**. That's not a hypothetical risk Phase 8.5's design notes speculated about; it's a real, substantial, previously-unquantified data-quality issue in this exact dataset, surfaced as a direct side effect of building the artifact that packages Phase 8.5's own output for the first time at this scale. Worth a real look — likely the same repeated-decomposition/retry pattern already implicated in the duplicate-`Question`-node observation (Phase 6, Memory.md) — whenever question/claim attachment is next touched, though diagnosing and fixing it is explicitly not this phase's job.
+
+---
+
+# Reasoning Engine Evolution — design pass, 2026-09-16 (PRD.md §10, Phases.md's R0-R5 track)
+
+Phase 8 (§0.40-§0.46 above) proved a real capability but framed it as belonging to the Learning Portal. This section is the architectural correction: Discovery.AI is an independent research/reasoning engine; the Learning Portal is its first client, not the place its missing intelligence gets patched in from outside. **This is a design-only pass** — R0 (below) is the one part of this track that's actually "done," in the sense that it's a review exercise, not code; R1-R5 (Phases.md) are fully [VISION]. No file under `backend/` changes as part of this section. The explicit non-goals are listed in PRD.md §10.5.
+
+**Framing, stated once so it doesn't need repeating in every subsection below:** every section that follows describes a *controlled generalization* of code that already exists and already works — `ResearchPolicy`, the Planner, Coverage model, Deep investigation orchestration, Evidence/Contradiction validation, the Research artifact, `MasterAgent`, `MessageBus`, `GroundAgent`, the Neo4j world model. None of it is being discarded. §0.56 has the concrete per-module migration mapping.
+
+## §0.47 — Canonical Investigation State, and R0's actual test case
+
+**Central statement:** Discovery.AI constructs and maintains an evidence-backed, dependency-aware, provenance-preserving investigation state. Answers, roadmaps, curricula, lessons, and other client-specific outputs are *projections* of that state, not separate things the engine independently produces.
+
+**R0's gate, verbatim:** take one concrete example and describe Investigation → Tasks → Questions → Evidence → Claims → Subclaims → Dependencies → Validation → Coverage → Events → Final projections without switching terminology halfway through. Rather than inventing a clean textbook example, R0 was run against **real data already sitting in this project's own Neo4j instance** — the "How does DNS resolution work?" investigation from Phase 8.1's live smoke test (§0.41). Using real, messy data is a harder and more honest test than a made-up example would have been, and it surfaced real problems along the way (below), which is exactly what a design-review gate is for.
+
+**The walkthrough:**
+
+- **Investigation** — root question "How does DNS resolution work?", entity `DNS` (id `5931f230-...`), investigated under `EXPLORATORY_POLICY`.
+- **Tasks** (today: implicit, inside `GroundAgent`'s recursion — R3's job is to make these explicit) — one task per entity: investigate `DNS`, investigate `Recursive Resolver`, investigate `Root name server`, investigate `TLD name server`.
+- **Questions** — `DNS` itself decomposed rather than answered directly, so it has exactly one attached question ("How does DNS resolution work?") with **zero claims** — the top-level entity's "answer" is really a synthesis of its children's answers, never itself evidence-gathered. Each child got exactly one question: `Recursive Resolver`'s is "What is the role of the recursive resolver in DNS resolution?"
+- **Evidence / Claims** — `Recursive Resolver`'s question has 4 real claims, confidences `[0.1, 0.15, 0.1, 0.6]`. **A real problem, found by running R0 against real data instead of a hypothetical:** three of those four claims are, verbatim, *"The provided resource does not answer the question,"* *"The resource does not answer the question,"* and *"The provided resource does not address DNS resolution or recursive resolvers."* These are retrieval failures — a source came back and didn't contain relevant information — represented as if they were low-confidence *claims about the world*. They aren't claims. §0.49 below makes this distinction explicit: a `Claim` should assert something about the subject; "this source wasn't relevant" is a different kind of fact (an evidence-gathering *outcome*, not a proposition about DNS), and conflating the two is one concrete way the current system's claim identity is weaker than it should be.
+- **Subclaims** — none exist today for this investigation; today's pipeline produces one flat claim per source per question, never decomposed. §0.49/§0.53's design is what would let "the recursive resolver caches responses" and "the recursive resolver forwards queries to root servers" exist as distinct, separately-verifiable subclaims of a parent claim instead of run-on prose.
+- **Dependencies** — `DNS -[decomposes_into]-> Recursive Resolver`, `Root name server`, `TLD name server` (structural/compositional, not yet distinguished as research-dependency vs. conceptual-dependency vs. teaching-prerequisite — §10.3's three-way split doesn't exist in the graph today, only one generic edge type does).
+- **Validation** — never run for this investigation (Phase 8.5's `detect_contradictions` is opt-in and wasn't invoked here); if it had been, the three "doesn't answer the question" claims plus the one real 0.6-confidence claim would be a legitimate case for a contradiction/quality check to flag as "low signal-to-noise," not a contradiction exactly, but a real quality problem current tooling has no name for.
+- **Coverage** — under `EXPLORATORY_POLICY`'s required fields (`definition`, `mechanism`), `Recursive Resolver` reads as `"present"` today (Phase 8.3's rule: any non-superseded claim meeting the confidence threshold counts) — **because `EXPLORATORY_POLICY.confidence_threshold=0.0`, even the three non-answer claims trivially "qualify."** This is a second real problem R0 surfaced: coverage's honesty depends entirely on the confidence threshold being non-zero and on claims actually being propositions, not retrieval-failure records — exploratory mode's permissiveness (deliberately correct for its own purpose, §0.44) masks the claim-quality problem entirely. A `"learning"`-mode policy with a real threshold (Phase 8.4/8.5's own live tests, §0.44/§0.45) would have caught this had it been run here.
+- **Events** — none exist today (R2's job); the sequence that *should* have been recorded is legible only by reading raw `print()`-based logs (as this R0 review just did) rather than a queryable event log.
+- **Final projections** — the only projection that exists today is the synthesized prose answer returned to `/chat`. A roadmap projection (Phase 6, real and working) and a research-readiness projection (Phase 8.3/8.6, real and working) also exist for other investigations, proving the "one state, many projections" idea already works when the underlying state is good — the DNS example's problem is upstream, in claim quality, not in the projection mechanism.
+
+**R0's verdict:** the terminology holds together end to end without switching mid-walkthrough (the test explicitly asked for) — investigation/task/question/claim/subclaim/dependency/validation/coverage/event/projection all have one consistent meaning applied to one real case. It also did its actual job of surfacing real weaknesses the design must address, not paper over: (1) evidence-gathering failures are currently stored as claims instead of a distinct outcome type, (2) coverage's meaningfulness depends on a real confidence threshold that exploratory mode deliberately doesn't set, and (3) events/task-graph visibility genuinely don't exist yet. All three are addressed in the sections below, not deferred silently.
+
+## §0.48 — Discovery.AI / Portal Ownership Boundary
+
+**Discovery.AI owns:** research objectives, research policies, research tasks and their dependencies, questions, sources, evidence, claims, subclaims, claim identity, claim validation, contradictions, confidence, provenance, the knowledge graph, the investigation lifecycle. Its output is a structured, inspectable knowledge state — never a black-box prose answer with no way to inspect what produced it (already true today, worth keeping true deliberately as this evolves).
+
+**A client (Learning Portal, a future research UI, a future CLI) owns:** presentation, sequencing for its own purpose, exercises/lessons/hints, learner state, gamification. A client requests research shaped for its purpose but never invents the epistemic structure of the research — it doesn't decide what concepts exist or what evidence supports them.
+
+**Three distinct dependency relations, replacing one overloaded `requires`/`decomposes_into` edge (PRD.md §10.3):**
+- `RESEARCH_REQUIRES` — Discovery.AI needed concept A investigated before it could properly investigate concept B. Internal to the engine's own process.
+- `CONCEPTUALLY_DEPENDS_ON` — concept B is logically incoherent without concept A, independent of any teaching context. Discovery.AI's own judgment, evidence-backed like any claim.
+- `TEACHING_REQUIRES` — a *client's* pedagogical judgment (learner level, course goals) about lesson ordering. Never Discovery.AI's to assert; the Learning Portal (Phase 9+) owns this entirely, informed by but not copied from `CONCEPTUALLY_DEPENDS_ON`.
+
+Today's single `decomposes_into` edge (visible in R0's DNS walkthrough above) conflates the first two and has no representation of the third at all — exactly the gap `ConceptResearchTarget`'s already-documented `prerequisite_entity_ids` placeholder (Phase 8.2, always empty) is waiting on.
+
+## §0.49 — Claim and Subclaim Model
+
+**What a `Claim` actually is, made explicit (it wasn't before — R0 found real claims that shouldn't have been claims at all):** a `Claim` asserts a proposition about its subject, sourced from evidence. It is not a record of "this source didn't help" — that's a **retrieval outcome**, a different kind of fact entirely, and today's pipeline conflates them (§0.47's DNS example: 3 of 4 "claims" for `Recursive Resolver` are non-answers, not propositions). A retrieval outcome belongs in the evidence-gathering log, not the claim graph, full stop — this single distinction, on its own, would likely eliminate a meaningful fraction of both the low-confidence noise seen throughout this session's live runs and some share of the 38 duplicate pairs found in Phase 8.6 (multiple non-answers from different sources are trivially "similar" to each other in a way real claims about the same fact are not).
+
+**Structure**, generalizing beyond a rigid triple without losing identity (the shape the previous discussion settled on):
+
+```
+Claim
+  subject, predicate, object          -- the core proposition, when it fits one cleanly
+  qualifiers: list[str]                -- e.g. "usually," "for ordinary queries"
+  modality: str | None                 -- e.g. "usually," "may," "under condition X"
+  conditions: list[str]                -- e.g. "if the local resolver has no cached answer"
+  normalized_form: str                 -- canonical text form, independent of exact wording
+  source_question_id, evidence_ids, confidence, status, provenance
+```
+
+Not every claim is a clean triple (causal claims, conditional claims) — the model must not force one, but must still resolve to a `normalized_form` for deduplication (§0.50) even when subject/predicate/object don't cleanly apply.
+
+**Subclaim, defined precisely:** a subclaim is a proposition that provides *necessary support* to a parent claim — not merely a related or shorter sentence. A relation vocabulary distinguishes *why* a subclaim relates to its parent, rather than one undifferentiated "related" edge:
+
+```
+SUPPORTED_BY        -- necessary support for the parent proposition
+QUALIFIED_BY         -- narrows/conditions the parent, doesn't support or oppose it
+ILLUSTRATED_BY        -- an example of the parent, not evidence for its truth
+CONTRADICTED_BY       -- genuine logical/practical inconsistency (Post-Phase-5's existing epistemic-layer judgment, unchanged, §0.5/§0.45)
+ALTERNATIVE_TO        -- competing explanation, not necessarily false (matches `analyze_claim_relationships`'s existing "alternative_explanation" category, §0.45 — this vocabulary and that function's output categories should stay reconciled, not diverge)
+DERIVED_FROM          -- this claim was synthesized from a more granular subclaim, not sourced independently
+```
+
+A parent claim's completeness is a function of which of its *necessary* (`SUPPORTED_BY`) subclaims are themselves supported — not a raw count of anything related to it. Exact final field names/enum values are an R4 implementation decision, not fixed here; the categories and the reasoning for needing more than one relation type are the actual design commitment.
+
+## §0.50 — Two-Tier Claim Identity (a hard rule, not a preference)
+
+**Deterministic identity is mandatory, always available, and never blocks basic claim storage or deduplication:**
+```
+identity_floor = (source_url or evidence_text_normalized, entity_id, question_id)
+```
+This is exactly what Phase 8.5's `assess_claim_validity` already computes with zero LLM calls — and it already found 38 real duplicate pairs in one entity's claims on the very first real run (§0.46). The floor works today, unconditionally, and gets no worse if semantic extraction below never runs at all.
+
+**Semantic identity is optional and additive:**
+```
+semantic_identity = (subject, predicate, object, qualifiers) | None
+```
+Populated only when structured extraction succeeds. **Absence must mean `semantic_identity = unknown`, never a fabricated or guessed structure.** This is not a hedge — it's a response to real, observed evidence from this exact session: every one of Phase 8's live runs hit repeated `RelationExtraction`/tool-call schema failures across multiple free-tier providers (`"missing properties: 'predicate'"`, malformed JSON, wrong tool name) — see §0.39.2, §0.41, §0.44's live logs. If claim identity *required* this extraction to succeed, claim storage and deduplication would inherit that exact reliability problem at the single most load-bearing layer of the system. Because the floor is deterministic and sufficient on its own, semantic identity can fail, degrade, or simply never run without blocking anything — it only ever adds precision when available, never removes correctness when absent.
+
+**Consequence for R4's implementation:** deduplication, storage, and coverage checks are built against `identity_floor` first; `semantic_identity` is consumed opportunistically wherever it exists, and its absence is a normal, expected, non-error state everywhere it's read — the same "empty must be distinguishable from unknown" discipline Rules.md rule 9 already requires for claims generally, applied here to claim *identity* specifically.
+
+## §0.51 — Commands, Events, and Projections
+
+Three distinct things, kept distinct rather than collapsed into "messages":
+
+- **Command** — an instruction: "investigate examples for Payment gateway." Means *please perform this operation*; may be rejected (budget exhausted, dependency unmet).
+- **Event** — a record that something became true: "an examples-investigation task was created." Immutable once emitted; the source of truth for what happened, in order.
+- **Read model / current state** — "what is this investigation's status right now" — derived from events, never the thing commands act on directly.
+
+```
+Command → Application service → Domain operation → Persisted state change → Domain event → Subscribers / projections / logs
+```
+
+**Command vocabulary (R2, not yet built):** `CreateInvestigation`, `InvestigateTask`, `InvestigateClaim`, `InvestigateDependency`, `DecomposeClaim`, `ValidateClaim`, `ResolveContradiction`, `ReassessCoverage`, `StopInvestigation`.
+
+**Event vocabulary (R2, not yet built):** `InvestigationCreated`, `TaskCreated`, `TaskStarted`, `QuestionGenerated`, `EvidenceCollected`, `ClaimCreated`, `SubclaimCreated`, `ClaimValidated`, `ClaimSuperseded`, `DependencyDiscovered`, `ContradictionDetected`, `CoverageUpdated`, `TaskBlocked`, `BudgetExhausted`, `InvestigationCompleted`.
+
+Every event carries a `correlation_id` (which investigation) and a `causation_id` (which command or prior event produced it) — the mechanism that makes "why did this branch get created" answerable after the fact, not just observable live. **Scope discipline, explicit:** an in-process typed bus only. No durable event log, no message broker, no distributed workers in this design pass — those are real future options (noted, not designed) once an in-process version has a real consumer proving the shape is right.
+
+## §0.52 — Existing MessageBus Evaluation
+
+`backend/agents/bus.py`'s `MessageBus` is real, tested (Phase 4), and already typed — its own module docstring describes it as "vertical-only" (parent↔child only, e.g. `BoundaryHitMessage`/`ExpansionRequestMessage`). Evaluated against R2's actual requirements:
+
+| Requirement | Current `MessageBus` | Gap |
+|---|---|---|
+| Typed commands | Partial — `ExpansionRequestMessage`/`ExpansionDecision` exist, but the vocabulary is narrow (expansion-specific, not general) | Needs generalizing to the full command vocabulary above, or a sibling bus alongside it |
+| Typed events | Partial — `BoundaryHitMessage` is event-shaped | Needs the full event vocabulary above |
+| Horizontal (sibling-to-sibling) communication | **No** — vertical-only by design | This is the real open question, not a formality: does horizontal communication get bolted onto this bus, or does it deserve a structurally different bus given "vertical-only" was a deliberate original design choice (Rules.md rule 8's no-fixed-hierarchy spirit)? |
+| Correlation/causation IDs | No | New addition either way |
+| Persistence boundary | No — in-memory only, matches `GroundAgent`'s own SQLite checkpointing being the actual durability mechanism | Consistent with §0.51's "in-process only" scope — no gap to close yet |
+
+**R2's actual decision, deferred to that phase, not settled here:** whether the existing vertical bus generalizes cleanly or whether a genuinely new, broader bus coexists with it for a transition period. The evidence above doesn't yet answer this — it defines exactly what the two options need to be evaluated against.
+
+## §0.53 — Explicit Research Task Graph
+
+Replaces invisible recursion (`GroundAgent` calling `GroundAgent` calling `GroundAgent`, real and working, but only inspectable by reading logs — exactly what R0's DNS walkthrough had to do) with a visible structure:
+
+```
+ResearchTask
+  task_id, investigation_id, target_entity_id
+  research_field: str | None    -- ties directly to Phase 8.4's existing UNCLASSIFIED_FIELDS targeting
+  task_type: str
+  parent_task_id: str | None
+  dependencies: list[str]
+  status: str                    -- runnable | blocked | running | complete | failed | budget_exhausted
+  attempt_count: int
+  budget: TaskBudget
+  result_refs: list[str]
+```
+
+`GroundAgent` remains the worker that actually executes a task's investigation — this is not a `GroundAgent` rewrite. What changes is that a coordinator (§0.54) can see the whole task graph, decide what's runnable given dependencies, and — directly addressing Phase 6/8.6's real, observed duplicate-`Question`/duplicate-`Claim` problem — check *before* spawning whether an equivalent task already ran, is running, or has a reusable result, rather than always spawning a fresh `GroundAgent`.
+
+## §0.54 — Existing MasterAgent Evaluation
+
+`backend/agents/master_agent.py`'s `MasterAgent` already has `spawn_budget`/`broad_spawn_budget` and a real LangGraph node (`enforce_spawn_budget`) — built in Phase 4, tested (`scripts/verify_phase4.py`), confirmed via repo-wide search (Phase 8.1, §0.41) to have exactly one caller anywhere in the codebase and zero callers from the live `/chat` path, which drives `GroundAgent` directly.
+
+| Requirement | Current `MasterAgent` | Gap |
+|---|---|---|
+| Explicit task graph, dependencies | No — spawns a fixed-width set of children, no dependency ordering | Needs §0.53's `ResearchTask` model |
+| Runnable/blocked states | No | New |
+| Retry ownership | No — retry logic lives inside `structured_call`'s own provider-fallback chain (`backend/questions/llm_client.py`), not at the task level | Needs a task-level retry policy distinct from the existing per-LLM-call one |
+| Budget enforcement | **Yes, real, tested** — exactly the right shape (`spawn_budget`/`broad_spawn_budget`, enforced in its own node) | Reusable close to as-is |
+| Duplicate-work prevention | No | New — this is where §0.53's "check before spawning" logic would live |
+
+**Likely outcome, not a foregone conclusion:** resurrection and extension of `MasterAgent`, since its budget-enforcement shape is already correct and already tested — but R3's design pass should confirm this rather than assume it, keeping a controlled replacement genuinely on the table if the existing LangGraph-node structure can't cleanly absorb dependency-aware scheduling.
+
+## §0.55 — Investigation Lifecycle
+
+An investigation's status today is implicitly "still running" or "the HTTP response came back" — nothing richer. A real lifecycle, exposable to a client without it needing to inspect internal `AgentState`/LangGraph structure:
+
+```
+created → planning → investigating → waiting_on_dependency → validating
+  → partially_complete → complete
+  → blocked | uncertain | contradictory | budget_exhausted | failed
+```
+
+`partially_complete`/`uncertain`/`contradictory` are not failure states — they're honest, valid research outcomes (directly continuous with Phase 8.3/8.4's own "the field honestly stayed missing" result, §0.44) that a client should be able to receive and act on, rather than the engine being forced into a binary done/not-done that hides real epistemic state. A client-facing status shape:
+
+```json
+{
+  "investigation_id": "...",
+  "status": "partially_complete",
+  "completed_fields": ["definition", "mechanism"],
+  "missing_fields": ["examples", "misconceptions"],
+  "blocked_dependencies": [],
+  "unresolved_claims": 3
+}
+```
+
+## §0.56 — Phase 8 Migration
+
+No code moves as part of this design pass. The mapping below is what a future implementation session follows — reframing ownership, not rewriting logic:
+
+| Existing (Phase 8, `backend/agents/policy.py` + `backend/research/*`) | Becomes (Discovery.AI core) |
+|---|---|
+| `ResearchPolicy` | Investigation policy — same shape, reframed as engine-level, not Learning-Portal-level |
+| `planner.py` (`build_research_plan`/`plan_targets`) | Task planning service, emitting `ResearchTask`s (§0.53) instead of a flat `ConceptResearchTarget` list |
+| `coverage.py` (`assess_target_completeness`/`build_readiness_report`) | Coverage evaluator — logic unchanged, becomes a projection over the investigation lifecycle (§0.55) rather than a standalone report type |
+| `investigate.py` (`plan_targeted_investigations`/`run_targeted_investigation`/`close_coverage_gaps`) | Task executor + gap-closing orchestration — the bounded, non-recursive investigation call becomes one `ResearchTask` execution among others in the graph, not a special case |
+| `validation.py` (`assess_claim_validity`) | Claim/evidence validator — the deterministic identity floor (§0.50) |
+| `validation.py` (`detect_contradictions`) | Reasoning validator — unchanged, reuses `analyze_claim_relationships` exactly as today, its output categories reconciled with §0.49's subclaim relation vocabulary |
+| `artifact.py` (`compile_research_artifact`) | Investigation read model — a `ResearchArtifact` becomes one queryable projection over event-sourced state (§0.51), not the sole way to ask "what's the state" |
+| Six required fields (`BASE_REQUIRED_FIELDS`/`UNCLASSIFIED_FIELDS`) | Required-output/claim-obligation vocabulary — unchanged in meaning, now understood as one example of a client-specified objective (PRD.md §10.4), not the only kind |
+
+**The one correction this table exists to make concrete:** every module in the left column currently describes itself, in its own docstring, as Phase-8/Learning-Portal-scoped. Under this migration, none of that code changes; what changes is that `backend/research/` stops being "the Learning Portal's machinery" and becomes "Discovery.AI's reasoning core, which the Learning Portal happens to be the first caller of."
+
+## §0.57 — Research API Boundary
+
+The stable contract a client (Phase 9's Curriculum Compiler, first) is meant to consume, high level (full typed shape is an R5 implementation decision, not fixed here):
+
+```
+ResearchRequest
+  topic, objective, mode, required_fields, learner_level (or other client-specific context), constraints (budgets)
+
+ResearchResponse
+  investigation_id, status (§0.55's lifecycle), root_entity_id,
+  entities, relationships, claims, subclaims, evidence,
+  coverage, contradictions, unresolved_tasks, provenance
+```
+
+A client never receives raw `AgentState`/LangGraph internals — only this shape. `ResearchArtifact` (Phase 8.6, §0.46) is the closest existing approximation of `ResearchResponse` today and is the direct ancestor this evolves from, not something separate built alongside it.
