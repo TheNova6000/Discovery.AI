@@ -20,6 +20,7 @@ from .messages import (
     MessageType,
 )
 from .models import AgentState, AgentStatus, GroundResult, MasterResult
+from .policy import EXPLORATORY_POLICY, ResearchMode, ResearchPolicy
 from .provenance import ClaimProvenance, ProvenanceType, find_root_agent_id, trace_claim
 
 __all__ = [
@@ -43,4 +44,7 @@ __all__ = [
     "GroundResult",
     "MasterResult",
     "AgentError",
+    "ResearchPolicy",
+    "ResearchMode",
+    "EXPLORATORY_POLICY",
 ]

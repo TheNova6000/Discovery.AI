@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from backend.evidence import gather_evidence
+from backend.evidence.engine import DEFAULT_MAX_RESULTS_PER_RETRIEVER
 from backend.graph import (
     attach_claim,
     attach_question,
@@ -31,6 +32,7 @@ from .bus import MessageBus
 from .exceptions import AgentError
 from .messages import BoundaryHitMessage
 from .models import AgentState, AgentStatus, GroundResult
+from .policy import ResearchPolicy
 
 # Phase 3 has no MasterAgent yet to own a spawn budget (Rules.md rule 10 is a Phase 4
 # concern). This is a local safety bound only, so a single Ground Agent's own
@@ -92,14 +94,26 @@ class GroundAgent:
         bus: MessageBus | None = None,
         gather_evidence: bool = False,
         persist_to_graph: bool = False,
+        policy: ResearchPolicy | None = None,
+        max_results_per_retriever: int = DEFAULT_MAX_RESULTS_PER_RETRIEVER,
     ) -> None:
         self.agent_id = agent_id or str(uuid.uuid4())
         self.parent_id = parent_id
         self.parent_chain = parent_chain or []  # root-first ancestor agent_ids
         self.question = question
         self.depth = depth
-        self.max_depth = max_depth
-        self.max_sequential_steps = max_sequential_steps
+        # Phase 8.1 (docs/Architecture.md §0.40, docs/PRD.md §9.3a): `policy`,
+        # when given, is authoritative for the fields it wires below --
+        # individually-passed max_depth/max_sequential_steps/gather_evidence/
+        # max_results_per_retriever are ignored in that case. `policy=None`
+        # (every existing caller: verify scripts, master_agent.py, and this
+        # class's own recursive child-construction call site below, which
+        # passes already-resolved values rather than a policy object) hits
+        # none of this -- zero behavior change for anything that doesn't
+        # explicitly opt in.
+        self.policy = policy
+        self.max_depth = policy.max_depth if policy is not None else max_depth
+        self.max_sequential_steps = policy.max_sequential_steps if policy is not None else max_sequential_steps
         self.db_path = db_path  # None -> state_store's own default path
         # Optional (docs/Phases.md Phase 4) — a Master's MessageBus this agent
         # posts BOUNDARY_HIT to. None means "run standalone" (Phase 3's usage),
@@ -109,7 +123,8 @@ class GroundAgent:
         # API calls (and their rate limits/latency) only happen when explicitly
         # requested — Phase 3/4's behavior and free-tier API usage stay unaffected
         # for any existing caller that doesn't pass this.
-        self.gather_evidence = gather_evidence
+        self.gather_evidence = policy.gather_evidence if policy is not None else gather_evidence
+        self.max_results_per_retriever = policy.max_results_per_retriever if policy is not None else max_results_per_retriever
         # Opt-in (post-Phase-5 "recursive discovery -> entity resolution -> graph
         # persistence" pass, see docs/Memory.md): when true, every terminal
         # question this agent resolves gets attached to its (resolved-or-created)
@@ -204,6 +219,8 @@ class GroundAgent:
                 bus=self.bus,
                 gather_evidence=self.gather_evidence,
                 persist_to_graph=self.persist_to_graph,
+                max_results_per_retriever=self.max_results_per_retriever,
+                policy=self.policy,
             )
             result = await child.run()
             child_results.append(result)
@@ -257,7 +274,11 @@ class GroundAgent:
                 )
 
             if decision.action == "answer":
-                claims = await gather_evidence(self.question) if self.gather_evidence else []
+                claims = (
+                    await gather_evidence(self.question, max_results_per_retriever=self.max_results_per_retriever)
+                    if self.gather_evidence
+                    else []
+                )
                 return await self._finish(
                     GroundResult(
                         status=AgentStatus.COMPLETE,
@@ -376,6 +397,8 @@ class GroundAgent:
                     bus=self.bus,
                     gather_evidence=self.gather_evidence,
                     persist_to_graph=self.persist_to_graph,
+                    max_results_per_retriever=self.max_results_per_retriever,
+                    policy=self.policy,
                 )
                 result = await child.run()
                 child_results.append(result)

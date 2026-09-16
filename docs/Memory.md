@@ -4,6 +4,26 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — Phase 8.1 built: `ResearchPolicy`, wired into the one real `/chat` call site, real values not invented ones
+
+Directly follows the Phase 6.1 / Learning Research Mode entry immediately below — same session, committed as its own separate commit per explicit instruction (Phase 6.1 + design docs must not be held hostage to Phase 8.1 landing too).
+
+**The actual production numbers had to be traced first, not assumed.** `backend/api/app.py`'s `_run_investigation` — the only real `/chat` call site — used loose constants `DEMO_MAX_DEPTH=2`/`DEMO_MAX_STEPS=3`, not `GroundAgent`'s own class defaults. Found a real, previously-undocumented discrepancy while checking: `GroundAgent.DEFAULT_MAX_SEQUENTIAL_STEPS` is 4, but the live app has actually been running at 3 this whole time. Also found the `gather_evidence()` call had a real, never-wired knob (`max_results_per_retriever`, Evidence Engine default 2) that `GroundAgent` never threaded through at all before this phase. `EXPLORATORY_POLICY`'s four wired fields (`max_depth`, `max_sequential_steps`, `gather_evidence`, `max_results_per_retriever`) all come from this trace, not from the earlier design sketch's guessed shape.
+
+**A field the design sketch implied but the engine doesn't actually have, left out rather than faked:** `MasterAgent`'s spawn budget looked like the obvious fit for a `max_spawn_count`-style field. A repo-wide search found `MasterAgent(` instantiated exactly once — `scripts/verify_phase4.py` — never in the live `/chat` path, which drives `GroundAgent` directly. Left off `ResearchPolicy` entirely rather than added as a field that would silently imply control over something nothing in production actually runs.
+
+**Five more fields added on purpose as documented placeholders, not silently unused ones:** `require_prerequisites`/`require_examples`/`require_misconceptions`/`require_evidence_validation`/`confidence_threshold`, matching PRD.md §9.3a's completeness list, genuinely inert until Phase 8.3's completeness model exists to read them. `scripts/verify_phase8_1.py`'s check 4 makes "genuinely inert" a tested claim (constructs a policy with every one flipped to its strongest value, confirms zero effect on `GroundAgent`'s resolved attributes, confirms the agent doesn't even carry them as attributes), not just an assertion in a docstring.
+
+**Injection stayed deliberately minimal:** one new optional `GroundAgent.__init__` parameter, `policy: ResearchPolicy | None = None`. Every pre-existing caller (verify_phase3/4/5.py, `master_agent.py`'s own spawn node, `GroundAgent`'s own two recursive-child-construction sites) never passes it and is completely unaffected. `_run_investigation` is the one production site actually switched over, from three loose kwargs to `policy=EXPLORATORY_POLICY`.
+
+**Verification kept as two deliberately distinct layers, not conflated into one "it works":**
+- Structural (`scripts/verify_phase8_1.py`, 5/5, no LLM/Neo4j call): pins `EXPLORATORY_POLICY`'s values against the real numbers, proves `policy=EXPLORATORY_POLICY` resolves to attributes *identical* to the old explicit-kwargs call, proves every pre-existing no-policy caller is untouched, proves the inert fields are genuinely inert. This is the actual strong identity claim.
+- Live smoke test (one real `/chat` call, fresh topic "How does DNS resolution work?"): `200 OK`, ~276s, real answer, 13 nodes/18 edges written to real Neo4j, routed through the new policy path end to end. Server log checked line-by-line: no Unicode/console crash (the earlier encoding fix still holds, confirmed against fresh Unicode content in the real answer), and the only `Traceback` lines present are the same pre-existing, already-documented, non-fatal Gemini/`instructor` mode-negotiation fallback — not a new failure this phase caused. Explicitly scoped as a compatibility check (the live path didn't break), not a byte-for-byte-identical-output claim — LLM calls across free-tier providers/retries aren't deterministic regardless of policy, and the structural checks above are where the real identity guarantee lives, not this test.
+
+**Governing principle, worth restating for whoever picks up Phase 8.2:** add the abstraction before changing behavior. Every `EXPLORATORY_POLICY` number came from reading the running system, not from what seemed reasonable to assume.
+
+---
+
 ## 2026-09-16 (continued) — Phase 6.1 built (real roadmap entrypoint); Learning Research Mode designed as a course correction, no code yet
 
 Same session as the Phase 6 entry directly below — continuing straight on rather than stopping once Phase 6's live verification passed.

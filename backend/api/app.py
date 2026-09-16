@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.agents import GroundAgent
+from backend.agents import EXPLORATORY_POLICY, GroundAgent
 from backend.graph import (
     GraphInterfaceError,
     explain_entity,
@@ -213,25 +213,21 @@ async def telemetry_path_post(body: CursorPathIn) -> dict:
     stored = await add_path(accepted)
     return {"stored": stored, "samples": len(accepted)}
 
-# Raised back from depth=1/steps=1 (docs/Memory.md — the Amazon investigation
-# diagnosis): that cut was bundled with the real latency fix (routing
-# master-level decisions to MASTER_MODEL_CHAIN) under time pressure, but it was
-# the wrong lever — it silently discarded CORRECT decompose verdicts
-# (decide_next_step reasoned AWS was a distinct, independently-investigable
-# component and was overruled by the budget, not by its own judgment). The
-# model-tier fix was the actual reliability win; this constant just has to be
-# large enough for a genuinely broad question to finish decomposing before the
-# budget kicks in. 2/3 matches what was actually verified working (steps=3
-# still degrades to a fast single-child answer for narrow questions — the
-# budget is a ceiling, not a target).
-DEMO_MAX_DEPTH = 2
-DEMO_MAX_STEPS = 3
+# Depth/step numbers below (2/3) used to live here as DEMO_MAX_DEPTH/DEMO_MAX_STEPS.
+# Phase 8.1 (docs/Architecture.md §0.40) moved them into EXPLORATORY_POLICY
+# (backend/agents/policy.py) -- same numbers, now a named, reusable policy
+# object instead of loose constants, so a future policy (e.g. "learning" mode,
+# Phase 8.2+) has somewhere real to differ from. The original rationale for
+# 2/3 specifically (raised back from a bad depth=1/steps=1 cut that silently
+# discarded correct decompose verdicts — docs/Memory.md, the Amazon
+# investigation diagnosis) lives in EXPLORATORY_POLICY's own docstring now,
+# not duplicated here.
 
 
 # Bounded BFS depth/node caps for _sync_decomposition below -- Neo4j persists
 # across every investigation ever run for an entity name, potentially far more
-# than any ONE session's own depth/step budget (DEMO_MAX_DEPTH/DEMO_MAX_STEPS,
-# defined further down); these bound how much of that accumulated history one
+# than any ONE session's own depth/step budget (EXPLORATORY_POLICY.max_depth/
+# .max_sequential_steps, backend/agents/policy.py); these bound how much of that accumulated history one
 # sync pulls into the live UI per call, independent of how large the entity's
 # full graph has grown over time.
 _SYNC_MAX_DEPTH = 3
@@ -297,9 +293,7 @@ async def _run_investigation(session: SessionState, question: Question, *, persi
     agent = GroundAgent(
         question,
         persist_to_graph=persist_to_graph,
-        gather_evidence=True,
-        max_depth=DEMO_MAX_DEPTH,
-        max_sequential_steps=DEMO_MAX_STEPS,
+        policy=EXPLORATORY_POLICY,
     )
     result = await agent.run()
     if persist_to_graph:
