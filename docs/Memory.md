@@ -4,6 +4,22 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — R5.0 audit + R5.1 built: the stable Research API contract, pure types only
+
+R5.0: a repository-grounded phase-completion audit (no code changed except two stale status-header corrections in Phases.md -- the R4 parent header and the Reasoning Engine Evolution track header both still said "not started"/"VISION" despite R1-R4.5 being fully built same day). Confirmed R5 has zero code today; confirmed Phase 9-13 have no backend directories or frontend files; confirmed the fastest safe path to a first complete product is R5.1->R5.2->R5.3->Phase 9.1->9.2->Phase 12.0, not a sequential slog through every phase.
+
+R5.1: `backend/research_api/` (new package) -- `ResearchRequest`/`ResearchResponse`, pure types only, per the audit's own recommended first slice. The central risk (creating a sixth/seventh competing claim model) was avoided by construction: every field reuses a real existing type (`Claim` from R1, `GraphNode`/`Relationship` from Phase 1, `EvidenceReference`/`ConceptCompleteness`/`ContradictionFinding` from Phase 8.3/8.5/8.6, `ResearchTask` from R3, `ClaimProvenance` from Post-Phase-5) -- a projection, not a new model.
+
+**Three fields with no clean single-value source, resolved honestly rather than guessed:** `root_entity_id` stays `None` (`ResearchArtifact` is abstraction-scoped, may cover multiple concepts, no designated root exists in the data model); `investigation_id` maps to the real `Abstraction.id` (no standalone Investigation object exists); `status` is deliberately only `"complete"`/`"partially_complete"` (from `ResearchArtifact.is_ready`), not §0.55's full 12-state aspirational lifecycle, since most of those states have no real producer anywhere in this codebase.
+
+**`subclaims` is a stated, deliberate near-duplication of `claims`** -- R4.3 already established a subclaim is a Claim with `parent_claim_id` set, not a distinct type; every entry in `subclaims` is also in `claims`, empty in this slice since no real orchestration produces them from live data yet.
+
+**Verified: `scripts/verify_r5_1.py`, 9/9, pure, no I/O.** Built from a real `ResearchArtifact` fixture and real mapped `Claim` objects; identity fields preserved/honestly-None; empty fields confirmed for stated reasons; full round-trip; no source mutation; invalid input rejected; R1/R3/R4 semantics confirmed unchanged. All 109 pre-existing checks re-confirmed unaffected. No existing file modified -- fully additive.
+
+**Next slice: R5.2** -- `compile_research_response`, the I/O shell populating a real `ResearchResponse` from a live investigation.
+
+---
+
 ## 2026-09-16 (continued, same day) — R4.5 built: lifecycle rehydration and active-claim semantics -- both R4.4-confirmed gaps closed
 
 Follows R4.4, same session, per an explicit "handle both gaps together as a narrowly defined semantic repair slice, not a new persistence feature" instruction with its own 10-question scope and required test list.
