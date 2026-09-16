@@ -73,10 +73,12 @@ class ResearchPlan(BaseModel):
 #     does it work" -- real content, not fabricated -- so these are scored by
 #     whether real, non-superseded evidence meets the policy's confidence bar.
 #   - UNCLASSIFIED_FIELDS ("prerequisites", "examples", "misconceptions"):
-#     nothing in the current investigation pipeline asks for or tags this
-#     content specifically. Always reported "missing" -- never guessed at
-#     from generic prose -- until Phase 8.4 adds field-targeted investigation
-#     that can actually produce and tag this content.
+#     nothing in the ORDINARY investigation pipeline asks for or tags this
+#     content specifically -- reported "missing" unless a real Question
+#     exists with `research_field` set to that name (QuestionNode.research_field,
+#     Phase 8.4, backend.research.investigate). Never guessed from untagged
+#     prose -- only a question `investigate.py` deliberately created and
+#     tagged can satisfy one of these.
 CONFIDENCE_GATED_FIELDS = frozenset({"definition", "mechanism", "evidence"})
 UNCLASSIFIED_FIELDS = frozenset({"prerequisites", "examples", "misconceptions"})
 
@@ -96,11 +98,12 @@ class ConceptCompleteness(BaseModel):
     """One target's full field-by-field verdict plus the derived overall
     verdict (`is_complete`) -- a target is complete only when EVERY field its
     ResearchPolicy requires (Phase 8.2's `required_fields`) is `"present"`.
-    Under any policy with an `UNCLASSIFIED_FIELDS` member in its required set
-    (i.e. any real "learning"-shaped policy today), `is_complete` is
-    honestly always False -- not a bug, the accurate signal that nothing yet
-    produces classifiable prerequisite/example/misconception content
-    (Phase 8.4's actual job).
+    Before Phase 8.4's targeted investigation runs for a concept, any
+    `UNCLASSIFIED_FIELDS` member in its required set is honestly `"missing"`
+    -- not a bug, the accurate signal that nothing has targeted that field
+    yet. `backend.research.investigate.close_coverage_gaps` (Phase 8.4) is
+    what can turn a target's status from incomplete to complete, by
+    producing real, field-tagged evidence and re-running this assessment.
     """
 
     entity_id: str
@@ -126,3 +129,19 @@ class ResearchReadinessReport(BaseModel):
     ready_count: int
     incomplete_count: int
     is_ready: bool
+
+
+class TargetedInvestigationRequest(BaseModel):
+    """Phase 8.4 (docs/Phases.md, docs/Architecture.md §0.44): one bounded
+    unit of targeted work -- "go find `field` for `entity_name`" -- produced
+    by `investigate.plan_targeted_investigations` (pure, deterministic) and
+    consumed by `investigate.run_targeted_investigation` (I/O, the one place
+    an LLM call actually happens in this module). `field` is always a member
+    of UNCLASSIFIED_FIELDS -- CONFIDENCE_GATED_FIELDS' gap (low-confidence
+    evidence, not missing evidence) is a different problem this phase
+    doesn't address (that's re-investigating the base question, already
+    available via the existing "investigate_deeper" chat intent)."""
+
+    entity_id: str
+    entity_name: str
+    field: str

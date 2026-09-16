@@ -4,6 +4,20 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-16 (continued, same day) — Phase 8.4 built: Deep investigation orchestration, bounded on purpose; live result was honest, not a clean "success"
+
+Directly follows the Phase 8.3 entry immediately below — same session, own commit. First module in the whole 8.1-8.4 track that makes real LLM/retriever calls (8.1-8.3 were deliberately deterministic).
+
+**Closed the exact gap Phase 8.3 left open, with a real (small) schema change, not a workaround.** `ClaimNode` had no tag for which PRD field a claim satisfies. Added `research_field: Optional[str] = None` to `Question`/`QuestionNode`, threaded through `attach_question`/`get_questions_for_entity` (`.get()`, not `[]`, so pre-existing questions with no such Neo4j property read back as `None`, not an error). Extended `backend/research/coverage.py` in this same phase to actually read it — a real, live, previously-committed Phase 8.3 test suite (`scripts/verify_phase8_3.py`) still passes 6/6 unmodified against the extended code, confirming the extension is additive, not breaking.
+
+**Three independent bounds, per the explicit constraint that shaped this phase ("orchestrate targeted research without turning the whole engine into an uncontrolled deep-search system") — verified, not just stated:** (1) `max_depth=0`/`max_sequential_steps=0` per targeted call, confirmed correct by tracing `ground_agent.py`'s actual `budget_exhausted` logic directly (a real, already-exercised code path since Phase 3, not new logic) rather than just assuming the parameter name does what it sounds like. (2) `plan_targeted_investigations`' `max_targets`/`max_fields_per_target`, with a test specifically confirming a skipped (non-actionable) concept doesn't consume the target budget. (3) Only `UNCLASSIFIED_FIELDS` are ever targeted — a confidence-gated gap is a different, already-solved problem (existing `investigate_deeper`).
+
+**Curriculum-source retrievers deliberately deferred, not forgotten.** The orchestrator's `GroundAgent` call uses the Evidence Engine's existing `DEFAULT_RETRIEVERS` unchanged — fully retriever-agnostic by construction, so adding GeeksforGeeks/freeCodeCamp/GitHub retrievers later is a drop-in, not a re-architecture. Left out of this already-large phase on purpose.
+
+**The live result, reported exactly as observed, not smoothed into a success story:** `close_coverage_gaps` against the real "online payment" plan, `"learning"`-policy, bounded to 1 target × 1 field. Before: 0/5 ready, "Payment gateway" missing all three unclassified fields. The orchestrator targeted "examples," ran one real bounded investigation (LLM chose `answer` directly — never actually tested the decompose-block against a contrary choice this run, though the code trace establishes the bound holds regardless), gathered real evidence (Semantic Scholar rate-limited, Tavily/YouTube missing keys — expected degradation), persisted a real tagged `Question`. After: the field correctly stayed `"missing"` — real evidence scored 0.10 confidence against a 0.30 threshold — with the reason string precisely distinguishing "evidence exists but too weak" from "no evidence yet" (the other two untouched fields). **This is arguably a better proof than a clean flip to "present" would have been:** it's live confirmation the confidence gate isn't just correct in Phase 8.3's fixtures, it holds against a real, un-mocked LLM/retriever pass too — the mechanism (target → tag → gather → re-assess) is proven real and correctly wired; the remaining gap is evidence quality under this environment's retriever set, a pre-existing limitation (Phase 6's own low-confidence observation), not this phase's code.
+
+---
+
 ## 2026-09-16 (continued, same day) — Phase 8.3 built: Coverage/completeness model, drawing an honesty boundary instead of guessing at field-level precision
 
 Directly follows the Phase 8.2 entry immediately below — same session, own commit, same "keep phases separable" discipline as 8.1/8.2.

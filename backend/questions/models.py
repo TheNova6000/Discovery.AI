@@ -103,6 +103,16 @@ class Question(BaseModel):
     """
     abstraction_name: str
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    research_field: Optional[str] = None
+    """Phase 8.4 (docs/Phases.md, docs/Architecture.md §0.44): set only for a
+    question `backend.research.investigate` generated to target one specific
+    missing field ("prerequisites"/"examples"/"misconceptions" -- Phase 8.3's
+    UNCLASSIFIED_FIELDS) for one concept. None for every other question,
+    including this project's entire existing question flow -- unchanged,
+    optional, additive, same pattern `entity_scope_hint`/`dimensions` already
+    established. This is what lets Phase 8.3's coverage model recognize a
+    claim as satisfying a specific unclassified field instead of guessing
+    from prose (Architecture.md §0.43's honesty boundary, now closable)."""
 
 
 class GroundDecision(BaseModel):

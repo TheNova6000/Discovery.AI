@@ -73,6 +73,12 @@ class QuestionNode(BaseModel):
     level: str
     rationale: str
     created_at: str
+    research_field: Optional[str] = None
+    """Phase 8.4: mirrors backend.questions.Question.research_field -- set
+    only for a question that specifically targets one of Phase 8.3's
+    UNCLASSIFIED_FIELDS. None for every pre-existing question in the graph
+    (an older node with no such property reads back as None, not an error --
+    see _record_to_question in interface.py)."""
 
 
 class ClaimNode(BaseModel):

@@ -493,6 +493,7 @@ class GroundAgent:
                 dimension_id=self.question.dimension_id,
                 level=self.question.level.value,
                 rationale=self.question.rationale,
+                research_field=self.question.research_field,
             )
             for claim in result.claims:
                 await attach_claim(

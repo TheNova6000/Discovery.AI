@@ -74,6 +74,10 @@ def _record_to_question(node) -> QuestionNode:
         level=node["level"],
         rationale=node["rationale"],
         created_at=node["created_at"],
+        # .get(), not [] -- every question attached before Phase 8.4 has no
+        # research_field property in Neo4j at all; .get() reads that back as
+        # None (QuestionNode's own default) rather than a KeyError.
+        research_field=node.get("research_field"),
     )
 
 
@@ -774,19 +778,25 @@ async def attach_question(
     dimension_id: str,
     level: str,
     rationale: str,
+    research_field: Optional[str] = None,
 ) -> QuestionNode:
     """Create (or reuse) a Question node and attach it to an existing canonical
     entity/domain via HAS_QUESTION (docs/Phases.md Phase 5). MERGEs on
     `question_id` (the same id backend.questions.Question already generates) so
     re-attaching the same Question — e.g. a Ground Agent resuming, docs/Rules.md
     rule 7 — never creates a duplicate node.
+
+    `research_field` (Phase 8.4, optional, default None): unchanged for every
+    existing caller. Set only by backend.research.investigate's targeted
+    questions, so Phase 8.3's coverage model can later recognize which
+    UNCLASSIFIED_FIELDS field this question's claims actually satisfy.
     """
     now = _now()
     query = (
         f"MATCH (n:{NODE_LABEL} {{id: $entity_id}}) "
         f"MERGE (q:{QUESTION_LABEL} {{id: $question_id}}) "
         "ON CREATE SET q.text=$text, q.dimension_id=$dimension_id, q.level=$level, "
-        "q.rationale=$rationale, q.created_at=$now "
+        "q.rationale=$rationale, q.created_at=$now, q.research_field=$research_field "
         f"MERGE (n)-[:{HAS_QUESTION}]->(q) "
         "RETURN q"
     )
@@ -802,6 +812,7 @@ async def attach_question(
                 level=level,
                 rationale=rationale,
                 now=now,
+                research_field=research_field,
             )
             record = await result.single()
             if record is None:
