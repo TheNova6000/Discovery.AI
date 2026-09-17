@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Course — Discovery.AI</title>
+<style>
+  /* Phase 12.0 (docs/Phases.md) -- a minimal Portal course viewer, the same
+     vanilla HTML/CSS/JS stack frontend/roadmap.html already established
+     (docs/Architecture.md §0.38.3's frontend-approach correction), served
+     by the same static mount, no build step, no JS framework. */
+  :root {
+    color-scheme: light;
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e5e5e0;
+    --text: #1c1c1a;
+    --text-dim: #6b6b64;
+    --accent: #2f6f4f;
+    --warn: #8a5a2f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    max-width: 860px;
+    margin-inline: auto;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  p.subtitle { color: var(--text-dim); margin-top: 0; font-size: 0.9rem; }
+  .load-row { display: flex; gap: 0.5rem; margin: 1.25rem 0; }
+  input[type=text] {
+    flex: 1;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.95rem;
+  }
+  button {
+    padding: 0.6rem 1rem;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent);
+    color: white;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { color: var(--text-dim); font-size: 0.9rem; min-height: 1.2em; }
+  .order-note {
+    font-size: 0.8rem;
+    color: var(--warn);
+    background: #fbf3ea;
+    border: 1px solid #ecd9c2;
+    border-radius: 6px;
+    padding: 0.5rem 0.7rem;
+    margin-bottom: 1rem;
+  }
+  .module {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.9rem 1.1rem;
+    margin-bottom: 0.6rem;
+  }
+  .module-index {
+    display: inline-block;
+    width: 1.6rem; height: 1.6rem;
+    line-height: 1.6rem;
+    text-align: center;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    font-size: 0.8rem;
+    margin-right: 0.5rem;
+  }
+  .module-title { font-size: 1rem; font-weight: 600; }
+  .claims { margin-top: 0.5rem; }
+  .claim {
+    font-size: 0.85rem;
+    border-left: 2px solid var(--border);
+    padding-left: 0.6rem;
+    margin-bottom: 0.3rem;
+  }
+  .claim .conf { color: var(--text-dim); }
+  .incomplete-section { margin-top: 1.5rem; }
+  .incomplete-section h2 { font-size: 1rem; color: var(--warn); }
+  .incomplete {
+    background: #fbf3ea;
+    border: 1px solid #ecd9c2;
+    border-radius: 8px;
+    padding: 0.7rem 1rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+  }
+  .incomplete .missing { color: var(--text-dim); }
+  .empty-note {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+  <h1>Course</h1>
+  <p class="subtitle">
+    Phases.md Phase 12.0 — a compiled course from Discovery.AI's Research API (<code>POST /course</code>,
+    Phase 9.1/9.2). Every module here is a real, already-complete concept; a concept still missing
+    coverage is surfaced below rather than compiled into a thin module. See <a href="/roadmap.html">/roadmap</a>
+    for the raw investigation sequence instead.
+  </p>
+
+  <div class="load-row">
+    <input type="text" id="topic-input" placeholder="topic (e.g. online payment)">
+    <button id="load-btn">Compile course</button>
+  </div>
+  <div id="status"></div>
+  <div id="order-note"></div>
+  <div id="modules"></div>
+  <div id="incomplete-wrap"></div>
+
+  <script>
+    // Same same-origin-by-default pattern as frontend/roadmap.html's CONFIG.
+    const CONFIG = { BACKEND_URL: '' };
+    function apiUrl(path) { return CONFIG.BACKEND_URL + path; }
+
+    const statusEl = document.getElementById('status');
+    const orderNoteEl = document.getElementById('order-note');
+    const modulesEl = document.getElementById('modules');
+    const incompleteWrapEl = document.getElementById('incomplete-wrap');
+    const inputEl = document.getElementById('topic-input');
+    const loadBtn = document.getElementById('load-btn');
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('topic')) inputEl.value = params.get('topic');
+
+    async function compileCourse() {
+      const topic = inputEl.value.trim();
+      if (!topic) { statusEl.textContent = 'Enter a topic first.'; return; }
+
+      loadBtn.disabled = true;
+      statusEl.textContent = 'Compiling…';
+      orderNoteEl.innerHTML = '';
+      modulesEl.innerHTML = '';
+      incompleteWrapEl.innerHTML = '';
+
+      try {
+        const res = await fetch(apiUrl('/course'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: topic }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail || ('HTTP ' + res.status));
+        }
+        const course = await res.json();
+        render(course);
+      } catch (err) {
+        statusEl.textContent = 'Failed to compile course: ' + err.message;
+      } finally {
+        loadBtn.disabled = false;
+      }
+    }
+
+    function render(course) {
+      statusEl.textContent = course.modules.length + ' module(s), ' +
+        course.incomplete_concepts.length + ' concept(s) not yet ready.';
+
+      if (!course.ordered_by_prerequisites) {
+        orderNoteEl.innerHTML = '<div class="order-note">' +
+          'No real prerequisite ("requires") relationships exist for this topic yet — modules are ' +
+          'shown in discovery order, not a verified teaching order.' +
+          '</div>';
+      }
+
+      if (course.modules.length === 0) {
+        modulesEl.innerHTML = '<p class="empty-note">No concept has met the completeness bar yet ' +
+          '— nothing to compile into a module. Investigate this topic further in <a href="/chat">/chat</a> first.</p>';
+      } else {
+        modulesEl.innerHTML = course.modules.map(moduleHtml).join('');
+      }
+
+      if (course.incomplete_concepts.length > 0) {
+        incompleteWrapEl.innerHTML =
+          '<div class="incomplete-section"><h2>Not yet ready</h2>' +
+          course.incomplete_concepts.map(incompleteHtml).join('') +
+          '</div>';
+      }
+    }
+
+    function moduleHtml(module, index) {
+      const claimsHtml = (module.claims || []).map(c =>
+        '<div class="claim">' + escapeHtml(c.normalized_form) +
+        ' <span class="conf">(confidence ' + Math.round(c.confidence * 100) + '%)</span></div>'
+      ).join('');
+
+      return (
+        '<div class="module">' +
+          '<span class="module-title"><span class="module-index">' + (index + 1) + '</span>' +
+            escapeHtml(module.entity_name) + '</span>' +
+          '<div class="claims">' + (claimsHtml || '<span class="empty-note">No claims recorded for this concept yet.</span>') + '</div>' +
+        '</div>'
+      );
+    }
+
+    function incompleteHtml(concept) {
+      const missing = Array.isArray(concept.missing_fields) ? concept.missing_fields : [];
+      return (
+        '<div class="incomplete">' +
+          '<strong>' + escapeHtml(concept.entity_name) + '</strong> — ' +
+          '<span class="missing">missing: ' + (missing.length ? missing.map(escapeHtml).join(', ') : 'unspecified') + '</span>' +
+        '</div>'
+      );
+    }
+
+    function escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    loadBtn.addEventListener('click', compileCourse);
+    inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') compileCourse(); });
+    if (inputEl.value) compileCourse();
+  </script>
+</body>
+</html>

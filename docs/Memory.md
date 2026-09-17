@@ -4,6 +4,22 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — Phase 12.0 (minimal slice) built: a real course-viewer frontend, browser-tested against live data
+
+Direct continuation, same session, immediately after Phase 9.2's commit and push -- the R5.0 audit's own recommended execution order (R5.1->R5.2->R5.3->Phase9.1->Phase9.2->Phase12.0) is now fully complete.
+
+`frontend/course.html` -- the same vanilla HTML/CSS/JS stack `roadmap.html` already established, no build step, no JS framework. A topic input calls POST /course and renders the Course: numbered modules with real claims + confidence, an amber "not yet ready" section per incomplete_concepts entry, and an explicit banner when ordered_by_prerequisites is False -- the frontend never implies a prerequisite order the backend didn't actually compute (same honesty discipline as Phase 9.1/9.2, now carried into the UI).
+
+**Actually browser-tested, not just curled** -- started a dev server and used the feature in Chrome. Hit a real, if mundane, operational snag: a stale uvicorn process from 2026-09-16 (the day before this session's /course route existed) was still bound to port 8000, so POST /course 405'd against that old process's code (StaticFiles rejects non-GET/HEAD before ever reaching a route registered after the mount). Diagnosed via netstat + Get-Process (confirmed start time predated today's work), stopped it, started a fresh server, and the route worked immediately -- a real environment finding, not a code bug, recorded so it doesn't need re-discovering.
+
+With a fresh server: `/course.html?topic=online%20payment` rendered all 5 real "online payment" modules (Payment gateway, Acquiring Bank, card network, etc.) with real claims and confidence percentages, the honest no-prerequisites banner, zero incomplete-concept entries -- matching verify_phase9_2.py's own real-data numbers exactly.
+
+**Deliberately not built:** lesson/exercise content, progress/gamification, the full path/tree course map + Monaco editor + streak/XP/rank UI (all real Phase 10/11/12/13 work, still [VISION]). This is a genuinely minimal slice proving the whole pipeline -- topic -> Research API -> Curriculum Compiler -> browser -- works end to end against real data.
+
+**This closes out the user's own explicit instruction to "loop yourself in completing until discovery.ai and then start working on restructuring around discovery.ai... go on forward."** R5 (Discovery.AI's stable core) is fully built; the first real restructuring slice (Phase 9.1 -> 9.2 -> 12.0) is built, verified against real Neo4j data, and browser-tested end to end. A comprehensive final report is being written next per the user's own explicit request.
+
+---
+
 ## 2026-09-17 — Phase 9.2 built: POST /course -- Research API and Curriculum Compiler wired end to end
 
 Direct continuation, same session, immediately after Phase 9.1's commit and push.
