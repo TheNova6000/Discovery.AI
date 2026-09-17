@@ -14,6 +14,8 @@ class OpenLibraryRetriever(Retriever):
     snippet here is bibliographic (author + year), not a content excerpt."""
 
     source_type = "book"
+    source_role = "reference"
+    acquisition_mode = "api"
 
     async def search(self, query: str, max_results: int = 3) -> list[RetrievedResource]:
         try:
@@ -42,6 +44,8 @@ class OpenLibraryRetriever(Retriever):
                     snippet=snippet,
                     source_type=self.source_type,
                     published=str(year) if year else None,
+                    source_role=self.source_role,
+                    acquisition_mode=self.acquisition_mode,
                 )
             )
         return resources

@@ -14,6 +14,8 @@ class SemanticScholarRetriever(Retriever):
     needed to get started."""
 
     source_type = "paper"
+    source_role = "evidence"
+    acquisition_mode = "api"
 
     async def search(self, query: str, max_results: int = 3) -> list[RetrievedResource]:
         try:
@@ -43,6 +45,8 @@ class SemanticScholarRetriever(Retriever):
                     snippet=paper.get("abstract") or "",
                     source_type=self.source_type,
                     published=str(year) if year else None,
+                    source_role=self.source_role,
+                    acquisition_mode=self.acquisition_mode,
                 )
             )
         return resources

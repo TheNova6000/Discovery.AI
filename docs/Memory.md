@@ -4,6 +4,24 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — Dewey Source Pack v0.1: ground-truth research over ~18 sites, then CppReferenceRetriever + GitHubRetriever
+
+Direct continuation. Real research before any code: checked every candidate source's actual robots.txt, license, and official API/archive options live, not summarized from a search result.
+
+**Two findings that changed the plan:** GeeksforGeeks' own robots.txt explicitly disallows the `anthropic-ai` user-agent for the entire site (alongside cohere-ai/CCBot/Bytespider) -- excluded from the automated pack entirely, confirmed directly rather than assumed compatible. Stack Overflow's robots.txt now blanket-disallows all crawling plus a `Content-signal: ai-train=no` header, and its data-dump license bars LLM-training use -- the only sanctioned path left is the real-time API, per-question, never bulk. TutorialsPoint explicitly blocks GPTBot/ChatGPT-User/CCBot. Khan Academy and Exercism's live websites are both gated by an active Cloudflare bot-challenge (confirmed by a real request returning a JS-challenge page) -- Exercism's real exercises are open-source on GitHub instead, a real fetchable alternative. Wikipedia, MDN (content is a public git repo, no scraping needed), cppreference (CC-BY-SA-3.0+GFDL, official archive), GitHub (its own robots.txt explicitly names ClaudeBot/anthropic-ai as recognized crawlers), and MIT OCW all confirmed genuinely open.
+
+**A real surprise found while implementing, not researching:** cppreference runs real MediaWiki software with a real API, but sits behind an active Cloudflare bot-challenge that blocked `action=opensearch` (a JS-challenge page) while `action=parse` on a known title succeeded cleanly in the same session -- free-text search against the live site is not reliable, confirmed directly.
+
+**Architectural evaluation, done before writing a new type (matching this project's own R-track discipline):** the proposed `SourceAdapter`/`ResearchBundle` design would duplicate the existing, already-working Evidence Engine -- entity/relationship discovery already happens downstream of synthesized claims (decide_next_step/extract_relations), not from raw retrieved text. Decision: coexist and extend the existing `Retriever` ABC, not build a second competing pipeline.
+
+**Built:** `RetrievedResource` gained `source_role`/`acquisition_mode` (both optional, additive). All 6 pre-existing retrievers backfilled with real values. `CppReferenceRetriever` (acquisition_mode="controlled_document") -- an 11-entry page map covering exactly the "C++ pointers and memory" example topic, every title individually confirmed live before being added (one guessed title, `pointer_arithmetic`, was confirmed NOT to exist this way and correctly replaced with the real page). `GitHubRetriever` (acquisition_mode="api", keyless, real repository search). No topic-routing logic added -- both fire unconditionally like every other retriever, relying on the existing confidence-scoring mechanism to down-weight irrelevant results.
+
+**A real, honest data-quality finding:** one real GitHub result had raw HTML markup as its actual repository description (confirmed genuine, not a parsing bug) -- left unfiltered, exactly the kind of noise synthesize_claim's existing confidence scoring already handles for every other retriever.
+
+**Verified: `scripts/verify_source_pack.py`, 4/4.** Real hits for real queries, honest empty results for out-of-coverage queries, all 8 DEFAULT_RETRIEVERS classified, and a real, live, unmodified `gather_evidence_with_outcomes` call produced 9 real retrieval outcomes and exactly 1 real synthesized claim (confidence 0.2, borderline -- reported honestly, not rounded up) with source_role/acquisition_mode surviving intact through the existing pipeline.
+
+---
+
 ## 2026-09-17 — Dewey: the Learning Portal named and restructured into its own module, separate from Discovery.AI; doodle illustrations added
 
 Direct instruction from the user: the Learning Portal is named Dewey (two real namesakes -- the Dewey Decimal System, and John Dewey, whose "learn through real, guided experience" philosophy is the actual pedagogy already built), personified as a character learners interact with, with doodle illustrations. Discovery.AI remains separate -- the user asked explicitly for the project to be restructured into modules along that line, not just renamed in prose.

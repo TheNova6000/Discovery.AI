@@ -11,6 +11,8 @@ class TavilyRetriever(Retriever):
     retriever failure (docs/Rules.md §3)."""
 
     source_type = "web"
+    source_role = "explanation"
+    acquisition_mode = "api"
 
     async def search(self, query: str, max_results: int = 3) -> list[RetrievedResource]:
         if not TAVILY_API_KEY:
@@ -39,6 +41,8 @@ class TavilyRetriever(Retriever):
                     url=url,
                     snippet=item.get("content") or "",
                     source_type=self.source_type,
+                    source_role=self.source_role,
+                    acquisition_mode=self.acquisition_mode,
                 )
             )
         return resources

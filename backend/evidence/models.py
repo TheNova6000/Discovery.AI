@@ -20,9 +20,26 @@ class RetrievedResource(BaseModel):
     title: str
     url: str
     snippet: str = ""
-    source_type: str  # "web" | "paper" | "book" | "video"
+    source_type: str  # "web" | "paper" | "book" | "video" | "code"
     published: Optional[str] = None
     retrieved_at: str = Field(default_factory=_now)
+    source_role: Optional[str] = None
+    """Dewey Source Pack research (docs/Memory.md, 2026-09-17): what KIND of
+    evidence this retriever structurally produces -- "entity_discovery" /
+    "explanation" / "technical_reference" / "implementation" / "evidence" /
+    "reference". A fixed, honest property of the retriever itself (e.g. GitHub
+    results are always "implementation"), never an LLM guess per result. `None`
+    for any retriever that hasn't been classified yet -- an old value reading
+    back as `None`, not a fabricated default, per this project's own established
+    "empty must be distinguishable from unknown" discipline."""
+    acquisition_mode: Optional[str] = None
+    """How this resource was actually obtained: "api" (a real, documented,
+    officially-sanctioned API call) / "controlled_document" (a small, curated,
+    individually-verified set of known pages, not free-text search over an
+    entire site) / "archive" (a downloaded, officially-distributed bulk archive,
+    no live request per lookup). Recorded so a caller can tell a live API result
+    apart from a fetch against a small, hand-verified page list -- these are not
+    the same kind of evidence, even when they end up in the same list."""
 
 
 class ClaimDraft(BaseModel):

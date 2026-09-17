@@ -15,6 +15,8 @@ class ArxivRetriever(Retriever):
     """Keyless — https://export.arxiv.org/api/query, Atom XML feed. No setup needed."""
 
     source_type = "paper"
+    source_role = "evidence"
+    acquisition_mode = "api"
 
     async def search(self, query: str, max_results: int = 3) -> list[RetrievedResource]:
         try:
@@ -50,6 +52,8 @@ class ArxivRetriever(Retriever):
                     snippet=summary,
                     source_type=self.source_type,
                     published=published,
+                    source_role=self.source_role,
+                    acquisition_mode=self.acquisition_mode,
                 )
             )
         return resources

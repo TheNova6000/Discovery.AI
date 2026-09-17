@@ -16,6 +16,8 @@ class YouTubeRetriever(Retriever):
     high-volume). Returns zero results (not an error) when the key is missing."""
 
     source_type = "video"
+    source_role = "explanation"
+    acquisition_mode = "api"
 
     async def search(self, query: str, max_results: int = 3) -> list[RetrievedResource]:
         if not YOUTUBE_API_KEY:
@@ -55,6 +57,8 @@ class YouTubeRetriever(Retriever):
                     snippet=snippet.get("description") or "",
                     source_type=self.source_type,
                     published=snippet.get("publishedAt"),
+                    source_role=self.source_role,
+                    acquisition_mode=self.acquisition_mode,
                 )
             )
         return resources

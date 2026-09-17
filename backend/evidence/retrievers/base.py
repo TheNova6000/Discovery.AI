@@ -15,7 +15,21 @@ class Retriever(ABC):
     sinks the whole `gather_evidence` call.
     """
 
-    source_type: ClassVar[str]  # "web" | "paper" | "book" | "video"
+    source_type: ClassVar[str]  # "web" | "paper" | "book" | "video" | "code"
+
+    source_role: ClassVar[str] = "unclassified"
+    """Dewey Source Pack research (docs/Memory.md, 2026-09-17): a fixed, honest
+    property of THIS retriever's own nature -- what kind of evidence it
+    structurally produces, never computed per result. See
+    `backend.evidence.models.RetrievedResource.source_role`'s own docstring for
+    the real vocabulary. Every concrete retriever's `search()` should stamp this
+    onto each `RetrievedResource` it returns."""
+
+    acquisition_mode: ClassVar[str] = "api"
+    """"api" / "controlled_document" / "archive" -- see
+    `RetrievedResource.acquisition_mode`'s own docstring. Defaults to "api"
+    since that's what every retriever in this codebase used until the Dewey
+    Source Pack research added the first non-API one (controlled_document)."""
 
     @abstractmethod
     async def search(self, query: str, max_results: int = 3) -> list[RetrievedResource]: ...
