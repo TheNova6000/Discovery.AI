@@ -4,6 +4,18 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — Verification-hygiene pass: fixed the one genuinely stale script, added a machine-readable pass/fail/environment-blocked summary
+
+Not a feature slice -- a maintenance pass, requested explicitly after an external review of this session's own progress report flagged that "42 scripts, 32 passed, 10 failed" was being reported without distinguishing a real defect from an environment gap.
+
+**`scripts/verify_zoom_and_explain.py` had two separate problems, both real, both fixed:** (1) it still imported `zoom_in`, renamed to `materialize_abstraction` in Phase 6.1 (2026-09-16) -- it had been failing on import ever since, a stale script, not a product regression. (2) Fixing the import alone was not enough: re-running it against the current Neo4j instance found its fixtures ("Internet Infrastructure Probe", "PayPal") no longer had the historical decomposition data it assumed -- confirmed directly (`get_decomposition` returned zero children), the same class of cross-instance drift `verify_r5_3.py` already named explicitly for "PayPal" losing its decomposition. Fixed properly, not routed around: every check now builds its own fresh, disposable, uniquely-named fixture via the Graph Interface directly (a `_RUN_TAG` timestamp suffix), the same convention `verify_r4_4.py`/`verify_r4_5.py` already established -- durable regardless of which Neo4j instance or how much real investigation history has accumulated. Re-run clean: 9/9 checks pass against the live instance.
+
+**New `scripts/run_all_verifications.py`** -- runs every `verify_*.py`, categorizes each into exactly one of `passed` / `environment_blocked` (its own output names a missing LLM provider key) / `failed` (anything else), and emits one JSON summary plus a one-line stderr tally. Run fresh: **33 passed, 9 environment-blocked (missing LLM keys in this environment -- a real, pre-existing gap, not a regression), 0 failed**, out of 42 scripts total. This is the first time this project has had one mechanically-produced answer to "did everything pass" instead of an eyeballed scan of 40+ separate terminal runs.
+
+**Deliberately not done:** no change to any R5/Phase 9 test's own assertions (per instruction -- "keep the current R5 tests unchanged unless a real defect is found"; none was). No attempt to provision LLM keys in this environment to turn the 9 environment-blocked scripts green -- that's a deployment/credentials question, not a code fix.
+
+---
+
 ## 2026-09-17 — Phase 12.0 (minimal slice) built: a real course-viewer frontend, browser-tested against live data
 
 Direct continuation, same session, immediately after Phase 9.2's commit and push -- the R5.0 audit's own recommended execution order (R5.1->R5.2->R5.3->Phase9.1->Phase9.2->Phase12.0) is now fully complete.
