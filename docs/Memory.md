@@ -4,6 +4,22 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — R5.2 built: compile_research_response, the pure projection compiler
+
+Follows R5.1, same session (spanning midnight). `backend/research_api/compiler.py`'s `compile_research_response(artifact, *, claims=None, subgraph=None, provenance=None) -> ResearchResponse`.
+
+**Corrected from R5.1's own original framing:** that entry called this "the I/O shell." Direct inspection found it doesn't need to be one -- the function is fully pure, taking optional already-fetched real data as parameters. Actual I/O stays the caller's job.
+
+**The real finding that shaped this slice:** `ResearchArtifact`/`ConceptResearchArtifact` embed no real `Claim` objects -- only `EvidenceReference` (a citation pointer with no `normalized_form`/`entity_id`/`source_question_id`/`status`). Fabricating a `Claim` from one would mean inventing `normalized_form` from a citation, the same "RetrievalOutcome -> Claim" collapse R1.1 exists to prevent. `claims`/`subgraph`/`provenance` are therefore optional caller-supplied parameters, never fabricated; `evidence`/`coverage`/`contradictions` ARE fully derivable directly from the artifact.
+
+`subclaims` computed exactly as R4.3/R5.1 established: `[c for c in claims if c.parent_claim_id is not None]`, same object identity.
+
+**Verified: `scripts/verify_r5_2.py`, 8/8, pure, no I/O.** Minimal and real fixtures compile; subclaim projection preserves identity; rejected/superseded/duplicate/legacy_invalid_claim/disputed all retain exact status; unavailable fields stay honestly empty; full round-trip; no mutation across two compilations; determinism confirmed. All 118 pre-existing checks re-confirmed unaffected.
+
+**Next: R5.3** -- `POST /research`, wiring the compiler behind a real route.
+
+---
+
 ## 2026-09-16 (continued, same day) — R5.0 audit + R5.1 built: the stable Research API contract, pure types only
 
 R5.0: a repository-grounded phase-completion audit (no code changed except two stale status-header corrections in Phases.md -- the R4 parent header and the Reasoning Engine Evolution track header both still said "not started"/"VISION" despite R1-R4.5 being fully built same day). Confirmed R5 has zero code today; confirmed Phase 9-13 have no backend directories or frontend files; confirmed the fastest safe path to a first complete product is R5.1->R5.2->R5.3->Phase 9.1->9.2->Phase 12.0, not a sequential slog through every phase.

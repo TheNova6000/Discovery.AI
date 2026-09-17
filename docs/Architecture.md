@@ -2890,3 +2890,25 @@ Per the R5.0 audit's own recommended next slice: `ResearchRequest`/`ResearchResp
 **Verified: `scripts/verify_r5_1.py`, 9/9, pure logic, no LLM/retriever/Neo4j call.** `ResearchResponse` constructed from a real `ResearchArtifact` fixture (`assemble_research_artifact`, the same pure function `scripts/verify_phase8_6.py` already tests) and real `Claim` objects (via R4.1's real `claim_node_to_domain_claim` mapper, not a fabricated shape); `investigation_id`/`status`/`root_entity_id` all confirmed preserved or honestly `None`; claims/evidence confirmed to carry the real computed values; `subclaims`/`unresolved_tasks`/`provenance` confirmed empty, each for its own stated real reason; full round-trip serialization including nested objects; no mutation of the source artifact or its `ClaimNode`s; invalid `required_fields`/empty `topic`/empty `investigation_id` all rejected explicitly; R1/R3/R4 lifecycle semantics (`transition_claim`/`ResearchTask`/`ClaimStatus`) confirmed unchanged by this new package's presence. All 109 pre-existing checks (Phase 6/8.1-8.6/R1.1-R1.5/R2.1/R3.1/R3.2/R4.1-R4.5) re-confirmed unaffected.
 
 **Deliberately not built in this slice:** `compile_research_response` (R5.2 — the function that actually populates a `ResearchResponse` from a real, live investigation), any API route, any Neo4j change, any change to R1-R4's own behavior. No existing file was modified; every new file is additive.
+
+## §0.74 — R5.2: compile_research_response, the pure projection compiler
+
+The exact boundary this slice establishes and preserves:
+
+```
+ResearchArtifact          = the existing research-domain artifact/source (Phase 8.6)
+ResearchResponse          = the stable API projection (R5.1)
+compile_research_response = the pure projection compiler (this slice) -- reads
+                             ResearchArtifact + optionally-supplied real data,
+                             writes ResearchResponse, creates nothing new
+```
+
+No new epistemic objects are created; no lifecycle transitions occur (`transition_claim` is never called); no confidence gating occurs (a claim's status, not its confidence, decides nothing here — the compiler doesn't even inspect confidence); no persistence occurs; no orchestration occurs (no Neo4j/LLM/retriever/HTTP call).
+
+**A real, load-bearing finding this slice's own repository inspection surfaced, not assumed from R5.2's own suggested shape:** `ResearchArtifact`/`ConceptResearchArtifact` (Phase 8.6) embed no real `reasoning.domain.Claim` objects at all — only `EvidenceReference` (`claim_id`, `source_title`, `source_url`, `source_type`, `confidence`), with no `normalized_form`/`entity_id`/`source_question_id`/`status`. Fabricating a `Claim` from an `EvidenceReference` alone would mean inventing `normalized_form` from a source citation — exactly the "`RetrievalOutcome → Claim`" collapse R1.1 was built to prevent, generalized to this new boundary. `compile_research_response` therefore accepts `claims`/`subgraph`/`provenance` as **optional, real, already-fetched parameters** — reused when a caller has them (e.g. via R4.1's `claim_node_to_domain_claim`, run separately), never fabricated when absent. `evidence`/`coverage`/`contradictions`, by contrast, ARE fully, honestly derivable directly from the artifact alone (it already embeds real `EvidenceReference`/the exact fields `ConceptCompleteness` needs/real `ContradictionReport` objects) — no external parameter needed for these three.
+
+**`subclaims` is computed exactly as R4.3 and R5.1 already established:** `[c for c in claims if c.parent_claim_id is not None]` — a filtered view sharing the same object identity as the matching entries in `claims`, never a copy, never a new type.
+
+**Verified: `scripts/verify_r5_2.py`, 8/8, pure logic, no LLM/retriever/Neo4j call.** A minimal zero-concept artifact compiles cleanly; the real Phase 8.6 fixture compiles with real evidence/coverage preserved; a parent/child `Claim` pair correctly splits into `claims`/`subclaims` with identity preserved (`is`, not `==`); `rejected`/`superseded`/`duplicate`/`legacy_invalid_claim`/`disputed` claims all retain their exact status, none filtered or reclassified; `root_entity_id`/`unresolved_tasks`/`provenance`/`subclaims` stay honestly empty when not supplied; full serialization round-trip including nested contradiction findings; the source artifact/concepts/claims are confirmed byte-for-byte unchanged after compiling twice; two compilations of the same input produce equal (`==`) results. All 118 pre-existing checks (Phase 6/8.1-8.6/R1.1-R1.5/R2.1/R3.1/R3.2/R4.1-R4.5/R5.1) re-confirmed unaffected.
+
+**Deliberately not built in this slice:** `POST /research` or any route (R5.3), retriever/LLM/Neo4j calls, curriculum compilation, prerequisite inference, lesson generation, frontend changes, any new lifecycle mechanics or claim/evidence/subclaim class. No existing file's behavior changed — `backend/research_api/__init__.py` only gained a new export.
