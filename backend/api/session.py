@@ -7,6 +7,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from backend.agents.policy import ResearchMode
 from backend.questions import get_family
 
 from . import db
@@ -322,6 +323,20 @@ class BuildRoadmapRequest(BaseModel):
 
     entity_name: str = Field(min_length=1)
     scope_hint: Optional[str] = None
+
+
+class LessonRequest(BaseModel):
+    """POST /lesson (Phase 10.2, docs/Phases.md): a topic plus which concept,
+    by real entity_name, within that topic's compiled Course to author a
+    Lesson for. `concept` is matched against Course.modules'/incomplete_
+    concepts' real entity_name, case-insensitively -- not a free-form prompt
+    the LLM interprets on its own."""
+
+    topic: str = Field(min_length=1)
+    concept: str = Field(min_length=1)
+    mode: ResearchMode = "exploratory"
+    """Same real constraint as /research and /course: only "exploratory" has
+    a concrete ResearchPolicy today (Phase 8.1)."""
 
 
 class SettingsUpdateRequest(BaseModel):

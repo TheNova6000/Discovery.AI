@@ -23,6 +23,7 @@ from backend.graph import (
 )
 from backend.roadmap import generate_roadmap
 from backend.curriculum import compile_course
+from backend.lessons import compile_lesson
 from backend.research_api import ResearchRequest, fetch_and_compile_research_response
 from backend.questions import (
     PROJECTION_FAMILIES,
@@ -51,6 +52,7 @@ from .session import (
     ChatRequest,
     ChatResponse,
     CursorPathIn,
+    LessonRequest,
     PendingAction,
     SessionState,
     SettingsUpdateRequest,
@@ -1095,6 +1097,65 @@ async def course_endpoint(req: ResearchRequest, user_id: str = Depends(get_curre
 
     course = compile_course(response)
     return course.model_dump()
+
+
+@app.post("/lesson")
+async def lesson_endpoint(req: LessonRequest, user_id: str = Depends(get_current_user_id)) -> dict:
+    """Phase 10.2 (docs/Phases.md) -- the same shallow-wrapper shape `/course`
+    above already established, one step further: resolve the topic's Course
+    exactly like `/course` does, find `req.concept`'s real Module by
+    entity_name (case-insensitive), then `compile_lesson` (Phase 10) it.
+    Reuses the real Course, never re-derives one.
+
+    404 when the topic itself has no decomposition, matching `/research`/
+    `/course`'s own convention there (400 for THOSE routes, since a bare
+    topic with nothing to compile at all is the same "investigate it
+    further first" state) -- but 404 specifically for `req.concept` not
+    existing anywhere in the compiled course, a distinct "wrong resource
+    name" state. 409 when the concept exists but hasn't cleared Phase 8.3's
+    completeness bar yet (real, in `incomplete_concepts`, not silently
+    treated as missing) -- a real, different state from "doesn't exist,"
+    same "empty must be distinguishable from unknown" discipline as
+    everywhere else in this codebase.
+    """
+    if req.mode == "learning":
+        raise HTTPException(
+            status_code=501,
+            detail="mode='learning' has no concrete ResearchPolicy defined yet (Phase 8.2+ work) -- only 'exploratory' is implemented today.",
+        )
+
+    entity = await find_or_create_entity(req.topic)
+    abstraction = await materialize_abstraction(entity.id)
+    if abstraction is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{req.topic!r} has no discovered decomposition yet -- investigate it further before authoring a lesson.",
+        )
+
+    try:
+        response = await fetch_and_compile_research_response(abstraction.id, EXPLORATORY_POLICY)
+    except GraphInterfaceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    course = compile_course(response)
+
+    concept_lower = req.concept.strip().lower()
+    for module in course.modules:
+        if module.entity_name.strip().lower() == concept_lower:
+            lesson = await compile_lesson(module)
+            return lesson.model_dump()
+
+    for incomplete in course.incomplete_concepts:
+        if incomplete.entity_name.strip().lower() == concept_lower:
+            raise HTTPException(
+                status_code=409,
+                detail=f"{req.concept!r} exists but has not met the research-completeness bar yet (missing: {sorted(incomplete.missing_fields)}) -- investigate it further before authoring a lesson.",
+            )
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"{req.concept!r} is not a concept in {req.topic!r}'s compiled course.",
+    )
 
 
 # Clean-URL routes for the two real pages. StaticFiles(html=True) below only

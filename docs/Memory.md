@@ -4,6 +4,18 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — Phase 10.2 built: POST /lesson wired end to end; Phase 11 confirmed blocked by missing Docker, not just unscheduled
+
+Direct continuation, same session. `POST /lesson` (backend/api/app.py) -- same shallow-wrapper shape /course already established: resolve topic's Course -> find req.concept's real Module by entity_name -> compile_lesson. New LessonRequest (topic/concept/mode). Three real, distinct status codes: 400 (topic undecomposed), 404 (concept not in the course at all), 409 (concept exists but hasn't cleared Phase 8.3's completeness bar -- a real, different state from "doesn't exist").
+
+**Verified: `scripts/verify_phase10_2.py`, 4/4, against real Neo4j and real LLM calls** (both now genuinely exercised end to end for the first time). Real "online payment" course confirmed to have 5 modules with claims; mode="learning" -> 501; unknown concept -> 404; real "Payment gateway" concept -> 200, status="composed", 23 real source_claim_ids.
+
+**Discovery.AI's Research API, the Curriculum Compiler, and Lesson Authoring are now wired end to end behind real HTTP routes, against real data, with real LLM calls firing successfully.**
+
+**Checked before attempting Phase 11 (Challenge Engine), not assumed:** `docker --version` -- no Docker binary in this environment. Phase 11's own spec requires Docker-backed sandboxed execution as a real security boundary; building it against a machine where the actual container isolation can never be tested would produce an unverified "VERIFIED" claim, exactly the discipline this whole project exists to avoid. Recorded as a real, environment-level NAMED GAP in Phases.md, deferred rather than faked with a mocked sandbox.
+
+---
+
 ## 2026-09-17 — Phase 10 built: Lesson Authoring, first real live audited lesson; has_any_provider_key() fixed for real
 
 Direct continuation, same session, after the user explicitly authorized continuing well past the S0.1 "stop after this slice" checkpoint ("loop yourself in... until half the system or more, or completing the whole discovery.ai system or something more").

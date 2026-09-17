@@ -102,6 +102,37 @@
     color: var(--text-dim);
     font-style: italic;
   }
+  .lesson-btn {
+    margin-top: 0.6rem;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 0.35rem 0.7rem;
+    font-size: 0.8rem;
+  }
+  .lesson-btn:hover { background: var(--accent); color: white; }
+  .lesson-panel {
+    margin-top: 0.7rem;
+    padding-top: 0.7rem;
+    border-top: 1px dashed var(--border);
+    font-size: 0.88rem;
+  }
+  .traceable-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    margin-bottom: 0.5rem;
+  }
+  .traceable-badge.yes { background: #e6f2ea; color: var(--accent); }
+  .traceable-badge.no { background: #fbf3ea; color: var(--warn); }
+  .lesson-explanation { line-height: 1.5; }
+  .lesson-examples { margin-top: 0.5rem; font-size: 0.85rem; }
+  .lesson-examples li { margin-bottom: 0.25rem; }
+  .sentence-uninvestigated {
+    background: #fbf3ea;
+    border-bottom: 1px dashed var(--warn);
+  }
 </style>
 </head>
 <body>
@@ -197,13 +228,79 @@
         '<div class="claim">' + escapeHtml(c.normalized_form) +
         ' <span class="conf">(confidence ' + Math.round(c.confidence * 100) + '%)</span></div>'
       ).join('');
+      const safeId = 'lesson-' + index;
 
       return (
         '<div class="module">' +
           '<span class="module-title"><span class="module-index">' + (index + 1) + '</span>' +
             escapeHtml(module.entity_name) + '</span>' +
           '<div class="claims">' + (claimsHtml || '<span class="empty-note">No claims recorded for this concept yet.</span>') + '</div>' +
+          (module.claims && module.claims.length
+            ? '<button class="lesson-btn" data-concept="' + escapeAttr(module.entity_name) + '" data-panel="' + safeId + '">Read lesson</button>' +
+              '<div class="lesson-panel" id="' + safeId + '" hidden></div>'
+            : '') +
         '</div>'
+      );
+    }
+
+    async function loadLesson(button) {
+      const concept = button.dataset.concept;
+      const panel = document.getElementById(button.dataset.panel);
+      const topic = inputEl.value.trim();
+
+      if (!panel.hidden) { panel.hidden = true; return; }
+      panel.hidden = false;
+
+      if (panel.dataset.loaded === '1') return;
+      panel.innerHTML = '<span class="empty-note">Composing lesson…</span>';
+      button.disabled = true;
+
+      try {
+        const res = await fetch(apiUrl('/lesson'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ topic: topic, concept: concept }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail || ('HTTP ' + res.status));
+        }
+        const lesson = await res.json();
+        panel.innerHTML = lessonHtml(lesson);
+        panel.dataset.loaded = '1';
+      } catch (err) {
+        panel.innerHTML = '<span class="empty-note">Failed to compose lesson: ' + escapeHtml(err.message) + '</span>';
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function lessonHtml(lesson) {
+      if (lesson.status !== 'composed') {
+        return '<span class="empty-note">Not enough real claims to compose a lesson for this concept yet.</span>';
+      }
+
+      // Every sentence carries its own real audit_synthesis verdict --
+      // "investigated" renders as plain text, "uninvestigated" is flagged
+      // visibly rather than silently blended in, matching this project's
+      // own honesty discipline (Rules.md rule 19) all the way into the UI.
+      const sentencesHtml = (lesson.sentences || []).map(s =>
+        '<span' + (s.origin === 'uninvestigated' ? ' class="sentence-uninvestigated" title="Not traceable to any real claim"' : '') +
+        '>' + escapeHtml(s.text) + '</span>'
+      ).join(' ');
+
+      const examplesHtml = (lesson.examples || []).length
+        ? '<ul class="lesson-examples">' + lesson.examples.map(e => '<li>' + escapeHtml(e) + '</li>').join('') + '</ul>'
+        : '';
+
+      const badge = lesson.fully_traceable
+        ? '<span class="traceable-badge yes">every sentence traces to a real claim</span>'
+        : '<span class="traceable-badge no">some sentences do not trace to a real claim (highlighted below)</span>';
+
+      return (
+        badge +
+        '<div class="lesson-explanation">' + (sentencesHtml || escapeHtml(lesson.explanation)) + '</div>' +
+        examplesHtml
       );
     }
 
@@ -220,9 +317,14 @@
     function escapeHtml(s) {
       return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
+    function escapeAttr(s) { return escapeHtml(s); }
 
     loadBtn.addEventListener('click', compileCourse);
     inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') compileCourse(); });
+    modulesEl.addEventListener('click', e => {
+      const btn = e.target.closest('.lesson-btn');
+      if (btn) loadLesson(btn);
+    });
     if (inputEl.value) compileCourse();
   </script>
 </body>
