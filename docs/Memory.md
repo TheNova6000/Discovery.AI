@@ -4,6 +4,24 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — Phase S0.1: LLM environment preflight report -- surfaced a real bug, not just documented a limitation
+
+Direct continuation of the verification-hygiene pass below, per an explicit follow-up instruction to make the 9 `environment_blocked` scripts' actual requirements reproducible and inspectable, without weakening any assertion or converting `environment_blocked` into `passed` artificially.
+
+**`scripts/preflight_llm_environment.py`** -- reads real `os.environ` (via the same `backend.questions.llm_config` module the real provider chain reads from) and reports, per provider, whether it's configured and whether it's actually wired into a real model chain -- presence/count only, never a secret value. Confirmed by direct source inspection, not assumed: all 9 `environment_blocked` scripts gate on the exact same function, `has_any_provider_key()`; 2 of the 9 also touch Neo4j (not this environment's actual blocker -- other scripts connect to the same real instance successfully); 2 touch the optional Tavily/YouTube retrievers, which already degrade gracefully with zero results when unset.
+
+**A real, previously-undiscovered bug surfaced by building this report, not invented by it:** `has_any_provider_key()` checks only the singular env var names (`GEMINI_API_KEY`/`GROQ_API_KEY`/`CEREBRAS_API_KEY`/`COHERE_API_KEY`). This environment's real `.env` has 25 real keys configured under the PLURAL multi-key rotation names this project's own documented convention uses (`GEMINI_API_KEYS` 9 keys, `GROQ_API_KEYS` 9 keys, `CEREBRAS_API_KEYS` 7 keys -- confirmed by checking which env var NAMES are set, never their values). `PROVIDER_KEY_POOLS` (the thing the real production call chain actually uses) correctly finds all of them via `_collect_keys()`'s plural-then-singular fallback. `has_any_provider_key()` never learned that convention and has been returning `False` this whole time despite 25 real, functional keys being present -- meaning all 9 "environment_blocked" scripts were misdiagnosed: not blocked by a missing environment, blocked by this one verification-only helper function checking the wrong env var names. A second, smaller, real inconsistency also confirmed: `COHERE_API_KEY` is checked by this same function and listed in `.env.example` as one of four providers to configure, but is not wired into `PROVIDER_KEY_POOLS`/`GROUND_MODEL_CHAIN`/`MASTER_MODEL_CHAIN` at all (the `cohere` package was never installed, per this project's own Phase 2 entry above) -- setting only that key would report "configured" while every real call still failed.
+
+**Deliberately not fixed in this slice** -- `has_any_provider_key()` is real production code (not test code), and fixing it would very plausibly turn all 9 previously-`environment_blocked` scripts into scripts that fire real LLM calls against a real, rate-limited free-tier quota for the first time in a long time -- a decision recorded here for deliberate action next, not silently made inside a "reporting" slice.
+
+**Verified: `scripts/verify_preflight_llm_environment.py`, 5/5, no LLM/retriever/Neo4j call.** Report shape well-typed; cohere correctly flagged non-functional (a static, code-level fact, not environment-dependent) while google/groq/cerebras are correctly flagged functional; the tracked 9-script list matches exactly what grep against real source confirms, with correct Neo4j sub-flags; **zero of 25 real configured secret values appear anywhere in the report's JSON serialization** (checked directly against the real, currently-configured key strings, not simulated); the has_any_provider_key()-vs-real-configuration discrepancy is surfaced, not silently absorbed, when it exists.
+
+**Full suite re-run: 34 passed, 9 environment-blocked, 0 failed, out of 43 scripts** (43 now includes this slice's own new verify script).
+
+**Next, explicitly flagged rather than done automatically:** fix `has_any_provider_key()` to also check the plural forms (matching `_collect_keys()`'s own already-correct behavior), then actually run the newly-unblocked 9 scripts against real providers -- real API calls, real free-tier quota consumption, a decision worth making consciously rather than silently inside this reporting slice.
+
+---
+
 ## 2026-09-17 — Verification-hygiene pass: fixed the one genuinely stale script, added a machine-readable pass/fail/environment-blocked summary
 
 Not a feature slice -- a maintenance pass, requested explicitly after an external review of this session's own progress report flagged that "42 scripts, 32 passed, 10 failed" was being reported without distinguishing a real defect from an environment gap.
