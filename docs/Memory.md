@@ -4,6 +4,20 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — Dewey Source Pack v0.1 Quality Pass: one real investigation, two real findings
+
+Direct continuation, per an explicit instruction to run a structured evidence-quality evaluation before adding another source, not just confirm the retrievers are connected. `scripts/evaluate_source_pack_quality.py` (matching this project's own `evaluate_*` diagnostic convention, not verify_*'s pass/fail one) ran one real, un-mocked GroundAgent investigation on "C++ pointers and memory."
+
+**Real result:** 3 discovered entities (Pointer, dynamic memory allocation, pointer_risk), 4 real claims (3 supported ≥0.5 confidence, 1 weak at 0.35), 0 provenance errors, 3 of 8 retriever roles contributing a surviving claim.
+
+**A real environmental confound, named not hidden:** this run hit Groq's daily token quota repeatedly -- 75 rate-limit errors across all 9 keys (spanning 3 distinct Groq orgs, confirming the key pool works as designed -- some accounts still had headroom, which is how the run finished purely within Groq without ever needing Gemini/Cerebras). Direct, cumulative consequence of this same session's earlier heavy live-LLM testing (S0.1's fix, Phase 10/10.2, verify_source_pack.py). Named explicitly so a future, likely-richer re-run isn't mistaken for "the Source Pack improved" when the real difference would just be quota headroom.
+
+**A second real finding, about the evaluation script's own methodology, caught before reporting a number:** the original coverage check matched expected concepts against every claim's text regardless of confidence, so "smart pointer" registered as a false positive -- the one weak claim literally said "...does not cover delete, malloc, free, or smart pointers," and substring matching can't tell "explains X" from "explicitly says it doesn't cover X." Fixed before reporting: coverage now only checks discovered entity names + supported (>=0.5) claim text. Recomputed on the same real data: 4/12 concepts genuinely covered (pointer, address, dynamic allocation, dangling/invalid-access), not the original false 5 -- 8 genuinely missing. Stated as a partial mitigation, not a complete fix (real negation-awareness needs an LLM call this cheap diagnostic script deliberately doesn't make).
+
+**What this actually demonstrates:** source acquisition and metadata integrity are real and working; conceptual completeness for one topic after one investigation pass is genuinely narrow -- exactly the honest baseline this kind of check exists to surface, not a check failure. No second live run attempted this session (quota still exhausted); a genuinely clean re-run is real, separate future work against a fresh daily quota.
+
+---
+
 ## 2026-09-17 — Dewey Source Pack v0.1: ground-truth research over ~18 sites, then CppReferenceRetriever + GitHubRetriever
 
 Direct continuation. Real research before any code: checked every candidate source's actual robots.txt, license, and official API/archive options live, not summarized from a search result.
