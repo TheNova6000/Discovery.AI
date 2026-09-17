@@ -4,6 +4,22 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — Phase 10 built: Lesson Authoring, first real live audited lesson; has_any_provider_key() fixed for real
+
+Direct continuation, same session, after the user explicitly authorized continuing well past the S0.1 "stop after this slice" checkpoint ("loop yourself in... until half the system or more, or completing the whole discovery.ai system or something more").
+
+**Fixed the has_any_provider_key() bug for real** (flagged but deliberately not fixed in the S0.1 entry below) -- moved after PROVIDER_KEY_POOLS's definition, rewritten to read the same real pool the production call chain uses (`any(PROVIDER_KEY_POOLS[p] for p in ("google","groq","cerebras"))`), cohere deliberately excluded (confirmed dead). Re-ran the full suite: 34 -> 42 scripts genuinely execute now against real providers for the first time in a long while. One real, honest, pre-existing failure remains -- `verify_phase5.py` hit the same Semantic-Scholar-429/no-Tavily-key retriever variance this project's own original Phase 5 entry already documented ("Semantic Scholar's keyless tier hit 429 Too Many Requests on essentially every call made today") -- not a new regression, reproduced identically.
+
+**`backend/lessons/`'s `compile_lesson(module) -> Lesson`** -- the first real capability built on top of Phase 9.1's Curriculum Compiler. Two separate calls, mirroring audit_synthesis's own original design principle: `compose_lesson_explanation` (new, `backend/questions/lesson_authoring.py`, the one LLM call this slice needs, confined to backend/questions per Rules.md rule 2) composes an explanation from a module's real claims ONLY -- the system prompt explicitly forbids introducing any fact not present in the given claims, enforced by construction. `audit_synthesis` (Post-Phase-5 epistemic layer, completely unchanged, per Rules.md rule 19) then independently audits every atomic sentence for real traceability -- a lesson never certifies its own honesty.
+
+**A real, honest empty state:** a module with zero claims short-circuits to `status="insufficient_claims"` before any LLM call, with `fully_traceable=None` (not `False`) -- "never attempted" kept distinct from "attempted, found ungrounded."
+
+**Verified live, first time end to end: `scripts/verify_phase10.py`, 4/4.** "Payment gateway" (23 real claims from the live "online payment" course) -> a real 333-character composed explanation -> 3 audited sentences, all "investigated," `fully_traceable=True` -> `source_claim_ids` exactly matching the module's 23 real claim ids. The same Groq RDF-triple-terminology schema drift already documented for relation extraction (Memory.md, 2026-08-29) reproduced here too (model emitting `{claim, status}` instead of `SynthesisAudit`'s real `{text, origin}`) -- the existing multi-key/multi-provider fallback absorbed it correctly, exactly as designed, succeeding on a later attempt.
+
+**Deliberately not built:** Neo4j persistence of a Lesson, any API route or frontend, misconception-tagged content (Phase 8.3's `require_misconceptions` stays honestly unclassified).
+
+---
+
 ## 2026-09-17 — Phase S0.1: LLM environment preflight report -- surfaced a real bug, not just documented a limitation
 
 Direct continuation of the verification-hygiene pass below, per an explicit follow-up instruction to make the 9 `environment_blocked` scripts' actual requirements reproducible and inspectable, without weakening any assertion or converting `environment_blocked` into `passed` artificially.

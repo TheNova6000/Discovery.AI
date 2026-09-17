@@ -8,6 +8,7 @@ from .dimensions import PERSPECTIVE, SCALE, TIME, UNIVERSAL_DIMENSIONS
 from .engine import generate_question
 from .exceptions import QuestionEngineError
 from .intent import Intent, SessionContext, parse_intent
+from .lesson_authoring import LessonDraft, compose_lesson_explanation
 from .models import Dimension, GroundDecision, Question, QuestionDraft, QuestionLevel, SynthesisDraft
 from .relation_extraction import (
     CandidateRelation,
@@ -29,6 +30,8 @@ __all__ = [
     "audit_synthesis",
     "AtomicClaim",
     "SynthesisAudit",
+    "compose_lesson_explanation",
+    "LessonDraft",
     "analyze_claim_relationships",
     "ClaimPairRelationship",
     "RelationshipAnalysis",

@@ -31,13 +31,27 @@ _ENV_BLOCKED_MARKER = "No LLM provider key found in .env"
 
 def _run_one(script: pathlib.Path) -> dict:
     started = time.time()
-    result = subprocess.run(
-        [sys.executable, str(script)],
-        cwd=str(_REPO_ROOT),
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=600,  # real live-LLM investigation scripts have taken up to ~280s (Memory.md)
+        )
+    except subprocess.TimeoutExpired:
+        # A single slow script (a real, un-mocked multi-provider-fallback
+        # investigation) must never crash the whole runner and hide every
+        # other script's real result -- categorized honestly as its own
+        # bucket, never silently folded into "failed" (a timeout is not
+        # necessarily a defect) or "passed" (it never actually finished).
+        return {
+            "script": script.name,
+            "category": "timeout",
+            "exit_code": None,
+            "duration_s": round(time.time() - started, 1),
+        }
+
     duration_s = round(time.time() - started, 1)
     output = result.stdout + result.stderr
 
@@ -64,6 +78,7 @@ def run() -> dict:
         "total_scripts": len(results),
         "passed": sum(1 for r in results if r["category"] == "passed"),
         "environment_blocked": sum(1 for r in results if r["category"] == "environment_blocked"),
+        "timeout": sum(1 for r in results if r["category"] == "timeout"),
         "failed": sum(1 for r in results if r["category"] == "failed"),
         "results": results,
     }
@@ -76,6 +91,7 @@ if __name__ == "__main__":
     print(
         f"\n{summary['passed']} passed, "
         f"{summary['environment_blocked']} environment-blocked, "
+        f"{summary['timeout']} timed out, "
         f"{summary['failed']} failed, "
         f"out of {summary['total_scripts']} scripts.",
         file=sys.stderr,

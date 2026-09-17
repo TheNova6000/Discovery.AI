@@ -64,13 +64,6 @@ MASTER_MODEL_CHAIN: list[str] = [
 ]
 
 
-def has_any_provider_key() -> bool:
-    return any(
-        os.environ.get(key)
-        for key in ("GEMINI_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY", "COHERE_API_KEY")
-    )
-
-
 def _collect_keys(*env_names: str) -> list[str]:
     """Gather every available key for one provider from one or more env vars, each
     of which may itself hold a comma-separated list (credit-maxing: round-robin
@@ -102,6 +95,21 @@ PROVIDER_KEY_POOLS: dict[str, list[str]] = {
     "groq": _collect_keys("GROQ_API_KEYS", "GROQ_API_KEY"),
     "cerebras": _collect_keys("CEREBRAS_API_KEYS", "CEREBRAS_API_KEY"),
 }
+
+
+def has_any_provider_key() -> bool:
+    """Real, functional check -- true iff at least one of the three providers
+    GROUND_MODEL_CHAIN/MASTER_MODEL_CHAIN actually use has a key available,
+    via the exact same PROVIDER_KEY_POOLS the real call chain reads from
+    (Phase S0.1, 2026-09-17: the previous version checked only the singular
+    env var names, GEMINI_API_KEY/GROQ_API_KEY/CEREBRAS_API_KEY, and never
+    the plural multi-key rotation names this project's own documented
+    convention uses -- GEMINI_API_KEYS etc., Architecture.md §0.38.1 --
+    silently misreporting "no key" whenever only the plural form was set,
+    confirmed against this project's own real .env. It also counted
+    COHERE_API_KEY as sufficient on its own, though `cohere` is not wired
+    into either model chain -- dropped; deliberately not checked here."""
+    return any(PROVIDER_KEY_POOLS[provider] for provider in ("google", "groq", "cerebras"))
 
 PROVIDER_ENV_VAR: dict[str, str] = {
     "google": "GOOGLE_API_KEY",
