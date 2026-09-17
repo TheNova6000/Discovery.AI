@@ -4,6 +4,18 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — Experiment C: the coverage checker's own precision/recall, measured -- 0.48 precision, 1.00 recall, zero true negatives
+
+Direct continuation, per explicit instruction to validate the measurement tool before spending more quota trusting its output. `check_concept_coverage` (the Quality Pass's own coverage-check logic below) extracted into a standalone, pure function, tested against a 27-case hand-labeled benchmark (`scripts/evaluate_coverage_checker_precision.py`) -- zero LLM calls, zero quota risk, deliberately, since Groq's daily quota was already exhausted from the Quality Pass run itself.
+
+**Real result: precision 0.48, recall 1.00, zero true negatives out of 27 cases.** The checker never once correctly identified a "not covered" case -- every mentioned-only, negated, or vague claim containing a concept's keyword registered as "covered." Used the exact real claim text from the Quality Pass's own false-positive bug as a permanent regression case, plus found a second, previously-undiscovered false positive by deliberate adversarial construction: a claim about Python's garbage collector ("reference counting and cycle detection") registered as covering C++'s "reference" concept, purely from the substring "reference" inside "reference counting."
+
+**The honest, load-bearing implication: the Quality Pass's own "4 of 12 concepts covered" figure is very likely an overestimate, not a confound-corrected true value.** Recall of 1.00 means "missing" is trustworthy (the checker never misses a real mention); precision of 0.48 means "found" is not -- roughly half of everything it flags "covered" may not be. Reframed explicitly in both the script's own output and its docstring: this is a cheap, high-recall/low-precision triage signal, not a coverage measurement.
+
+**Decision, made deliberately:** do not add LLM-based semantic judgment to the checker in this pass -- two real reasons, not one: this session already hit Groq's daily quota once from cumulative testing (adding a third LLM call per concept-check would make an already-constrained loop worse); and a real semantic-judgment mechanism (the richer mentioned/defined/explained/exemplified/etc. shape from the design conversation) deserves its own dedicated design pass, not a same-turn bolt-on. Experiments A (clean rerun) and B (targeted investigation) deliberately deferred -- running them now would just produce another confident number built on a proven-unreliable checker.
+
+---
+
 ## 2026-09-17 — Dewey Source Pack v0.1 Quality Pass: one real investigation, two real findings
 
 Direct continuation, per an explicit instruction to run a structured evidence-quality evaluation before adding another source, not just confirm the retrievers are connected. `scripts/evaluate_source_pack_quality.py` (matching this project's own `evaluate_*` diagnostic convention, not verify_*'s pass/fail one) ran one real, un-mocked GroundAgent investigation on "C++ pointers and memory."

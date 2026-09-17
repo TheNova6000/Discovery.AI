@@ -20,6 +20,19 @@ What this measures, matching the six real questions the design conversation
 asked for:
   1. Coverage       -- which of a real, stated expected-concept list were
                        actually discovered (by entity name or claim text)?
+                       **Known UPPER BOUND, not a trustworthy positive
+                       result** -- Experiment C
+                       (evaluate_coverage_checker_precision.py,
+                       docs/Architecture.md §0.86) measured this checker's
+                       own precision/recall on a 27-case hand-labeled
+                       benchmark: precision 0.48, recall 1.00, zero true
+                       negatives. It never misses a real mention (a
+                       "missing" concept is trustworthy), but roughly half
+                       of what it reports "found" is a mention-only,
+                       negated, or vague false positive it cannot tell
+                       apart from genuine explanation. Treat
+                       `expected_concepts_found` as "at most this many," not
+                       "these concepts were actually taught."
   2. Source quality -- which source_roles/acquisition_modes contributed a
                        real, surviving claim?
   3. Evidence/synthesis quality -- confidence distribution, supported vs.
@@ -97,6 +110,37 @@ def _text_mentions_any(text: str, variants: list[str]) -> bool:
     return any(v in text_lower for v in variants)
 
 
+def check_concept_coverage(
+    expected_concepts: dict[str, list[str]],
+    *,
+    entity_names: list[str],
+    supported_claim_texts: list[str],
+) -> tuple[list[str], list[str]]:
+    """The real coverage-check logic, extracted as a standalone, pure,
+    dependency-free function so it can be exercised directly against a
+    hand-labeled benchmark (`scripts/evaluate_coverage_checker_precision.py`)
+    without needing a live investigation. Deliberately only looks at
+    discovered entity names and SUPPORTED (confidence-filtered by the
+    caller) claim text -- see this module's own real, dated bug report
+    above (docs/Memory.md, 2026-09-17) for why weak/negated claims must be
+    excluded before this function ever sees them, not filtered inside it.
+
+    Returns (found, missing) concept-name lists, same shape the real
+    evaluation report already uses.
+    """
+    supported_text = " ".join(supported_claim_texts)
+    found: list[str] = []
+    missing: list[str] = []
+    for concept, variants in expected_concepts.items():
+        found_in_names = any(_text_mentions_any(name, variants) for name in entity_names)
+        found_in_claims = _text_mentions_any(supported_text, variants)
+        if found_in_names or found_in_claims:
+            found.append(concept)
+        else:
+            missing.append(concept)
+    return found, missing
+
+
 async def run() -> dict:
     entity = await find_or_create_entity(TOPIC_ENTITY_NAME)
 
@@ -139,16 +183,11 @@ async def run() -> dict:
     # fix; a genuinely thorough one would need real negation-aware judgment,
     # out of scope for this diagnostic script), stated here rather than left
     # to silently overclaim coverage.
-    supported_claim_text = " ".join(c.evidence for c in supported_claims_for_coverage)
-    discovered_concepts: list[str] = []
-    missing_concepts: list[str] = []
-    for concept, variants in EXPECTED_CONCEPTS.items():
-        found_in_names = any(_text_mentions_any(name, variants) for name in discovered_names)
-        found_in_claims = _text_mentions_any(supported_claim_text, variants)
-        if found_in_names or found_in_claims:
-            discovered_concepts.append(concept)
-        else:
-            missing_concepts.append(concept)
+    discovered_concepts, missing_concepts = check_concept_coverage(
+        EXPECTED_CONCEPTS,
+        entity_names=discovered_names,
+        supported_claim_texts=[c.evidence for c in supported_claims_for_coverage],
+    )
 
     supported_claims = [c for c in all_claims if c.confidence >= SUPPORTED_CONFIDENCE_THRESHOLD]
     weak_claims = [c for c in all_claims if c.confidence < SUPPORTED_CONFIDENCE_THRESHOLD]
@@ -180,6 +219,16 @@ async def run() -> dict:
         "investigation_status": ground_result.status.value,
         "discovered_entities": discovered_names,
         "expected_concepts_found": discovered_concepts,
+        "expected_concepts_found_caveat": (
+            "UPPER BOUND, not a trustworthy positive result -- Experiment C "
+            "(scripts/evaluate_coverage_checker_precision.py, docs/Architecture.md "
+            "§0.86) measured this checker at precision 0.48 / recall 1.00 on a "
+            "27-case hand-labeled benchmark: it never misses a real mention "
+            "(missing_concepts IS trustworthy), but roughly half of what it "
+            "reports 'found' may be a mention-only/negated/vague false positive, "
+            "not a genuine explanation. Do not report this list as 'the system "
+            "taught these concepts' without a real semantic check."
+        ),
         "expected_concepts_missing": missing_concepts,
         "total_claims": len(all_claims),
         "supported_claims": [
@@ -211,7 +260,7 @@ if __name__ == "__main__":
     print(json.dumps(report, indent=2))
 
     print("\n--- summary (docs/Memory.md's six real questions) ---", file=sys.stderr)
-    print(f"1. Coverage: {len(report['expected_concepts_found'])}/{len(EXPECTED_CONCEPTS)} expected concepts found. Missing: {report['expected_concepts_missing']}", file=sys.stderr)
+    print(f"1. Coverage: {len(report['expected_concepts_found'])}/{len(EXPECTED_CONCEPTS)} expected concepts found (UPPER BOUND -- checker precision 0.48, see Architecture.md §0.86). Missing: {report['expected_concepts_missing']}", file=sys.stderr)
     print(f"2. Source quality: roles contributing a surviving claim: {report['source_roles_used']}. Zero-contribution roles this run: {report['roles_contributing_zero_claims_this_run']}", file=sys.stderr)
     print(f"3. Evidence/synthesis quality: {len(report['supported_claims'])} supported (>= {SUPPORTED_CONFIDENCE_THRESHOLD}), {len(report['weak_claims'])} weak, of {report['total_claims']} total. Distribution: {report['confidence_distribution']}", file=sys.stderr)
     print(f"4. Metadata integrity: {len(report['provenance_errors'])} claim(s) missing source_role/acquisition_mode (expect 0)", file=sys.stderr)
