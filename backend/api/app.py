@@ -22,6 +22,7 @@ from backend.graph import (
     materialize_abstraction,
 )
 from backend.roadmap import generate_roadmap
+from backend.curriculum import compile_course
 from backend.research_api import ResearchRequest, fetch_and_compile_research_response
 from backend.questions import (
     PROJECTION_FAMILIES,
@@ -1060,6 +1061,40 @@ async def research_endpoint(req: ResearchRequest, user_id: str = Depends(get_cur
     except GraphInterfaceError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return response.model_dump()
+
+
+@app.post("/course")
+async def course_endpoint(req: ResearchRequest, user_id: str = Depends(get_current_user_id)) -> dict:
+    """Phase 9.2 (docs/Phases.md) -- the same shallow-wrapper shape
+    `/research` above already established, one step further: resolve
+    `req.topic` -> `fetch_and_compile_research_response` (R5.3) ->
+    `compile_course` (Phase 9.1, pure, no LLM/retriever/Neo4j call of its
+    own -- Rules.md rule 16). Discovery.AI's Research API and the
+    Curriculum Compiler wired end to end behind one real route, reusing
+    `ResearchRequest` rather than inventing a second, near-identical
+    request shape for "the same topic, but as a course."
+    """
+    if req.mode == "learning":
+        raise HTTPException(
+            status_code=501,
+            detail="mode='learning' has no concrete ResearchPolicy defined yet (Phase 8.2+ work) -- only 'exploratory' is implemented today.",
+        )
+
+    entity = await find_or_create_entity(req.topic)
+    abstraction = await materialize_abstraction(entity.id)
+    if abstraction is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{req.topic!r} has no discovered decomposition yet -- investigate it further before compiling a course.",
+        )
+
+    try:
+        response = await fetch_and_compile_research_response(abstraction.id, EXPLORATORY_POLICY)
+    except GraphInterfaceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    course = compile_course(response)
+    return course.model_dump()
 
 
 # Clean-URL routes for the two real pages. StaticFiles(html=True) below only

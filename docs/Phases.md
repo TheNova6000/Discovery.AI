@@ -334,9 +334,10 @@ Not a coding phase — a design-review gate, completed by taking one concrete, *
 - **Verify:** **[VERIFIED, 2026-09-17]** `scripts/verify_phase9_1.py`, 5/5, pure — a known prerequisite chain (`e-rec requires e-dns requires e-net`) respected in module order; a real 2-node requires-cycle raises `CourseCompilationError` naming the cycle; an incomplete concept surfaced in `incomplete_concepts`, never compiled; no `requires` edges present → honest coverage-order fallback, `ordered_by_prerequisites=False`; claims grouped into the correct module by `entity_id` via the exact same `Claim` objects (identity, not copies). All 125 pre-existing checks re-confirmed unaffected.
 - **Deliberately not built:** any HTTP route (Phase 9.2, next), any frontend viewer (Phase 12), any lesson/exercise authoring (Phase 10+), and no `"requires"`-edge producer (real graph-extraction/investigation work, out of scope here).
 
-### Phase 9.2 — `/course` API route [VISION]
-- A route (e.g. `POST /course`) wrapping `compile_course`, the same shallow-wrapper shape `/research` (R5.3) already established over `fetch_and_compile_research_response` — resolve topic → `fetch_and_compile_research_response` → `compile_course` → return the `Course`.
-- **Verify:** a real, already-decomposed topic returns 200 with a well-formed `Course` body; an undecomposed topic returns 400, matching `/research`'s own convention.
+### Phase 9.2 — `/course` API route [BUILT — 2026-09-17]
+- `POST /course` (`backend/api/app.py`) wraps `compile_course`, the same shallow-wrapper shape `/research` (R5.3) already established over `fetch_and_compile_research_response` — resolve topic → `fetch_and_compile_research_response` → `compile_course` → return the `Course`. Reuses `ResearchRequest` directly, no second request shape invented. Same `mode="learning"` → 501 and undecomposed-topic → 400 conventions as `/research`.
+- **Verify:** **[VERIFIED, 2026-09-17]** `scripts/verify_phase9_2.py`, 4/4 — Part 1, real Neo4j: `compile_course` over live "online payment" data produces a real `Course` with **5 real modules, 0 incomplete concepts, `ordered_by_prerequisites=False`** (confirming live that no `"requires"` edges exist in this data yet). Part 2, real HTTP via `TestClient`: `mode="learning"` → 501; an undecomposed topic → 400; a real, already-decomposed topic → 200 with a well-formed `Course` body. All 129 pre-existing checks re-confirmed unaffected.
+- **Discovery.AI's Research API and the Curriculum Compiler are now wired end to end behind one real route, against real data.**
 
 ### Phase 10 — Lesson Authoring with provenance [VISION]
 - Composes a `Lesson` per concept from its existing `Claim`s, run through `audit_synthesis` before attaching (Rules.md rule 19).

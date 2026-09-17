@@ -4,6 +4,18 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — Phase 9.2 built: POST /course -- Research API and Curriculum Compiler wired end to end
+
+Direct continuation, same session, immediately after Phase 9.1's commit and push.
+
+`backend/api/app.py`'s `POST /course` is the exact same shallow-wrapper shape `/research` (R5.3) already established, one step further: resolve topic (find_or_create_entity -> materialize_abstraction) -> fetch_and_compile_research_response (R5.3) -> compile_course (Phase 9.1) -> return the Course. Reuses ResearchRequest directly -- no second, near-identical request shape invented for "the same topic, but as a course." Same mode="learning" -> 501 and undecomposed-topic -> 400 conventions as /research.
+
+**Verified: `scripts/verify_phase9_2.py`, 4/4.** Part 1, real Neo4j: compile_course over live "online payment" data produces a real Course with 5 real modules, 0 incomplete concepts, ordered_by_prerequisites=False -- confirming live, not just in a synthetic fixture, that no real "requires" edges exist in this Neo4j instance yet. Part 2, real HTTP via TestClient: mode="learning" -> 501, undecomposed topic -> 400, real topic -> 200 with a well-formed Course body. All 129 pre-existing checks re-confirmed unaffected.
+
+**Discovery.AI's Research API (R5) and the Curriculum Compiler (Phase 9.1) are now wired end to end behind one real route, against real data.** Next per the R5.0 audit's own recommended order: Phase 12.0, a minimal Portal course-viewer frontend consuming this exact route.
+
+---
+
 ## 2026-09-17 — Phase 9.1 built: compile_course, the Curriculum Compiler -- restructuring around Discovery.AI begins
 
 Working autonomously per the user's own explicit instruction ("loop yourself in completing until discovery.ai and then start working on restructuring around discovery.ai... write report at the last"). Direct continuation, same session, immediately after R5.3's commit -- the R5.0 audit's own recommended execution order (R5.1->R5.2->R5.3->Phase9.1->Phase9.2->Phase12.0).
