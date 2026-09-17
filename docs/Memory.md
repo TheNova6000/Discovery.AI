@@ -4,6 +4,20 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — Phase 9.1 built: compile_course, the Curriculum Compiler -- restructuring around Discovery.AI begins
+
+Working autonomously per the user's own explicit instruction ("loop yourself in completing until discovery.ai and then start working on restructuring around discovery.ai... write report at the last"). Direct continuation, same session, immediately after R5.3's commit -- the R5.0 audit's own recommended execution order (R5.1->R5.2->R5.3->Phase9.1->Phase9.2->Phase12.0).
+
+New top-level `backend/curriculum/` package -- Discovery.AI's first real client of its own new stable Research API (R5). `models.py`: `Module`/`IncompleteConcept`/`Course`. `compiler.py`'s `compile_course(response: ResearchResponse) -> Course` is pure -- no LLM/retriever/Neo4j call (Rules.md rule 16's own restriction, applied literally: this package never reaches into `backend.reasoning`/`backend.graph`/`backend.research` internals, only reads `ResearchResponse`'s already-projected fields).
+
+Mirrors R5.2's compiler pattern and R3.2/R4.3's DFS cycle-detection technique: real `relationship_type=="requires"` edges are topologically sorted (post-order DFS, dependencies-first) when present, with a real cycle raising `CourseCompilationError` naming the cycle -- never silently dropped or infinite-looped. **A real, confirmed finding, not assumed:** direct inspection of every current `Relationship` producer (Phase 1 extraction, Phase 6 materialization, Phase 8 investigation) shows none assigns `"requires"` today -- so every real investigation as of this slice falls back to `ResearchResponse.coverage`'s own discovery order, honestly flagged via `ordered_by_prerequisites=False`, never a fabricated heuristic ordering. A concept failing `ConceptCompleteness.is_complete` is never compiled into a module -- surfaced in `incomplete_concepts` instead, exactly rule 16's "a concept missing a lesson or exercise is a gap it surfaces, not one it fills inline."
+
+**Verified: `scripts/verify_phase9_1.py`, 5/5, pure throughout.** A known prerequisite chain respected in module order; a real requires-cycle raises `CourseCompilationError`; an incomplete concept surfaced, never compiled; no-requires-edges fallback to honest discovery order; claims grouped by `entity_id` using the exact same `Claim` objects (identity, not copies). Full regression: all 125 pre-existing checks (Phase 6/8.1-8.6/R1.1-R1.5/R2.1/R3.1/R3.2/R4.1-R4.5/R5.1-R5.3) re-confirmed unaffected. One pre-existing, unrelated drift noticed and left untouched (out of this slice's scope): `scripts/verify_zoom_and_explain.py` fails to import `zoom_in` from `backend.graph` -- that function was renamed in a past slice (Architecture.md §0.39.2) and the script was never updated; not caused by this change, not silently patched over either.
+
+**Deliberately not built:** any HTTP route (Phase 9.2, named next in Phases.md), any frontend course viewer (Phase 12), any lesson/exercise authoring (Phase 10+), and no `"requires"`-edge producer -- real graph-extraction/investigation work, out of scope for a pure compiler slice.
+
+---
+
 ## 2026-09-17 — R5.3 built: POST /research, the real route -- R5 fully complete across all three slices
 
 Working autonomously overnight per the user's own explicit instruction ("loop yourself in completing until discovery.ai... write report at the last"). Follows R5.2, same continuous session.
