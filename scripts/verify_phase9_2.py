@@ -41,7 +41,7 @@ load_dotenv()
 from fastapi.testclient import TestClient  # noqa: E402
 
 from backend.agents.policy import EXPLORATORY_POLICY  # noqa: E402
-from backend.curriculum import compile_course  # noqa: E402
+from backend.dewey.curriculum import compile_course  # noqa: E402
 from backend.graph import close_driver, find_or_create_entity, materialize_abstraction  # noqa: E402
 from backend.research_api import fetch_and_compile_research_response  # noqa: E402
 

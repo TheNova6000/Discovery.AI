@@ -1,6 +1,6 @@
 """Phase 10 verification -- compile_lesson, Lesson Authoring's real I/O shell
 (docs/Phases.md, docs/Architecture.md, docs/Rules.md rules 2/16/19,
-backend/lessons/).
+backend/dewey/lessons/).
 
 Two parts, same structure as scripts/verify_phase9_2.py:
 
@@ -39,9 +39,9 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv()
 
 from backend.agents.policy import EXPLORATORY_POLICY  # noqa: E402
-from backend.curriculum import Module, compile_course  # noqa: E402
+from backend.dewey.curriculum import Module, compile_course  # noqa: E402
 from backend.graph import close_driver, find_or_create_entity, materialize_abstraction  # noqa: E402
-from backend.lessons import Lesson, compile_lesson  # noqa: E402
+from backend.dewey.lessons import Lesson, compile_lesson  # noqa: E402
 from backend.research_api import fetch_and_compile_research_response  # noqa: E402
 
 

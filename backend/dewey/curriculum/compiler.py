@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.curriculum.models import Course, IncompleteConcept, Module
+from backend.dewey.curriculum.models import Course, IncompleteConcept, Module
 from backend.graph import Relationship
 from backend.research_api import ResearchResponse
 

@@ -1,6 +1,6 @@
 """Phase 9.1 verification -- compile_course, the pure Curriculum Compiler
 (docs/Phases.md's "restructuring around Discovery.AI" track,
-docs/Architecture.md §0.76, docs/Rules.md rule 16, backend/curriculum/).
+docs/Architecture.md §0.76, docs/Rules.md rule 16, backend/dewey/curriculum/).
 
 Pure throughout -- no LLM/retriever/Neo4j call (rule 16's own restriction).
 Every fixture is a hand-built ResearchResponse (R5's own stable contract),
@@ -30,7 +30,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.curriculum import CourseCompilationError, compile_course  # noqa: E402
+from backend.dewey.curriculum import CourseCompilationError, compile_course  # noqa: E402
 from backend.graph.models import GraphNode, Relationship  # noqa: E402
 from backend.reasoning import Claim  # noqa: E402
 from backend.research import ConceptCompleteness, FieldCoverage  # noqa: E402

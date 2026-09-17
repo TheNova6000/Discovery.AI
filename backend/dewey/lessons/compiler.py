@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from backend.curriculum import Module
-from backend.lessons.models import Lesson, LessonSentence
+from backend.dewey.curriculum import Module
+from backend.dewey.lessons.models import Lesson, LessonSentence
 from backend.questions import audit_synthesis, compose_lesson_explanation
 
 # Phase 10 (docs/Phases.md, docs/Rules.md rules 2/16/19): the one real I/O

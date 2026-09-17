@@ -4,6 +4,24 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — Dewey: the Learning Portal named and restructured into its own module, separate from Discovery.AI; doodle illustrations added
+
+Direct instruction from the user: the Learning Portal is named Dewey (two real namesakes -- the Dewey Decimal System, and John Dewey, whose "learn through real, guided experience" philosophy is the actual pedagogy already built), personified as a character learners interact with, with doodle illustrations. Discovery.AI remains separate -- the user asked explicitly for the project to be restructured into modules along that line, not just renamed in prose.
+
+**Real module restructuring, not cosmetic:** `backend/curriculum/` and `backend/lessons/` moved (`git mv`, history preserved) to `backend/dewey/curriculum/` and `backend/dewey/lessons/`. New `backend/dewey/__init__.py` states the boundary as an enforceable fact -- Discovery.AI's own packages have zero knowledge of Dewey and never import from it, confirmed by the move requiring changes only to Dewey's own two packages, `backend/api/app.py`, and the four verify scripts exercising them. Every import site found by grep (7 files) fixed; app still imports cleanly; all four affected scripts re-run clean after the move (verify_phase9_1.py 5/5, verify_phase9_2.py 4/4, verify_phase10.py 4/4, verify_phase10_2.py 4/4).
+
+**Dewey's voice added to the one real LLM call this extension makes** (`compose_lesson_explanation`'s system prompt) -- style only, "warm, curious, plain-spoken," including admitting insufficient evidence "the way a good teacher admits I don't have enough to go on here yet." Confirmed this didn't loosen the anti-fabrication constraint: re-ran verify_phase10.py after the change, still 4/4, real claims still exactly traced.
+
+**Doodle illustrations** -- three hand-drawn-style line-art SVGs (`dewey-wave.svg`, `dewey-thinking.svg`, `dewey-explaining.svg`), previewed in a real browser before committing to the design. Found and fixed a real, small technical issue while wiring them in: `currentColor` does not resolve against a parent element's CSS `color` through an `<img>`-loaded SVG (confirmed directly -- the doodles rendered black regardless of the wrapping CSS) -- fixed by hardcoding the real brand accent color (`#2f6f4f`) into the SVGs themselves rather than relying on inheritance that doesn't work for this loading method.
+
+**Wired into `frontend/course.html` and verified live in a real browser, not just written:** a waving Dewey introduces the page ("Course, with Dewey"); a thinking Dewey appears with the text "Dewey is composing this lesson from the real claims above..." while a real lesson is being composed; an explaining Dewey appears beside every rendered lesson. Tested against real "online payment" data: "Payment gateway" (23 real claims) produced a real composed lesson with the explaining doodle and a green "fully traceable" badge; "card network" (4 thin, mostly non-answering claims) produced an honest refusal in Dewey's own voice -- "Because no relevant information is provided, I cannot give an explanation of the card network concept from these claims" -- proving the anti-fabrication design and the character voice work together correctly under real thin-evidence conditions, not just the easy case. Zero console errors both times.
+
+**Docs updated:** PRD.md §9 (renamed/retitled, new §9.9 status corrections, new §9.10 current-status summary), §10's own stale "R1-R5 all VISION" header tag corrected (found while editing the adjacent section, fixed rather than left wrong); Architecture.md §0.82 (the full decision record); README.md (a new short "Dewey" section); Phases.md (a dated note redirecting `backend/curriculum`/`backend/lessons` references to their real new paths, historical entries left unrewritten). A separate, real doc staleness was also found and fixed while re-reading §0.81: it had said frontend lesson rendering was "deliberately not built," which was only true briefly -- the frontend button landed in the same commit, corrected explicitly rather than silently.
+
+**Deliberately not done:** no rename of `Course`/`Module`/`Lesson` classes themselves (Dewey is a product/persona identity, not a class-naming convention); no visual redesign of the rest of the site.
+
+---
+
 ## 2026-09-17 — Phase 10.2 built: POST /lesson wired end to end; Phase 11 confirmed blocked by missing Docker, not just unscheduled
 
 Direct continuation, same session. `POST /lesson` (backend/api/app.py) -- same shallow-wrapper shape /course already established: resolve topic's Course -> find req.concept's real Module by entity_name -> compile_lesson. New LessonRequest (topic/concept/mode). Three real, distinct status codes: 400 (topic undecomposed), 404 (concept not in the course at all), 409 (concept exists but hasn't cleared Phase 8.3's completeness bar -- a real, different state from "doesn't exist").

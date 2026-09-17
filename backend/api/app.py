@@ -22,8 +22,8 @@ from backend.graph import (
     materialize_abstraction,
 )
 from backend.roadmap import generate_roadmap
-from backend.curriculum import compile_course
-from backend.lessons import compile_lesson
+from backend.dewey.curriculum import compile_course
+from backend.dewey.lessons import compile_lesson
 from backend.research_api import ResearchRequest, fetch_and_compile_research_response
 from backend.questions import (
     PROJECTION_FAMILIES,

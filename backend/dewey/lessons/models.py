@@ -6,9 +6,9 @@ from pydantic import BaseModel, Field
 
 # Phase 10 (docs/Phases.md, docs/PRD.md §9.6.3, docs/Rules.md rules 16/19):
 # Lesson Authoring's own types -- a projection over a real, already-compiled
-# `curriculum.Module` (Phase 9.1), never a rewrite of it. `backend/lessons`
-# itself never calls an LLM (that stays confined to `backend/questions`,
-# Rules.md rule 2) -- this module only defines the shape.
+# `dewey.curriculum.Module` (Phase 9.1), never a rewrite of it.
+# `backend/dewey/lessons` itself never calls an LLM (that stays confined to
+# `backend/questions`, Rules.md rule 2) -- this module only defines the shape.
 
 
 class LessonSentence(BaseModel):

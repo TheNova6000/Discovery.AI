@@ -83,9 +83,11 @@ Given a single topic/entity as a starting abstraction, the system should be able
 6. **[VERIFIED]** Not spawn a runaway number of agents or questions for a simple, narrow query — the spawn budget and lazy question generation (Architecture.md §0) should be visibly bounded, not just theoretically bounded.
 7. **[VISION]** Produce a coherent Roadmap (§4a) for the worked example (§4) that a person could actually follow start to finish to learn how money transactions work — `generate_roadmap` is not built (Phase 6).
 
-## 9. Extension — Learning Portal (Course Compiler + Coding Challenges) [VISION — all of §9]
+## 9. Extension — Dewey, the Learning Portal (Course Compiler + Coding Challenges) [PARTIAL — see §9.10]
 
-Everything below is a scope extension decided 2026-09-16, not yet started. It does not replace §1-§8 above — the recursive investigation engine (Master/Ground agents, Question Engine, Evidence Engine, Graph Interface) is the load-bearing foundation this extension builds *on top of*, unchanged. Status tags follow the same discipline as §5/§8: [VISION] until a real run demonstrates it.
+Everything below is a scope extension decided 2026-09-16, largely built and verified by 2026-09-17. It does not replace §1-§8 above — the recursive investigation engine, now named and operated as **Discovery.AI** (§10), is the load-bearing foundation this extension builds *on top of*, unchanged. Status tags follow the same discipline as §5/§8.
+
+**Naming and module boundary, decided 2026-09-17 (Architecture.md §0.83):** this whole extension — the course/lesson/exercise layer — is named **Dewey**, both the product name and a personified guide the learner actually interacts with. Two real namesakes: the **Dewey Decimal System** (classifying and helping someone find their way through a body of knowledge — the same job a compiled course does over Discovery.AI's own knowledge graph) and **John Dewey**, whose educational philosophy (learning through real, guided experience, not rote transmission) is the actual pedagogy this extension is built around — a lesson is composed only from real investigated claims and independently audited for traceability (Rules.md rule 19), never asserted from an LLM's unsourced memory. **Discovery.AI and Dewey are separate modules, at the package level, not just in prose:** `backend/dewey/` (curriculum, lessons, and future challenge/learner-model code) is Dewey's own namespace; Discovery.AI's packages (`backend/graph`, `backend/agents`, `backend/questions`, `backend/evidence`, `backend/reasoning`, `backend/research`, `backend/research_api`) have zero knowledge of Dewey and never import from `backend/dewey`. Dewey is Discovery.AI's first real client (§10.1), consuming only its stable `ResearchResponse` output — the module boundary now makes that literally true at import time, not just true in architecture prose.
 
 ### 9.1 Purpose
 
@@ -191,13 +193,17 @@ The research engine is never made directly responsible for producing the final c
 ### 9.9 Success criteria
 
 Given a topic with an already-investigated graph (per §8's existing criteria), the extension should, end-to-end:
-1. **[VISION]** Produce an ordered curriculum (modules → lessons) that a person could read start to finish, distinct from and building on the Roadmap (§8.7).
-2. **[VISION]** Serve at least one coding exercise per module whose hidden tests correctly distinguish a working reference solution from at least one deliberately broken variant.
-3. **[VISION]** Contain a deliberately hostile submission (infinite loop, fork bomb, network call) without it affecting the host process or any other learner's session.
-4. **[VISION]** Trace every sentence of a sampled lesson back to a real retrieved source, the same way `audit_synthesis` already does for synthesized answers.
-5. **[VISION]** Demonstrate the remedial loop: a simulated learner who fails one concept's exercise twice is routed through a remedial step before the main curriculum resumes.
+1. **[VERIFIED, 2026-09-17]** Produce an ordered curriculum (modules → lessons) that a person could read start to finish, distinct from and building on the Roadmap (§8.7) — `dewey.curriculum.compile_course` + `dewey.lessons.compile_lesson`, real end to end via `POST /course`/`POST /lesson`, browser-tested (Architecture.md §0.76-§0.81).
+2. **[VISION]** Serve at least one coding exercise per module whose hidden tests correctly distinguish a working reference solution from at least one deliberately broken variant — blocked in the current development environment: no Docker daemon available to build or honestly verify a sandboxed runner against (Architecture.md §0.81, Phases.md Phase 11).
+3. **[VISION]** Contain a deliberately hostile submission (infinite loop, fork bomb, network call) without it affecting the host process or any other learner's session — same Docker blocker as #2.
+4. **[VERIFIED, 2026-09-17]** Trace every sentence of a sampled lesson back to a real retrieved source, the same way `audit_synthesis` already does for synthesized answers — `scripts/verify_phase10.py`, plus a real browser-tested worst case: a thin-evidence concept ("Acquiring Bank"/"card network") correctly produced an honest refusal to explain rather than a fabricated lesson.
+5. **[VISION]** Demonstrate the remedial loop: a simulated learner who fails one concept's exercise twice is routed through a remedial step before the main curriculum resumes — depends on #2/#3's exercise/attempt data, which doesn't exist yet.
 
-## 10. Reasoning Engine Evolution — Discovery.AI as an independent research/reasoning engine [DESIGN PASS, 2026-09-16 — R0 done, R1-R5 all VISION, no code]
+### 9.10 Current status (2026-09-17)
+
+`dewey.curriculum` (Phase 9.1) and `dewey.lessons` (Phase 10) are `BUILT`/`VERIFIED` — a real topic compiles into a course, and a real, already-complete concept compiles into an evidence-audited lesson, both reachable over HTTP (`POST /course`, `POST /lesson`) and rendered in a browser (`frontend/course.html`, with Dewey's own doodle illustrations). Curriculum-source retrievers, real `requires`-typed prerequisite edges, the Challenge Engine, the Learner Model, and gamification remain `VISION` — the Challenge Engine specifically blocked by this development environment's missing Docker daemon, not by design or unscheduled work (Phases.md Phase 11).
+
+## 10. Reasoning Engine Evolution — Discovery.AI as an independent research/reasoning engine [BUILT, VERIFIED — R0-R5 all complete as of 2026-09-17, see Phases.md and Architecture.md §0.66-§0.81 for the full slice-by-slice record; this section's own text below is the original 2026-09-16 design pass and is intentionally left as written, not rewritten after the fact]
 
 **A controlled generalization, not a rewrite.** Everything below reframes and extends capability that already exists and already works (`ResearchPolicy`, the Planner, Coverage model, Deep investigation orchestration, Evidence validation, Contradiction validation, the Research artifact, `MasterAgent`, `MessageBus`, `GroundAgent`, the Neo4j world model) into one coherent Discovery.AI core, with clarified ownership and a stronger contract. Nothing here proposes discarding or replacing that work. See §10.6 and Architecture.md §0.56 for the concrete migration mapping.
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Course — Discovery.AI</title>
+<title>Course — Dewey</title>
 <style>
   /* Phase 12.0 (docs/Phases.md) -- a minimal Portal course viewer, the same
      vanilla HTML/CSS/JS stack frontend/roadmap.html already established
@@ -133,10 +133,46 @@
     background: #fbf3ea;
     border-bottom: 1px dashed var(--warn);
   }
+  .dewey-intro {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+  }
+  .dewey-intro img { width: 64px; height: 70px; flex-shrink: 0; color: var(--accent); }
+  .dewey-intro .bubble {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.6rem 0.9rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+  .dewey-composing {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--text-dim);
+    font-style: italic;
+    font-size: 0.85rem;
+  }
+  .dewey-composing img { width: 34px; height: 38px; color: var(--accent); }
+  .lesson-panel-inner { display: flex; gap: 0.8rem; align-items: flex-start; }
+  .lesson-panel-inner img.dewey-avatar { width: 44px; height: 48px; flex-shrink: 0; color: var(--accent); margin-top: 0.1rem; }
+  .lesson-panel-body { flex: 1; min-width: 0; }
 </style>
 </head>
 <body>
-  <h1>Course</h1>
+  <div class="dewey-intro">
+    <img src="/assets/dewey/dewey-wave.svg" alt="Dewey, your course guide, waving hello">
+    <div>
+      <h1 style="margin-bottom:0.15rem;">Course, with Dewey</h1>
+      <p class="bubble">
+        Hi, I'm Dewey — I turn Discovery.AI's own research into a course and lessons, and I'll say so
+        plainly whenever the evidence is too thin to teach from honestly, rather than making something up.
+      </p>
+    </div>
+  </div>
   <p class="subtitle">
     Phases.md Phase 12.0 — a compiled course from Discovery.AI's Research API (<code>POST /course</code>,
     Phase 9.1/9.2). Every module here is a real, already-complete concept; a concept still missing
@@ -252,7 +288,7 @@
       panel.hidden = false;
 
       if (panel.dataset.loaded === '1') return;
-      panel.innerHTML = '<span class="empty-note">Composing lesson…</span>';
+      panel.innerHTML = '<div class="dewey-composing"><img src="/assets/dewey/dewey-thinking.svg" alt="Dewey thinking">Dewey is composing this lesson from the real claims above…</div>';
       button.disabled = true;
 
       try {
@@ -277,7 +313,14 @@
 
     function lessonHtml(lesson) {
       if (lesson.status !== 'composed') {
-        return '<span class="empty-note">Not enough real claims to compose a lesson for this concept yet.</span>';
+        return (
+          '<div class="lesson-panel-inner">' +
+            '<img class="dewey-avatar" src="/assets/dewey/dewey-thinking.svg" alt="Dewey, unsure">' +
+            '<div class="lesson-panel-body"><span class="empty-note">' +
+              "I don't have enough real claims yet to teach this concept honestly — investigate it further first." +
+            '</span></div>' +
+          '</div>'
+        );
       }
 
       // Every sentence carries its own real audit_synthesis verdict --
@@ -298,9 +341,14 @@
         : '<span class="traceable-badge no">some sentences do not trace to a real claim (highlighted below)</span>';
 
       return (
-        badge +
-        '<div class="lesson-explanation">' + (sentencesHtml || escapeHtml(lesson.explanation)) + '</div>' +
-        examplesHtml
+        '<div class="lesson-panel-inner">' +
+          '<img class="dewey-avatar" src="/assets/dewey/dewey-explaining.svg" alt="Dewey explaining">' +
+          '<div class="lesson-panel-body">' +
+            badge +
+            '<div class="lesson-explanation">' + (sentencesHtml || escapeHtml(lesson.explanation)) + '</div>' +
+            examplesHtml +
+          '</div>' +
+        '</div>'
       );
     }
 

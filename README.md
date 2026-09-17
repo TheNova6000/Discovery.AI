@@ -73,6 +73,16 @@ new graph.
 - The full write-up of every verification pass — including the ones that failed on the first attempt — is
   live on the deployed app's own `/docs#reports` page and in `docs/Memory.md`
 
+## Dewey — the Learning Portal, built on Discovery.AI
+
+Dewey is a separate module (`backend/dewey/`) built on top of Discovery.AI's stable Research API — a
+course compiler and lesson author, not a second reasoning engine. Named for two real namesakes: the
+Dewey Decimal System (organizing a body of knowledge so someone can find their way through it) and John
+Dewey, whose "learn through real, guided experience" philosophy is the actual pedagogy here — a lesson
+is composed only from real, investigated claims and independently audited for traceability, never
+asserted from an LLM's unsourced memory. When the evidence is too thin, Dewey says so honestly rather
+than filling the gap. `docs/Architecture.md` §0.82 has the full decision record.
+
 ## Docs map
 
 | File | What's in it |
