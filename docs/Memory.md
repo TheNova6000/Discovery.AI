@@ -4,6 +4,22 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-09-17 — R5.3 built: POST /research, the real route -- R5 fully complete across all three slices
+
+Working autonomously overnight per the user's own explicit instruction ("loop yourself in completing until discovery.ai... write report at the last"). Follows R5.2, same continuous session.
+
+`backend/research_api/service.py`'s `fetch_and_compile_research_response(abstraction_id, policy)` -- the I/O shell wrapping R5.2's pure compiler: fetches the real ResearchArtifact, re-fetches and maps each concept's real claims via R4.1's mapper, and the real Subgraph. Deliberately does not fetch provenance yet (a stated deferral).
+
+`POST /research` resolves `req.topic` exactly like `/roadmap/build` resolves `entity_name` (find_or_create_entity -> materialize_abstraction), 400 when undecomposed. A real, confirmed gap this route surfaced: no "learning"-mode ResearchPolicy exists anywhere in this codebase -- rejected with 501, never silently downgraded or fabricated.
+
+**Verified: `scripts/verify_r5_3.py`, 7/7 -- the first check in R5's track to exercise the real route end-to-end.** Against real Neo4j: "online payment" (Phase 8's own live-data abstraction -- "PayPal" no longer has a decomposition in this instance, checked directly not assumed) returns a real ResearchResponse with 52 real claims, 5 real entities, 9 real relationships. Via FastAPI's real TestClient: mode="learning" -> 501, invalid required_fields -> 422, real topic -> 200, undecomposed topic -> 400. All 118 pre-existing checks re-confirmed unaffected.
+
+**A real async/infrastructure finding, not an epistemic one:** the Neo4j driver is a module-level singleton bound to its creating event loop -- mixing asyncio.run() with TestClient's own anyio loop broke across two calls until the driver was closed within its own loop and TestClient was used as a context manager (one shared loop for every call in that block). Recorded so it doesn't need re-discovering.
+
+**R5 is now fully built across all three slices (R5.1 types, R5.2 compiler, R5.3 route).** The stable Research API contract Phase 9's Curriculum Compiler is meant to consume exists end to end, against real data, real Neo4j, real HTTP.
+
+---
+
 ## 2026-09-17 — R5.2 built: compile_research_response, the pure projection compiler
 
 Follows R5.1, same session (spanning midnight). `backend/research_api/compiler.py`'s `compile_research_response(artifact, *, claims=None, subgraph=None, provenance=None) -> ResearchResponse`.

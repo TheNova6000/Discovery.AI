@@ -22,6 +22,7 @@ from backend.graph import (
     materialize_abstraction,
 )
 from backend.roadmap import generate_roadmap
+from backend.research_api import ResearchRequest, fetch_and_compile_research_response
 from backend.questions import (
     PROJECTION_FAMILIES,
     Intent,
@@ -1019,6 +1020,46 @@ async def build_roadmap_endpoint(
             detail=f"{req.entity_name!r} has no discovered decomposition yet -- investigate it further before building a roadmap.",
         )
     return {"abstraction_id": abstraction.id, "abstraction_name": abstraction.name}
+
+
+@app.post("/research")
+async def research_endpoint(req: ResearchRequest, user_id: str = Depends(get_current_user_id)) -> dict:
+    """R5.3 (docs/Phases.md, docs/Architecture.md §0.75) -- the one real
+    route consuming R5's stable Research API contract (`ResearchRequest`/
+    `ResearchResponse`, R5.1/R5.2). `req.topic` is resolved exactly the way
+    `/roadmap/build` above already resolves `entity_name`:
+    `find_or_create_entity` -> `materialize_abstraction` -> a real
+    `abstraction_id` -- not a fresh resolution mechanism invented for this
+    route. 400 (not 404) when the topic has no discovered decomposition
+    yet, the same client-actionable-state convention `/roadmap/build`
+    already established.
+
+    Only `mode="exploratory"` has a real, concrete `ResearchPolicy` today
+    (`EXPLORATORY_POLICY`, Phase 8.1) -- confirmed by direct inspection, no
+    named "learning" policy constant exists anywhere in this codebase yet.
+    `mode="learning"` is rejected with a clear 501, never silently
+    downgraded to exploratory or given fabricated policy values with no
+    real production precedent behind them.
+    """
+    if req.mode == "learning":
+        raise HTTPException(
+            status_code=501,
+            detail="mode='learning' has no concrete ResearchPolicy defined yet (Phase 8.2+ work) -- only 'exploratory' is implemented today.",
+        )
+
+    entity = await find_or_create_entity(req.topic)
+    abstraction = await materialize_abstraction(entity.id)
+    if abstraction is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{req.topic!r} has no discovered decomposition yet -- investigate it further before requesting a research response.",
+        )
+
+    try:
+        response = await fetch_and_compile_research_response(abstraction.id, EXPLORATORY_POLICY)
+    except GraphInterfaceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return response.model_dump()
 
 
 # Clean-URL routes for the two real pages. StaticFiles(html=True) below only
