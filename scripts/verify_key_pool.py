@@ -107,6 +107,44 @@ async def main() -> int:
     await _call()
     check([p for p, _ in CALLS] == ["google", "groq"], f"#5 503 overload -> one google try, then groq {CALLS}")
 
+    # 6-8 (2026-10-29, website): a saved personal key is tried first, then the shared pool;
+    # the final error lists every provider's failure, not just the last one.
+    from backend.llm.config import set_current_user_keys
+    lc._KEY_COOLDOWN_UNTIL.clear()
+    OVERLOADED_PROVIDERS.clear()
+    FAILING_PROVIDERS.clear()
+    set_current_user_keys({"google": "users-own-key"})
+    CALLS.clear()
+    await _call()
+    check(CALLS == [("google", "users-own-key")], f"#6 working saved key is used first and alone {CALLS}")
+
+    class SavedKeyFails(_FakeCompletions):
+        pass
+    orig_create = _FakeCompletions.create
+
+    async def saved_key_401(self, **kw):
+        if self.key == "users-own-key":
+            CALLS.append(("google", self.key))
+            raise RuntimeError("401 API key not valid")
+        return await orig_create(self, **kw)
+
+    _FakeCompletions.create = saved_key_401
+    CALLS.clear()
+    await _call()
+    check(CALLS[0] == ("google", "users-own-key") and CALLS[1][0] == "google" and CALLS[1][1].startswith("g"),
+          f"#7 dead saved key -> shared pool tried next {CALLS[:2]}")
+
+    FAILING_PROVIDERS.update({"google", "groq"})
+    try:
+        await _call()
+        check(False, "#8 expected failure")
+    except RuntimeError as exc:
+        text = str(exc)
+        check("google (your saved key): 401 API key not valid" in text and "groq (shared pool): 429" in text,
+              f"#8 error names every provider's failure: {text[text.find('Failures'):][:160]}")
+    _FakeCompletions.create = orig_create
+    set_current_user_keys({})
+
     print(f"\n{failures} check(s) failed." if failures else "\nAll checks passed.")
     return 1 if failures else 0
 

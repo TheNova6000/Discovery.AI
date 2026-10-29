@@ -220,6 +220,7 @@ async def structured_call(
     # ends up in the chat reply the user already sees, so this makes "was my
     # key even attempted" answerable from the UI itself, no log access needed.
     source_log: list[str] = []
+    failures: dict[str, str] = {}
     for chain_pass in range(1, CHAIN_ATTEMPTS + 1):
         pass_had_non_quota_error = False
         for model in model_chain:
@@ -227,13 +228,18 @@ async def structured_call(
             env_var = PROVIDER_ENV_VAR.get(provider)
             user_key = get_current_user_key(provider)
             if user_key:
-                # Bring-your-own-key (docs/Architecture.md): this call runs on
-                # THIS user's own quota for this provider, not the shared server
-                # pool -- a single attempt, no round-robin, since there's only
-                # one key to try.
-                attempts: list[str | None] = [user_key]
+                # Bring-your-own-key (docs/Architecture.md): the user's own key is
+                # tried FIRST, then the shared pool. Before 2026-10-29 the saved key
+                # was the only attempt, so one dead/unbilled personal key made every
+                # call fail for that user while the server's pool sat unused (seen
+                # live on the website: all three saved keys failed, last one 402).
+                key_pool = PROVIDER_KEY_POOLS.get(provider) or []
+                fallback = _pool_keys_to_try(provider, key_pool) if key_pool else []
+                attempts: list[str | None] = [user_key] + [k for k in fallback if k != user_key]
                 if chain_pass == 1:
-                    source_log.append(f"{provider}=your saved key (…{user_key[-4:]})")
+                    source_log.append(
+                        f"{provider}=your saved key (…{user_key[-4:]})" + (", then shared server pool" if fallback else "")
+                    )
             else:
                 key_pool = PROVIDER_KEY_POOLS.get(provider) or []
                 if chain_pass == 1:
@@ -305,8 +311,11 @@ async def structured_call(
                     key_note = f" (key {key_index + 1}/{len(attempts)})" if key is not None else ""
                     pass_note = f" [chain pass {chain_pass}/{CHAIN_ATTEMPTS}]" if chain_pass > 1 else ""
                     print(f"[questions] provider {model!r}{key_note}{pass_note} failed, trying next: {safe_reason}")
-                    _record_provider_result(provider, ok=False, used_shared_pool=not user_key, error_text=reason)
-                    if not user_key and key is not None and (
+                    is_users_key = user_key is not None and key == user_key
+                    who = "your saved key" if is_users_key else "shared pool"
+                    failures.setdefault(f"{provider} ({who})", safe_reason[:200])
+                    _record_provider_result(provider, ok=False, used_shared_pool=not is_users_key, error_text=reason)
+                    if not is_users_key and key is not None and (
                         isinstance(exc, asyncio.TimeoutError) or _is_quota_error(exc)
                     ):
                         _cool_key(provider, key, reason)
@@ -318,7 +327,7 @@ async def structured_call(
                         break
                     continue
                 else:
-                    _record_provider_result(provider, ok=True, used_shared_pool=not user_key)
+                    _record_provider_result(provider, ok=True, used_shared_pool=not (user_key is not None and key == user_key))
                     return result
 
         if not pass_had_non_quota_error:
@@ -331,8 +340,12 @@ async def structured_call(
             # flaky one, per CHAIN_ATTEMPTS's original reliability rationale.
             break
 
+    # Every provider's first failure, not just the last one: the website showed
+    # only Cerebras's 402 while the real reasons the Groq and Gemini keys failed
+    # were thrown away.
+    per_provider = "; ".join(f"{name}: {why}" for name, why in failures.items()) or str(last_error)
     raise RuntimeError(
         f"structured_call failed on every provider/key across {CHAIN_ATTEMPTS} chain passes in "
-        f"{model_chain} (key source per provider: {', '.join(source_log)}): {last_error}"
+        f"{model_chain} (key source per provider: {', '.join(source_log)}). Failures — {per_provider}"
     ) from last_error
 
