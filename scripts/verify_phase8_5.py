@@ -1,12 +1,12 @@
 """Phase 8.5 verification -- Evidence and contradiction validation, the
 deterministic layer only (docs/Phases.md Phase 8.5, docs/PRD.md §9.3a,
-docs/Architecture.md §0.45, backend/research/validation.py).
+docs/Architecture.md §0.45, backend/main_block/reasoning_engine/research/validation.py).
 
 Same split as every prior phase in this track: `assess_claim_validity` is a
 pure function over already-fetched ClaimNodes (pydantic-only, no neo4j
 package required), so it's testable here with hand-built fixtures and zero
 LLM/retriever/Neo4j calls. `detect_contradictions` (the one real LLM call in
-this module, reusing backend.questions.analyze_claim_relationships) is NOT
+this module, reusing backend.main_block.reasoning_engine.llm_steps.analyze_claim_relationships) is NOT
 exercised by this script -- it needs a live LLM key, not guaranteed in every
 environment this runs in. This file's __main__ block prints instructions for
 the separate live smoke test that actually exercises it, same pattern every
@@ -38,8 +38,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.graph.models import ClaimNode  # noqa: E402
-from backend.research import assess_claim_validity  # noqa: E402
+from backend.main_block.reasoning_engine.graph.models import ClaimNode  # noqa: E402
+from backend.main_block.reasoning_engine.research import assess_claim_validity  # noqa: E402
 
 _NOW = "2026-01-01T00:00:00+00:00"
 

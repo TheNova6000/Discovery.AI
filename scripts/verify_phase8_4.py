@@ -1,6 +1,6 @@
 """Phase 8.4 verification -- Deep investigation orchestration, the bounded
 planning logic only (docs/Phases.md Phase 8.4, docs/PRD.md §9.3a,
-docs/Architecture.md §0.44, backend/research/investigate.py).
+docs/Architecture.md §0.44, backend/main_block/reasoning_engine/research/investigate.py).
 
 Same split as every prior phase in this track: `plan_targeted_investigations`
 is a pure function over an already-computed ResearchReadinessReport
@@ -36,10 +36,10 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.agents.policy import EXPLORATORY_POLICY  # noqa: E402
-from backend.research import ConceptCompleteness, FieldCoverage, ResearchReadinessReport  # noqa: E402
-from backend.research.investigate import _FIELD_QUESTION_TEMPLATES, plan_targeted_investigations  # noqa: E402
-from backend.research.models import UNCLASSIFIED_FIELDS  # noqa: E402
+from backend.main_block.reasoning_engine.agents.policy import EXPLORATORY_POLICY  # noqa: E402
+from backend.main_block.reasoning_engine.research import ConceptCompleteness, FieldCoverage, ResearchReadinessReport  # noqa: E402
+from backend.main_block.reasoning_engine.research.investigate import _FIELD_QUESTION_TEMPLATES, plan_targeted_investigations  # noqa: E402
+from backend.main_block.reasoning_engine.research.models import UNCLASSIFIED_FIELDS  # noqa: E402
 
 
 def _concept(entity_id: str, name: str, missing: list[str]) -> ConceptCompleteness:

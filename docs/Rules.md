@@ -71,3 +71,19 @@ Boundaries for any AI (or human) working on this codebase. If a change requires 
 - Do not introduce a separate frontend build step, dev server, or JS framework (React, Vue, etc.) for the Learning Portal UI without updating this file and Architecture.md §0.38.2 first — the existing frontend is vanilla JS/HTML/CSS served directly by FastAPI's static mount, and that's the proven, laptop-runnable pattern this extension follows (rule 1 table additions above).
 - Do not add a new animation/motion JS library for "fluid" UI effects — reuse `frontend/wasm-fluid`'s existing compiled asset (Architecture.md §0.38.3) before reaching for anything new.
 - Do not let a gamification feature (streak, XP, rank, badge) be settable by anything other than the Learner Model's own derivation over recorded attempts (rule 22) — including "just for a demo/testing" shortcuts that write a fake value directly.
+
+## Main-block boundary rules (2026-10-28)
+Paths in older rules above predate the restructure (map: `docs/Architecture.md` "Current code layout").
+
+- **B1.** Code outside `backend/main_block/` imports only `backend.main_block.interface`.
+- **B2.** The door imports each engine only through its `interface.py`; the reasoning engine reaches the
+  research engine only through `research_engine.interface`; the research engine never imports the
+  reasoning engine, the door, or clients. `scripts/verify_mainblock_boundary.py` must pass.
+- **B3.** The chat model never answers subject matter from its own memory: questions go to
+  `main_block.interface.ask`; an ungrounded result is shown as ungrounded.
+- **B4.** Every answer that leaves the main block is a `GroundedAnswer` (grounded flag, verified
+  citations, unsupported statements, gaps). No client upgrades text to evidence.
+- **B5.** The chat model uses its own model chain (`backend/chat/config.py`); the reasoning engine's
+  chains live in `reasoning_engine/model_chains.py`; `backend/llm` holds only keys and transport.
+- **B6.** Ranking/threshold changes in the research engine are chosen by measurement
+  (`scripts/evaluate_dewey_retrieval.py`), never by eyeballing a few queries.

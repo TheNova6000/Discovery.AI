@@ -21,7 +21,7 @@ sys.path.insert(0, ".")
 
 from backend.api.app import handle_set_projection
 from backend.api.session import SessionState
-from backend.questions.intent import Intent
+from backend.main_block.reasoning_engine.llm_steps.intent import Intent
 
 
 def make_intent(projection):

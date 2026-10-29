@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Course — Dewey</title>
+<title>Course — Tuni'n</title>
 <style>
   /* Phase 12.0 (docs/Phases.md) -- a minimal Portal course viewer, the same
      vanilla HTML/CSS/JS stack frontend/roadmap.html already established
@@ -133,14 +133,14 @@
     background: #fbf3ea;
     border-bottom: 1px dashed var(--warn);
   }
-  .dewey-intro {
+  .tunin-intro {
     display: flex;
     align-items: center;
     gap: 1rem;
     margin-bottom: 0.75rem;
   }
-  .dewey-intro img { width: 64px; height: 70px; flex-shrink: 0; color: var(--accent); }
-  .dewey-intro .bubble {
+  .tunin-intro img { width: 64px; height: 70px; flex-shrink: 0; color: var(--accent); }
+  .tunin-intro .bubble {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -148,7 +148,7 @@
     font-size: 0.85rem;
     color: var(--text-dim);
   }
-  .dewey-composing {
+  .tunin-composing {
     display: flex;
     align-items: center;
     gap: 0.6rem;
@@ -156,19 +156,19 @@
     font-style: italic;
     font-size: 0.85rem;
   }
-  .dewey-composing img { width: 34px; height: 38px; color: var(--accent); }
+  .tunin-composing img { width: 34px; height: 38px; color: var(--accent); }
   .lesson-panel-inner { display: flex; gap: 0.8rem; align-items: flex-start; }
-  .lesson-panel-inner img.dewey-avatar { width: 44px; height: 48px; flex-shrink: 0; color: var(--accent); margin-top: 0.1rem; }
+  .lesson-panel-inner img.tunin-avatar { width: 44px; height: 48px; flex-shrink: 0; color: var(--accent); margin-top: 0.1rem; }
   .lesson-panel-body { flex: 1; min-width: 0; }
 </style>
 </head>
 <body>
-  <div class="dewey-intro">
-    <img src="/assets/dewey/dewey-wave.svg" alt="Dewey, your course guide, waving hello">
+  <div class="tunin-intro">
+    <img src="/assets/tunin/tunin-wave.svg" alt="Tuni'n, your course guide, waving hello">
     <div>
-      <h1 style="margin-bottom:0.15rem;">Course, with Dewey</h1>
+      <h1 style="margin-bottom:0.15rem;">Course, with Tuni'n</h1>
       <p class="bubble">
-        Hi, I'm Dewey — I turn Discovery.AI's own research into a course and lessons, and I'll say so
+        Hi, I'm Tuni'n — I turn Discovery.AI's own research into a course and lessons, and I'll say so
         plainly whenever the evidence is too thin to teach from honestly, rather than making something up.
       </p>
     </div>
@@ -189,9 +189,10 @@
   <div id="modules"></div>
   <div id="incomplete-wrap"></div>
 
+  <script src="/runtime-config.js"></script>
   <script>
     // Same same-origin-by-default pattern as frontend/roadmap.html's CONFIG.
-    const CONFIG = { BACKEND_URL: '' };
+    const CONFIG = { BACKEND_URL: window.DISCOVERY_RUNTIME.BACKEND_URL };  // frontend/runtime-config.js
     function apiUrl(path) { return CONFIG.BACKEND_URL + path; }
 
     const statusEl = document.getElementById('status');
@@ -288,7 +289,7 @@
       panel.hidden = false;
 
       if (panel.dataset.loaded === '1') return;
-      panel.innerHTML = '<div class="dewey-composing"><img src="/assets/dewey/dewey-thinking.svg" alt="Dewey thinking">Dewey is composing this lesson from the real claims above…</div>';
+      panel.innerHTML = '<div class="tunin-composing"><img src="/assets/tunin/tunin-thinking.svg" alt="Tuni'n thinking">Tuni'n is composing this lesson from the real claims above…</div>';
       button.disabled = true;
 
       try {
@@ -315,7 +316,7 @@
       if (lesson.status !== 'composed') {
         return (
           '<div class="lesson-panel-inner">' +
-            '<img class="dewey-avatar" src="/assets/dewey/dewey-thinking.svg" alt="Dewey, unsure">' +
+            '<img class="tunin-avatar" src="/assets/tunin/tunin-thinking.svg" alt="Tuni'n, unsure">' +
             '<div class="lesson-panel-body"><span class="empty-note">' +
               "I don't have enough real claims yet to teach this concept honestly — investigate it further first." +
             '</span></div>' +
@@ -342,7 +343,7 @@
 
       return (
         '<div class="lesson-panel-inner">' +
-          '<img class="dewey-avatar" src="/assets/dewey/dewey-explaining.svg" alt="Dewey explaining">' +
+          '<img class="tunin-avatar" src="/assets/tunin/tunin-explaining.svg" alt="Tuni'n explaining">' +
           '<div class="lesson-panel-body">' +
             badge +
             '<div class="lesson-explanation">' + (sentencesHtml || escapeHtml(lesson.explanation)) + '</div>' +

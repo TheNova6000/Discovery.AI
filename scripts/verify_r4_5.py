@@ -1,7 +1,7 @@
 """R4.5 verification -- lifecycle rehydration and active-claim semantics
 (docs/Phases.md's Reasoning Engine Evolution track, docs/Architecture.md
-§0.72, backend/research/claim_mapping.py's rehydration logic,
-backend/research/validation.py's DISCREDITED_CLAIM_STATUSES exclusion).
+§0.72, backend/main_block/reasoning_engine/research/claim_mapping.py's rehydration logic,
+backend/main_block/reasoning_engine/research/validation.py's DISCREDITED_CLAIM_STATUSES exclusion).
 
 A semantic repair slice, not a new persistence feature: R4.4's own tests
 (scripts/verify_r4_4.py's checks #11/#12) confirmed two real gaps --
@@ -17,7 +17,7 @@ own instruction):** should rehydration use (A) the already-expanded
 persistence-to-domain hydration adapter? **Answer: A, confirmed by direct
 inspection, not a guess** -- `ClaimNode` already gained `status`/
 `duplicate_of`/`provenance_note`/`last_transition_actor` in R4.4
-(`backend/graph/models.py`), and `_record_to_claim` already reads them via
+(`backend/main_block/reasoning_engine/graph/models.py`), and `_record_to_claim` already reads them via
 `.get()`. No new read model or adapter is needed; the data `R4.1`'s mapper
 needs is already sitting on the exact object it already receives.
 
@@ -65,16 +65,16 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv()
 
-from backend.graph.models import ClaimNode  # noqa: E402
-from backend.graph import (  # noqa: E402
+from backend.main_block.reasoning_engine.graph.models import ClaimNode  # noqa: E402
+from backend.main_block.reasoning_engine.graph import (  # noqa: E402
     attach_claim,
     attach_question,
     find_or_create_entity,
     get_claims_for_question,
     get_driver,
 )
-from backend.reasoning import Claim, transition_claim  # noqa: E402
-from backend.research import assess_claim_validity, claim_node_to_domain_claim, persist_domain_claim_lifecycle  # noqa: E402
+from backend.main_block.reasoning_engine.domain import Claim, transition_claim  # noqa: E402
+from backend.main_block.reasoning_engine.research import assess_claim_validity, claim_node_to_domain_claim, persist_domain_claim_lifecycle  # noqa: E402
 
 TEST_ENTITY_NAME = "R4.5 Verify Test Entity"
 
@@ -222,7 +222,7 @@ async def check_idempotent_persist_reload_persist() -> None:
 
 
 async def check_superseded_still_excluded(entity_id: str, question_id: str) -> None:
-    from backend.graph import supersede_claim
+    from backend.main_block.reasoning_engine.graph import supersede_claim
 
     canonical_id = await _attach_fresh_claim(question_id, "R4.5 check #9b: a claim that will be superseded.")
     new_claim_id = await _attach_fresh_claim(question_id, "R4.5 check #9b: the claim that supersedes it.")

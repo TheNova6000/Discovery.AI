@@ -6,7 +6,7 @@ metadata added to every retriever.
 assumed:** the source-pack design record (docs/Architecture.md §0.83)
 proposed a new `SourceAdapter`/`ResearchBundle` abstraction with its own
 search/acquire/extract pipeline. Direct inspection of the real, existing
-Evidence Engine (`backend/evidence/engine.py`'s `gather_evidence_with_outcomes`,
+Evidence Engine (`backend/main_block/reasoning_engine/evidence/engine.py`'s `gather_evidence_with_outcomes`,
 already wired through `RetrievalOutcome -> Evidence -> Claim`, R1.2) found
 that pipeline already does exactly this -- entity/relationship discovery
 already happens downstream, from synthesized claims (`decide_next_step`/
@@ -15,7 +15,7 @@ already happens downstream, from synthesized claims (`decide_next_step`/
 model" this whole project has repeatedly rejected (R1-R5). **Decision:
 coexist, extend, don't replace** -- new retrievers slot into the existing
 `Retriever` ABC and `DEFAULT_RETRIEVERS`, each stamping the new
-`source_role`/`acquisition_mode` metadata (backend/evidence/models.py) onto
+`source_role`/`acquisition_mode` metadata (backend/main_block/reasoning_engine/evidence/models.py) onto
 every `RetrievedResource` it returns; no new endpoint, no new pipeline. This
 script verifies that decision holds, not a parallel system.
 
@@ -49,13 +49,13 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv()
 
-from backend.evidence.engine import gather_evidence_with_outcomes  # noqa: E402
-from backend.evidence.retrievers import (  # noqa: E402
+from backend.main_block.reasoning_engine.evidence.engine import gather_evidence_with_outcomes  # noqa: E402
+from backend.main_block.research_engine.sources import (  # noqa: E402
     DEFAULT_RETRIEVERS,
     CppReferenceRetriever,
     GitHubRetriever,
 )
-from backend.questions.models import Question, QuestionLevel  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.models import Question, QuestionLevel  # noqa: E402
 
 
 async def check_cppreference_retriever() -> None:

@@ -37,9 +37,9 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.questions import decide_next_step  # noqa: E402
-from backend.questions.llm_config import has_any_provider_key  # noqa: E402
-from backend.questions.models import Question, QuestionLevel  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps import decide_next_step  # noqa: E402
+from backend.llm.config import has_any_provider_key  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.models import Question, QuestionLevel  # noqa: E402
 
 QUESTION_TEXT = "How does PayPal work?"
 ENTITY_NAME = "PayPal"

@@ -73,15 +73,21 @@ new graph.
 - The full write-up of every verification pass — including the ones that failed on the first attempt — is
   live on the deployed app's own `/docs#reports` page and in `docs/Memory.md`
 
-## Dewey — the Learning Portal, built on Discovery.AI
+## Tuni'n, the main block, and Dewey
 
-Dewey is a separate module (`backend/dewey/`) built on top of Discovery.AI's stable Research API — a
-course compiler and lesson author, not a second reasoning engine. Named for two real namesakes: the
-Dewey Decimal System (organizing a body of knowledge so someone can find their way through it) and John
-Dewey, whose "learn through real, guided experience" philosophy is the actual pedagogy here — a lesson
-is composed only from real, investigated claims and independently audited for traceability, never
-asserted from an LLM's unsourced memory. When the evidence is too thin, Dewey says so honestly rather
-than filling the gap. `docs/Architecture.md` §0.82 has the full decision record.
+**Tuni'n** is the learning portal: a chat model (`backend/chat/`) that builds a course brief with the
+learner, and the course side (`backend/tunin/`). It is built on the **main block**
+(`backend/main_block/`), which has two engines and one door:
+
+- **Discovery.AI**, the reasoning engine (`main_block/reasoning_engine/`): recursive investigation,
+  claim judgement, retrieve-then-write grounding with audited citations, the knowledge graph.
+- **Dewey**, the research engine (`main_block/research_engine/`): sources, safe page fetching and
+  extraction, and the Dewey Archive, a growing passage store read first, like RAG (named after the
+  Dewey Decimal System: organising knowledge so it can be found again).
+- **The door** (`main_block/interface.py`): research jobs and grounded `ask`. Every answer says whether
+  it is backed by sources. When the evidence is too thin, the system says so instead of guessing.
+
+(Until 2026-10-28 "Dewey" named the portal; history in `docs/Architecture.md` §0.82.)
 
 ## Docs map
 
@@ -243,3 +249,24 @@ which reaches Aura and your LLM providers, exactly like the local demo did.
 Each signed-in Google account gets its own private set of sessions
 (`backend/api/session.py`'s `get_store(user_id)`) — two people using the
 deployed app can't see each other's investigation graphs.
+
+## Offline and online
+
+Offline: `uvicorn backend.api.app:app` → http://localhost:8000 (no login, same origin).
+Online: https://discovery-ai.vercel.app (Vercel) → https://discovery-ai-bosm.onrender.com (Render), Google login.
+The same files serve both; `frontend/runtime-config.js` picks the mode from where a page is served.
+Full guide, environment, and caveats: **`docs/Deployment.md`**.
+
+## Code layout
+
+```
+backend/main_block/        the main block — interface.py is its only public entry point
+  reasoning_engine/        Discovery.AI: recursive investigation, grounding, knowledge graph
+  research_engine/         Dewey: sources, safe page fetching, the Dewey Archive (own RAG store)
+backend/chat/              Tuni'n chat model (separate model chain)
+backend/tunin/             Tuni'n course portal
+backend/llm/               shared AI-key pool + transport
+backend/api/               HTTP host
+```
+Details, boundary rules and the old → new path map: `docs/Architecture.md` → "Current code layout".
+Main block + chat API: `docs/research/MainBlock-and-Chat.md`.

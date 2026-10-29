@@ -22,11 +22,11 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.agents import ClaimProvenance, find_root_agent_id, trace_claim  # noqa: E402
-from backend.agents.models import AgentState, AgentStatus, GroundResult  # noqa: E402
-from backend.evidence.models import Claim, RetrievedResource  # noqa: E402
-from backend.questions.models import Question, QuestionLevel  # noqa: E402
-from backend.runtime import init_db, save_state  # noqa: E402
+from backend.main_block.reasoning_engine.agents import ClaimProvenance, find_root_agent_id, trace_claim  # noqa: E402
+from backend.main_block.reasoning_engine.agents.models import AgentState, AgentStatus, GroundResult  # noqa: E402
+from backend.main_block.reasoning_engine.evidence.models import Claim, RetrievedResource  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.models import Question, QuestionLevel  # noqa: E402
+from backend.main_block.reasoning_engine.runtime import init_db, save_state  # noqa: E402
 
 DB_PATH = "scratch_verify_trace_claim.sqlite3"
 

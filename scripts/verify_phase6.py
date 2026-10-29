@@ -1,5 +1,5 @@
 """Phase 6 verification -- Roadmap Generator ordering logic (PRD.md §4a,
-Phases.md Phase 6, backend/roadmap/ordering.py).
+Phases.md Phase 6, backend/main_block/reasoning_engine/roadmap/ordering.py).
 
 Deliberately scoped to pure logic: `order_roadmap_steps` and
 `_compute_zoom_depths` are pure functions over already-fetched graph data
@@ -14,7 +14,7 @@ NOT exercised here.
 The live path (Docker is NOT required -- a free Neo4j Aura instance works
 fine, see README.md's "point at an existing Neo4j/Aura instance instead") was
 run and passed 2026-09-16 (Architecture.md §0.39.2, docs/Memory.md): a real
-`/chat` investigation, `backend.graph.interface.zoom_in()` to materialize an
+`/chat` investigation, `backend.main_block.reasoning_engine.graph.interface.zoom_in()` to materialize an
 `Abstraction`, `GET /roadmap?abstraction_id=...`, and `frontend/roadmap.html`
 rendered in an actual browser -- all against real Neo4j data, no fixtures.
 That session also found and fixed a real Windows Unicode-encoding crash bug
@@ -44,8 +44,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.graph.models import GraphNode, QuestionNode, Relationship  # noqa: E402
-from backend.roadmap.ordering import _compute_zoom_depths, order_roadmap_steps  # noqa: E402
+from backend.main_block.reasoning_engine.graph.models import GraphNode, QuestionNode, Relationship  # noqa: E402
+from backend.main_block.reasoning_engine.roadmap.ordering import _compute_zoom_depths, order_roadmap_steps  # noqa: E402
 
 
 def _node(node_id: str, name: str) -> GraphNode:

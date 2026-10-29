@@ -1,5 +1,59 @@
 # Architecture — Recursive Knowledge Graph
 
+## Current code layout (2026-10-28 restructure) — read this first
+
+Everything below this section is the dated design history; its paths are the
+paths **of their time**. Use the map at the end of this section to follow them.
+
+```
+backend/
+├── main_block/                      ← THE MAIN BLOCK (swap engines by replacing their folders)
+│   ├── interface.py                 ← the ONLY import for code outside the main block
+│   ├── service.py api.py models.py store.py   ← the door: research jobs, grounded ask, HTTP routes
+│   ├── reasoning_engine/            ← Discovery.AI
+│   │   ├── interface.py             (investigate, ground_answer, gather_evidence, graph + contract types)
+│   │   ├── agents/  llm_steps/  evidence/  domain/  research/  research_api/  graph/  runtime/  roadmap/
+│   │   └── model_chains.py          (the reasoning engine's model fallback chains)
+│   └── research_engine/             ← Dewey
+│       ├── interface.py             (find(InformationNeed) → EvidenceBatch, archive, sources, RetrievedResource)
+│       └── archive.py engine.py fetch.py contracts.py providers.py resource.py config.py sources/
+├── llm/                             ← shared AI-key pool + transport (client.py, config.py) — plumbing only
+├── chat/                            ← Tuni'n chat model (own model chain) — client of main_block.interface
+├── tunin/                           ← Tuni'n course portal — client of main_block.interface
+├── api/                             ← HTTP host (composition root: mounts Discovery.AI demo, main block, chat)
+├── telemetry/                       ← frontend telemetry
+└── paths.py                         ← REPO_ROOT (database files live at the repo root)
+```
+
+**Boundary rules** (enforced by `scripts/verify_mainblock_boundary.py`, relative imports resolved):
+1. Clients (`backend/chat`, `backend/tunin`) import the main block only via `backend.main_block.interface`.
+2. The door (`main_block/service.py` …) imports each engine only via that engine's `interface.py`.
+3. The reasoning engine reaches the research engine only via `research_engine.interface`
+   (one connector: `reasoning_engine/evidence/engine.py::_resources_from_dewey`).
+4. The research engine never imports the reasoning engine, the door, or clients.
+
+**Replacing an engine:** provide the same `interface.py` names and contracts. Acceptance tests:
+reasoning — `verify_grounding`, `verify_faithfulness`, `verify_mainblock`, R1–R5, phase 8.x;
+research — `verify_dewey_archive`, `verify_dewey_engine`, `verify_dewey_fetch`,
+`evaluate_dewey_retrieval.py` (hit@4 / MRR benchmark).
+
+**Old → new path map**
+
+| Old (in history below) | Now |
+|---|---|
+| `backend/agents` | `backend/main_block/reasoning_engine/agents` |
+| `backend/questions` | `backend/main_block/reasoning_engine/llm_steps` |
+| `backend/questions/llm_client.py`, `llm_config.py` | `backend/llm/client.py`, `backend/llm/config.py` (model chains → `reasoning_engine/model_chains.py`) |
+| `backend/reasoning` | `backend/main_block/reasoning_engine/domain` |
+| `backend/research`, `backend/research_api` | `backend/main_block/reasoning_engine/research`, `…/research_api` |
+| `backend/graph`, `backend/runtime`, `backend/roadmap` | `backend/main_block/reasoning_engine/graph`, `…/runtime`, `…/roadmap` |
+| `backend/evidence` (claim synthesis, faithfulness) | `backend/main_block/reasoning_engine/evidence` |
+| `backend/evidence/retrievers`, `evidence/config.py`, `RetrievedResource` | `backend/main_block/research_engine/sources`, `…/config.py`, `…/resource.py` |
+| `backend/dewey` (research engine, since 2026-10-28) | `backend/main_block/research_engine` |
+| `backend/dewey` (portal, before 2026-10-28) | `backend/tunin` (`course`, `lessons`, `coverage`) |
+| `backend/mainblock` | `backend/main_block` |
+
+
 Stack decisions below come from research into currently-maintained (2026) tools per layer — see the research summary preserved in the approved plan at
 `C:\Users\srikr\.claude\plans\recursive-knowledge-graph-sleepy-map.md` for the full comparison and rationale behind each pick.
 

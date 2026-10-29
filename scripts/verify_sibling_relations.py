@@ -36,8 +36,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.questions.llm_config import has_any_provider_key  # noqa: E402
-from backend.questions.relation_extraction import extract_relations  # noqa: E402
+from backend.llm.config import has_any_provider_key  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.relation_extraction import extract_relations  # noqa: E402
 
 KNOWN_TEXT = """\
 A client wants to pay a merchant for goods purchased online. The client

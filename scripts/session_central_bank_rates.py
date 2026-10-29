@@ -25,11 +25,11 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.agents.ground_agent import GroundAgent  # noqa: E402
-from backend.agents.models import AgentState, AgentStatus  # noqa: E402
-from backend.questions import Question, QuestionLevel  # noqa: E402
-from backend.questions.llm_config import has_any_provider_key  # noqa: E402
-from backend.runtime import load_state  # noqa: E402
+from backend.main_block.reasoning_engine.agents.ground_agent import GroundAgent  # noqa: E402
+from backend.main_block.reasoning_engine.agents.models import AgentState, AgentStatus  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps import Question, QuestionLevel  # noqa: E402
+from backend.llm.config import has_any_provider_key  # noqa: E402
+from backend.main_block.reasoning_engine.runtime import load_state  # noqa: E402
 
 QUESTION_TEXT = "How does a central bank control interest rates?"
 ENTITY_NAME = "Central Bank"

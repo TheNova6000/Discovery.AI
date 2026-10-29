@@ -6,7 +6,7 @@ wild, and if so, where did it actually come from (which relationship_types,
 which investigations, which layer of the pipeline)?
 
 Uses the project's own single source of truth for relation family
-(backend.questions.relation_types.get_family) rather than re-deriving family
+(backend.main_block.reasoning_engine.llm_steps.relation_types.get_family) rather than re-deriving family
 classification here -- consistent with every prior pass's discipline of never
 maintaining a second copy of that table.
 """
@@ -16,8 +16,8 @@ from collections import defaultdict
 
 sys.path.insert(0, ".")
 
-from backend.graph.driver import close_driver, get_driver
-from backend.questions.relation_types import get_family
+from backend.main_block.reasoning_engine.graph.driver import close_driver, get_driver
+from backend.main_block.reasoning_engine.llm_steps.relation_types import get_family
 
 
 async def fetch_graph():

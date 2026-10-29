@@ -34,7 +34,7 @@ Three cases, chosen to plausibly land in three different buckets:
 The rationale strings are deliberately neutral, ordinary framings of each
 question — NOT hints about this being a revision/collapse experiment. Question
 rationale text is included verbatim in decide_next_step's prompt
-(backend/questions/decision.py's "Rationale it was asked" line), and an earlier
+(backend/main_block/reasoning_engine/llm_steps/decision.py's "Rationale it was asked" line), and an earlier
 pass in this project (verify_dimension_steering.py) found that a meta-flavored
 rationale leaks straight into the model's reasoning and contaminates the result.
 """
@@ -47,11 +47,11 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.agents.ground_agent import GroundAgent  # noqa: E402
-from backend.agents.models import AgentState, AgentStatus  # noqa: E402
-from backend.questions import Question, QuestionLevel  # noqa: E402
-from backend.questions.llm_config import has_any_provider_key  # noqa: E402
-from backend.runtime import load_state  # noqa: E402
+from backend.main_block.reasoning_engine.agents.ground_agent import GroundAgent  # noqa: E402
+from backend.main_block.reasoning_engine.agents.models import AgentState, AgentStatus  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps import Question, QuestionLevel  # noqa: E402
+from backend.llm.config import has_any_provider_key  # noqa: E402
+from backend.main_block.reasoning_engine.runtime import load_state  # noqa: E402
 
 CASES = [
     (

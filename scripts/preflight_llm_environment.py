@@ -6,20 +6,20 @@ the 9 scripts `scripts/run_all_verifications.py` categorizes as
 **Never prints a secret value.** Every check below reports presence
 (True/False) only -- whether an env var is set and non-empty -- never its
 content, never even a partial/masked value. This script makes no network
-call itself; it only reads `os.environ` (via `backend.questions.llm_config`,
+call itself; it only reads `os.environ` (via `backend.llm.config`,
 already the real, live source of truth this project's own provider chain
 reads from) and inspects which real scripts import which real gate.
 
 Ground truth, read directly from source rather than assumed:
 - All 9 environment_blocked scripts gate on the exact same function,
-  `backend.questions.llm_config.has_any_provider_key()` -- confirmed by
+  `backend.llm.config.has_any_provider_key()` -- confirmed by
   grepping every one of the 9 scripts directly (see REQUIRING_SCRIPTS below).
   None of them requires a SPECIFIC provider; any one of Gemini/Groq/Cerebras
   is sufficient, since `GROUND_MODEL_CHAIN`/`MASTER_MODEL_CHAIN`
-  (`backend/questions/llm_config.py`) each already fall back across all
+  (`backend/llm/config.py`) each already fall back across all
   three.
 - 2 of the 9 (`verify_graph_persistence.py`, `verify_phase5.py`) also import
-  `backend.graph` (Neo4j) -- but Neo4j reachability is NOT this environment's
+  `backend.main_block.reasoning_engine.graph` (Neo4j) -- but Neo4j reachability is NOT this environment's
   blocker (confirmed: `scripts/verify_r5_3.py`/`verify_zoom_and_explain.py`
   connect to the same real Neo4j instance successfully in this same
   environment). Naming this so a future reader doesn't have to re-derive it.
@@ -32,7 +32,7 @@ Ground truth, read directly from source rather than assumed:
 
 **A real, pre-existing, narrow inconsistency found while writing this,
 flagged here rather than silently fixed** (fixing it would touch
-`backend.questions.llm_config`'s actual provider-detection logic, outside
+`backend.llm.config`'s actual provider-detection logic, outside
 this slice's scope): `has_any_provider_key()` treats `COHERE_API_KEY` as
 sufficient on its own, and `.env.example` lists it as one of four "zero-cost
 LLM providers" to configure -- but `PROVIDER_KEY_POOLS` has no `"cohere"`
@@ -53,8 +53,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.evidence.config import TAVILY_API_KEY, YOUTUBE_API_KEY  # noqa: E402
-from backend.questions.llm_config import PROVIDER_KEY_POOLS, has_any_provider_key  # noqa: E402
+from backend.main_block.research_engine.config import TAVILY_API_KEY, YOUTUBE_API_KEY  # noqa: E402
+from backend.llm.config import PROVIDER_KEY_POOLS, has_any_provider_key  # noqa: E402
 
 # The exact 9 scripts scripts/run_all_verifications.py found environment_blocked
 # on 2026-09-17, confirmed by grep against each script's own source (see the
@@ -71,7 +71,7 @@ REQUIRING_SCRIPTS: list[dict] = [
     {"script": "verify_working_framing.py", "requires_neo4j": False, "requires_evidence_retrievers": False},
 ]
 
-# Real per-provider facts, cited from backend/questions/llm_config.py and
+# Real per-provider facts, cited from backend/llm/config.py and
 # Implimentation-Research/Free-LLM-APIs.md/docs/Memory.md -- not invented.
 PROVIDER_FACTS: dict[str, dict] = {
     "google": {

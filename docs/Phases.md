@@ -1,5 +1,9 @@
 # Phases — Recursive Knowledge Graph
 
+> **Paths:** this document predates the 2026-10-28 main-block restructure. Current layout and the
+> old → new path map: `docs/Architecture.md`, section "Current code layout".
+
+
 Each phase should be completable and independently verifiable before starting the next. Update Memory.md at the end of every phase (Memory.md is created at the start of Phase 1 — see Rules.md §4).
 
 ## Phase 0 — Documentation & scaffolding [VERIFIED]

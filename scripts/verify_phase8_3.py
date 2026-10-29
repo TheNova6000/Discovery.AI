@@ -1,6 +1,6 @@
 """Phase 8.3 verification -- Coverage/Completeness model, pure logic only
 (docs/Phases.md Phase 8.3, docs/PRD.md §9.3a, docs/Architecture.md §0.43,
-backend/research/coverage.py).
+backend/main_block/reasoning_engine/research/coverage.py).
 
 Same split as Phase 6/8.1/8.2's own verify scripts: `assess_target_completeness`
 and `assess_plan_readiness` are pure functions over already-fetched data
@@ -35,14 +35,14 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.graph.models import ClaimNode  # noqa: E402
-from backend.research import (  # noqa: E402
+from backend.main_block.reasoning_engine.graph.models import ClaimNode  # noqa: E402
+from backend.main_block.reasoning_engine.research import (  # noqa: E402
     ConceptResearchTarget,
     ResearchPlan,
     assess_plan_readiness,
     assess_target_completeness,
 )
-from backend.agents.policy import EXPLORATORY_POLICY, ResearchPolicy  # noqa: E402
+from backend.main_block.reasoning_engine.agents.policy import EXPLORATORY_POLICY, ResearchPolicy  # noqa: E402
 
 _NOW = "2026-01-01T00:00:00+00:00"
 

@@ -1,6 +1,6 @@
 """R1.2 verification -- wiring RetrievalOutcome -> Evidence -> Claim into the
 live investigation output path (docs/Phases.md's Reasoning Engine Evolution
-track, docs/Architecture.md §0.59, backend/evidence/engine.py).
+track, docs/Architecture.md §0.59, backend/main_block/reasoning_engine/evidence/engine.py).
 
 Two parts:
 
@@ -47,10 +47,10 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.evidence import gather_evidence, gather_evidence_with_outcomes  # noqa: E402
-from backend.evidence.exceptions import EvidenceRetrievalError  # noqa: E402
-from backend.evidence.models import ClaimDraft, RetrievedResource  # noqa: E402
-from backend.questions import Question, QuestionLevel  # noqa: E402
+from backend.main_block.reasoning_engine.evidence import gather_evidence, gather_evidence_with_outcomes  # noqa: E402
+from backend.main_block.reasoning_engine.evidence.exceptions import EvidenceRetrievalError  # noqa: E402
+from backend.main_block.reasoning_engine.evidence.models import ClaimDraft, RetrievedResource  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps import Question, QuestionLevel  # noqa: E402
 
 _QUESTION = Question(
     text="What is the role of X in the system?",
@@ -88,7 +88,7 @@ async def _fake_synthesize(question: Question, resource: RetrievedResource) -> C
 
 def run_mocked_checks() -> None:
     async def _run():
-        with patch("backend.evidence.engine.synthesize_claim", side_effect=_fake_synthesize):
+        with patch("backend.main_block.reasoning_engine.evidence.engine.synthesize_claim", side_effect=_fake_synthesize):
             retriever = _FakeRetriever([_GOOD, _NON_ANSWER, _ERROR])
             result = await gather_evidence_with_outcomes(_QUESTION, retrievers=[retriever], max_results_per_retriever=3)
 

@@ -1,7 +1,7 @@
 """R5.3 verification -- POST /research, the real route wiring R5.1/R5.2's
 Research API contract behind HTTP (docs/Phases.md's Reasoning Engine
 Evolution track, docs/Architecture.md §0.75,
-backend/research_api/service.py, backend/api/app.py's /research route).
+backend/main_block/reasoning_engine/research_api/service.py, backend/api/app.py's /research route).
 
 Two parts:
 
@@ -55,9 +55,9 @@ load_dotenv()
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from backend.agents.policy import EXPLORATORY_POLICY  # noqa: E402
-from backend.graph import close_driver, find_or_create_entity, materialize_abstraction  # noqa: E402
-from backend.research_api import fetch_and_compile_research_response  # noqa: E402
+from backend.main_block.reasoning_engine.agents.policy import EXPLORATORY_POLICY  # noqa: E402
+from backend.main_block.reasoning_engine.graph import close_driver, find_or_create_entity, materialize_abstraction  # noqa: E402
+from backend.main_block.reasoning_engine.research_api import fetch_and_compile_research_response  # noqa: E402
 
 
 async def _real_online_payment_abstraction_id() -> str:
@@ -77,7 +77,7 @@ async def check_service_against_real_data() -> None:
     print(f"[PASS] #1 fetch_and_compile_research_response resolves real data: investigation_id={response.investigation_id!r} status={response.status!r}")
 
     for claim in response.claims:
-        assert claim.__class__.__module__.endswith("reasoning.domain")
+        assert claim.__class__.__module__.endswith("reasoning_engine.domain.domain")
     print(f"[PASS] #2 response.claims ({len(response.claims)} real claim(s)) are genuine reasoning.domain.Claim objects, none fabricated")
 
     print(f"[PASS] #3 response.entities ({len(response.entities)}) / relationships ({len(response.relationships)}) sourced from the real Subgraph")

@@ -25,10 +25,10 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.agents import GroundAgent  # noqa: E402
-from backend.agents.models import AgentStatus  # noqa: E402
-from backend.evidence import gather_evidence  # noqa: E402
-from backend.graph import (  # noqa: E402
+from backend.main_block.reasoning_engine.agents import GroundAgent  # noqa: E402
+from backend.main_block.reasoning_engine.agents.models import AgentStatus  # noqa: E402
+from backend.main_block.reasoning_engine.evidence import gather_evidence  # noqa: E402
+from backend.main_block.reasoning_engine.graph import (  # noqa: E402
     attach_claim,
     attach_question,
     close_driver,
@@ -37,8 +37,8 @@ from backend.graph import (  # noqa: E402
     get_claims_for_question,
     supersede_claim,
 )
-from backend.questions import SCALE, TIME, QuestionLevel, generate_question  # noqa: E402
-from backend.questions.llm_config import has_any_provider_key  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps import SCALE, TIME, QuestionLevel, generate_question  # noqa: E402
+from backend.llm.config import has_any_provider_key  # noqa: E402
 
 
 async def check_ground_agent_populates_claims() -> None:

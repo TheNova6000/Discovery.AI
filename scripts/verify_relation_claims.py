@@ -30,15 +30,15 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.graph import (  # noqa: E402
+from backend.main_block.reasoning_engine.graph import (  # noqa: E402
     attach_relation_claim,
     create_relationship,
     find_or_create_entity,
     get_relation_claims,
     get_relation_confidence,
 )
-from backend.graph.driver import get_driver  # noqa: E402
-from backend.graph.schema import NODE_LABEL, RELATES_TO  # noqa: E402
+from backend.main_block.reasoning_engine.graph.driver import get_driver  # noqa: E402
+from backend.main_block.reasoning_engine.graph.schema import NODE_LABEL, RELATES_TO  # noqa: E402
 
 
 async def count_relates_to_edges(source_id: str, target_id: str, relationship_type: str) -> int:

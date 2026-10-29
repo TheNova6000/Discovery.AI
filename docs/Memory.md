@@ -4,6 +4,44 @@ Running progress log. Update at the end of every phase (see Rules.md rule 4 / "w
 
 ---
 
+## 2026-10-28 (night) — Main block restructured; Tuni'n chat + door built
+
+The code now lives in `backend/main_block/` (reasoning_engine = Discovery.AI, research_engine = Dewey,
+the door + `interface.py`), with `backend/chat`, `backend/tunin`, `backend/llm` outside. Old → new path
+map at the top of `docs/Architecture.md`; boundary rules in `docs/Rules.md` (B1-B6). 30/30 suites pass.
+Full detail, the improvement loop (iterations 01-05) and live results: root `Memory.md` and
+`docs/research/loop/`.
+
+---
+
+## 2026-10-28 (evening) — LLM key pool scheduling fixed; Gemma 4 primary; Neo4j restored
+
+`structured_call` now round-robins pooled keys, cools a key after timeout/429,
+caps 3 keys per provider per pass, limits 4 concurrent calls per provider, and
+gives gemma-4-31b-it a 75s timeout. `scripts/verify_key_pool.py` 5/5 PASS (no
+network). Chains lead with gemma-4-31b-it, Groq interleaved. New Aura instance
+works (username = instance id); `verify_phase1.py` PASSED. Live BST run found
+Discovery.AI answers before gathering evidence (`ground_agent.py:276`). Full
+detail in root `Memory.md`.
+
+---
+
+## 2026-10-28 — Tuni'n implementation paused and logged (no phase claimed complete)
+
+A new branch `tunin` was created from `test-sept16-afternoon` and merged with
+`origin/main` (`b014359`), preserving the user's `frontend/chat.html` change. The
+audit, baseline results, environment blockers, designs, eight untracked modules
+under `backend/tunin/`, known defects, and exact resume steps are recorded in the
+root-level `Memory.md` (the Tuni'n engineering contract's memory file).
+
+**Verified this session:** `import backend.api.app` OK; `verify_phase8_1`–`8_6`
+all passed; `py_compile` OK on all eight new Tuni'n files. **Not verified:** any
+Tuni'n runtime path, API, frontend, or test — assessment/orchestrator/API/frontend
+tests and the six root contract documents are not written yet. Full details and
+the resume order are in `Memory.md`.
+
+---
+
 ## 2026-09-17 — Coverage contract formalized: `backend/dewey/coverage/`, the checker renamed, negation/collision fixes measured, and a full-suite regression check finding no breakage
 
 Direct continuation of Experiment C below, per explicit instruction: "The next task should be neither Experiments A/B nor immediate LLM integration. It should be: Write the coverage contract and rename/reframe the current checker as lexical candidate detection." Checked against Phase 8.3's existing `FieldCoverage`/`ConceptCompleteness` before writing code -- confirmed a genuinely different axis (per-entity internal field completeness vs. cross-topic external concept presence), not a duplicate.

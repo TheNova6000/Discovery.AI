@@ -41,6 +41,11 @@ tavily-python>=0.5,<1
 # worked) while still sending our real, identifying User-Agent.
 curl_cffi>=0.7,<1
 google-genai>=1.0,<2
+# google-genai's async client references aiohttp.ClientConnectorDNSError, which
+# only exists from aiohttp 3.10 -- on 3.9.5 every async Gemma/Gemini call that hit
+# a connection error crashed inside the SDK's own error handler (seen live
+# 2026-10-28) instead of failing over to the next key.
+aiohttp>=3.10,<4
 groq>=0.11,<1
 cerebras_cloud_sdk>=1.0,<2
 # instructor's internals use PEP 604 `X | Y` union syntax evaluated at runtime by
@@ -60,3 +65,6 @@ asyncpg>=0.29,<0.31
 # required for ES256/RS256 verification. Bypassed entirely when SUPABASE_URL is
 # unset, so the existing no-auth local/VM demo is unaffected.
 pyjwt[crypto]>=2.8,<3
+# Dewey full-page extraction (backend/dewey/fetch.py): best-scoring heuristic
+# main-content extractor in published benchmarks; BeautifulSoup is the fallback.
+trafilatura>=2.0,<3

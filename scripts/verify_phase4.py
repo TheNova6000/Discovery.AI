@@ -31,12 +31,12 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-import backend.agents.ground_agent as ground_agent_module  # noqa: E402
-from backend.agents import ExpansionDecision, MasterAgent  # noqa: E402
-from backend.agents.models import AgentStatus  # noqa: E402
-from backend.questions import GroundDecision, QuestionLevel  # noqa: E402
-from backend.questions.llm_config import has_any_provider_key  # noqa: E402
-from backend.questions.models import Question  # noqa: E402
+import backend.main_block.reasoning_engine.agents.ground_agent as ground_agent_module  # noqa: E402
+from backend.main_block.reasoning_engine.agents import ExpansionDecision, MasterAgent  # noqa: E402
+from backend.main_block.reasoning_engine.agents.models import AgentStatus  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps import GroundDecision, QuestionLevel  # noqa: E402
+from backend.llm.config import has_any_provider_key  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.models import Question  # noqa: E402
 
 GROUND_DB_PATH = str(pathlib.Path(__file__).resolve().parent.parent / "verify_phase4_ground.sqlite3")
 CHECKPOINT_DB_PATH = str(pathlib.Path(__file__).resolve().parent.parent / "verify_phase4_checkpoints.sqlite3")

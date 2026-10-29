@@ -1,6 +1,6 @@
 """R5.2 verification -- compile_research_response, the pure projection
 compiler (docs/Phases.md's Reasoning Engine Evolution track,
-docs/Architecture.md §0.74, backend/research_api/compiler.py).
+docs/Architecture.md §0.74, backend/main_block/reasoning_engine/research_api/compiler.py).
 
 Pure throughout -- no LLM/retriever/Neo4j/HTTP call, no orchestration, no
 lifecycle transitions, no confidence gating, no persistence, no new
@@ -52,10 +52,10 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.agents.policy import EXPLORATORY_POLICY  # noqa: E402
-from backend.graph.models import ClaimNode  # noqa: E402
-from backend.reasoning import Claim, transition_claim  # noqa: E402
-from backend.research import (  # noqa: E402
+from backend.main_block.reasoning_engine.agents.policy import EXPLORATORY_POLICY  # noqa: E402
+from backend.main_block.reasoning_engine.graph.models import ClaimNode  # noqa: E402
+from backend.main_block.reasoning_engine.domain import Claim, transition_claim  # noqa: E402
+from backend.main_block.reasoning_engine.research import (  # noqa: E402
     ConceptCompleteness,
     ConceptResearchTarget,
     ContradictionFinding,
@@ -65,7 +65,7 @@ from backend.research import (  # noqa: E402
     ResearchReadinessReport,
     assemble_research_artifact,
 )
-from backend.research_api import ResearchResponse, compile_research_response  # noqa: E402
+from backend.main_block.reasoning_engine.research_api import ResearchResponse, compile_research_response  # noqa: E402
 
 _NOW = "2026-01-01T00:00:00+00:00"
 

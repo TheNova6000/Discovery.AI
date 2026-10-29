@@ -940,12 +940,14 @@ flowchart LR
   <a href="/chat" style="color:inherit;text-decoration:none">Launch app →</a>
 </footer>
 
+<script src="/runtime-config.js"></script>
 <script>
   // See frontend/wasm/fluid-bg.js for the real fluid-dynamics background
   // (Stable Fluids in WebAssembly, seeded by the cross-visitor cursor
   // aggregate) -- shared with index.html rather than duplicated inline,
   // unlike this project's other small per-page background scripts.
-  const CONFIG = { BACKEND_URL: 'https://discovery-ai-bosm.onrender.com' };
+  // Offline vs online: frontend/runtime-config.js.
+  const CONFIG = { BACKEND_URL: window.DISCOVERY_RUNTIME.BACKEND_URL };
 </script>
 <script src="/wasm/fluid-bg.js"></script>
 <script>

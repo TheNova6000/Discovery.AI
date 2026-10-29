@@ -1,7 +1,7 @@
 """R4.2 verification -- validation orchestration: resolving real duplicate
 claim pairs via transition_claim (docs/Phases.md's Reasoning Engine
 Evolution track, docs/Architecture.md §0.68,
-backend/research/duplicate_resolution.py).
+backend/main_block/reasoning_engine/research/duplicate_resolution.py).
 
 Two parts, same split every phase this session has used:
 
@@ -69,8 +69,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.graph.models import ClaimNode  # noqa: E402
-from backend.research import DuplicateClaimPair, resolve_duplicate_claims  # noqa: E402
+from backend.main_block.reasoning_engine.graph.models import ClaimNode  # noqa: E402
+from backend.main_block.reasoning_engine.research import DuplicateClaimPair, resolve_duplicate_claims  # noqa: E402
 
 
 def _node(id: str, evidence: str, source_url: str = "https://example.com/shared", confidence: float = 0.6) -> ClaimNode:
@@ -183,8 +183,8 @@ def run_real_data_check() -> None:
         from dotenv import load_dotenv
 
         load_dotenv()
-        from backend.graph.interface import get_claims_for_question, get_questions_for_entity
-        from backend.research import assess_claim_validity
+        from backend.main_block.reasoning_engine.graph.interface import get_claims_for_question, get_questions_for_entity
+        from backend.main_block.reasoning_engine.research import assess_claim_validity
     except Exception as exc:  # noqa: BLE001
         print(f"[SKIP] real-data check: could not import graph interface / validation ({exc})")
         return
