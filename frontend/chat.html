@@ -1030,6 +1030,40 @@ function authHeaders() {
   return authSession ? { 'Authorization': 'Bearer ' + authSession.access_token } : {};
 }
 
+// Every backend call goes through apiJson(): a reply is either data or an
+// ApiError carrying the backend's own message. Before this, most calls parsed
+// any reply as success, so a 401 "Missing bearer token" surfaced as
+// "TypeError: Cannot read properties of undefined (reading 'current_entity')",
+// and a failed session call left the page stuck in its busy state.
+class ApiError extends Error {
+  constructor(message, status) { super(message); this.status = status; }
+}
+
+async function apiJson(path, options = {}, retried = false) {
+  const res = await fetch(apiUrl(path), { ...options, headers: { ...(options.headers || {}), ...authHeaders() } });
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch (err) { body = null; } // e.g. an HTML 502 page during a cold start
+  if (res.ok) return body;
+  if (res.status === 401 && AUTH_ENABLED) {
+    // An expired access token: refresh it once and retry; if that fails, show the sign-in gate.
+    const { data } = await supabaseClient.auth.refreshSession().catch(() => ({ data: {} }));
+    if (!retried && data && data.session) {
+      authSession = data.session;
+      return apiJson(path, options, true);
+    }
+    applyAuthState(null);
+    throw new ApiError('Your session has expired — please sign in again.', 401);
+  }
+  const detail = body && body.detail ? (typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)) : '';
+  if (!detail && [502, 503, 504].includes(res.status)) {
+    // Render's free tier sleeps when idle; these come back as an HTML error page while it wakes.
+    throw new ApiError(`The server is starting up or busy (HTTP ${res.status}) — please try again in a minute.`, res.status);
+  }
+  const plain = /^\s*</.test(text) ? '' : text.slice(0, 200); // never show a raw HTML page
+  throw new ApiError(`${detail || plain || res.statusText || 'Request failed'} (HTTP ${res.status})`, res.status);
+}
+
 const authGateEl = document.getElementById('auth-gate');
 const userBoxEl = document.getElementById('user-box');
 const userEmailEl = document.getElementById('user-email');
@@ -1147,8 +1181,7 @@ async function openSettings() {
     field.querySelector('.key-status').textContent = 'checking…';
   }
   try {
-    const res = await fetch(apiUrl('/settings'), { headers: authHeaders() });
-    const status = await res.json();
+    const status = await apiJson('/settings');
     for (const field of settingsFieldEls) {
       applyKeyStatus(field, !!status[field.dataset.field + '_set']);
     }
@@ -1184,8 +1217,7 @@ function formatResetEstimate(iso) {
 async function refreshPoolStatus() {
   let status;
   try {
-    const res = await fetch(apiUrl('/provider_status'));
-    status = await res.json();
+    status = await apiJson('/provider_status');
   } catch (err) {
     poolStatusDotEl.className = 'pool-status-dot';
     return;
@@ -1270,22 +1302,27 @@ if (AUTH_ENABLED) {
 }
 
 async function saveSettings(body) {
-  const res = await fetch(apiUrl('/settings'), {
+  // Through apiJson: a failed save used to be read as a status and shown as "Saved."
+  return apiJson('/settings', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return res.json();
 }
 
 for (const field of settingsFieldEls) {
   field.querySelector('.clear-key-btn').addEventListener('click', async () => {
     const name = field.dataset.field;
-    const status = await saveSettings({ [name]: '' });
-    field.querySelector('input').value = '';
-    applyKeyStatus(field, !!status[name + '_set']);
-    applyPersistHint(status);
-    document.getElementById('settings-save-status').textContent = 'Cleared.';
+    const saveStatusEl = document.getElementById('settings-save-status');
+    try {
+      const status = await saveSettings({ [name]: '' });
+      field.querySelector('input').value = '';
+      applyKeyStatus(field, !!status[name + '_set']);
+      applyPersistHint(status);
+      saveStatusEl.textContent = 'Cleared.';
+    } catch (err) {
+      saveStatusEl.textContent = 'Failed to clear: ' + err.message;
+    }
   });
 }
 
@@ -1313,7 +1350,7 @@ document.getElementById('settings-save-btn').addEventListener('click', async () 
     applyPersistHint(status);
     saveStatusEl.textContent = 'Saved.';
   } catch (err) {
-    saveStatusEl.textContent = 'Failed to save: ' + err;
+    saveStatusEl.textContent = 'Failed to save: ' + (err.message || err);
   }
 });
 
@@ -1712,9 +1749,7 @@ async function openNodePanel(entityName) {
   nodePanelBodyEl.innerHTML = '<div class="node-panel-loading">SCANNING…</div>';
   openNodeModalShell();
   try {
-    const res = await fetch(apiUrl('/node_detail?entity_name=' + encodeURIComponent(entityName)), { headers: authHeaders() });
-    if (!res.ok) throw new Error(res.statusText);
-    const detail = await res.json();
+    const detail = await apiJson('/node_detail?entity_name=' + encodeURIComponent(entityName));
     renderNodePanel(detail);
   } catch (err) {
     nodePanelBodyEl.innerHTML = '';
@@ -1804,8 +1839,7 @@ function buildMessageOptions(wrap) {
     resourcesPanel.textContent = entityName ? 'Loading…' : 'No entity associated with this reply.';
     if (!entityName) { resourcesPanel.dataset.loaded = '1'; return; }
     try {
-      const res = await fetch(apiUrl('/resources?entity_name=' + encodeURIComponent(entityName)), { headers: authHeaders() });
-      const items = await res.json();
+      const items = await apiJson('/resources?entity_name=' + encodeURIComponent(entityName));
       resourcesPanel.innerHTML = '';
       if (!items.length) {
         resourcesPanel.textContent = 'No sources recorded for this yet.';
@@ -1837,9 +1871,7 @@ function buildMessageOptions(wrap) {
     regenerateBtn.disabled = true;
     regenerateBtn.textContent = 'Regenerating…';
     try {
-      const res = await fetch(apiUrl('/chat/regenerate'), { method: 'POST', headers: authHeaders() });
-      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
-      const data = await res.json();
+      const data = await apiJson('/chat/regenerate', { method: 'POST' });
       wrap.querySelector('.msg-body').innerHTML = DOMPurify.sanitize(marked.parse(data.reply));
       const tagEl = wrap.querySelector('.intent-tag');
       if (tagEl) tagEl.textContent = data.intent_action;
@@ -1871,13 +1903,11 @@ function buildMessageOptions(wrap) {
     roadmapBtn.disabled = true;
     roadmapBtn.textContent = 'Building…';
     try {
-      const res = await fetch(apiUrl('/roadmap/build'), {
+      const data = await apiJson('/roadmap/build', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entity_name: entityName }),
       });
-      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
-      const data = await res.json();
       // Site-relative on purpose, resolved against THIS page's own origin, not
       // apiUrl()'s backend origin -- roadmap.html is a frontend page, and in the
       // deployed split (README's Vercel+Render setup) the two are different hosts.
@@ -1942,8 +1972,13 @@ function renderMessages(messages) {
 }
 
 async function loadSessionList() {
-  const res = await fetch(apiUrl('/sessions'), { headers: authHeaders() });
-  const sessions = await res.json();
+  let sessions;
+  try {
+    sessions = await apiJson('/sessions');
+  } catch (err) {
+    console.warn('session list unavailable:', err.message); // the chat itself still works
+    return;
+  }
   const listEl = document.getElementById('session-list');
   listEl.innerHTML = '';
   for (const s of sessions) {
@@ -1977,46 +2012,55 @@ async function deleteSession(sessionId) {
   // just an ordinary destructive-action guard any chat app would have).
   if (!confirm('Delete this chat? This cannot be undone.')) return;
   setBusy(true, 'deleting chat…');
-  const res = await fetch(apiUrl('/sessions/' + encodeURIComponent(sessionId)), {
-    method: 'DELETE',
-    headers: authHeaders(),
-  });
-  const data = await res.json();
-  // The deleted session may or may not have been the one on screen -- either
-  // way, re-render from whatever the backend now says is current (it always
-  // returns SOME valid session, creating a fresh one if that was the last).
-  renderMessages(data.messages);
-  renderGraph(data);
-  await loadSessionList();
-  setBusy(false);
-  closeMobilePanels();
+  try {
+    const data = await apiJson('/sessions/' + encodeURIComponent(sessionId), { method: 'DELETE' });
+    // The deleted session may or may not have been the one on screen -- either
+    // way, re-render from whatever the backend now says is current (it always
+    // returns SOME valid session, creating a fresh one if that was the last).
+    renderMessages(data.messages);
+    renderGraph(data);
+    await loadSessionList();
+    closeMobilePanels();
+  } catch (err) {
+    addMessage('Delete failed: ' + err.message, 'agent', 'error');
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function newChat() {
   setBusy(true, 'starting new chat…');
-  const res = await fetch(apiUrl('/sessions/new'), { method: 'POST', headers: authHeaders() });
-  const data = await res.json();
-  renderMessages(data.messages);
-  renderGraph(data);
-  await loadSessionList();
-  setBusy(false);
-  inputEl.focus();
-  closeMobilePanels(); // picking a chat should return to it, not leave the drawer open over it
+  try {
+    const data = await apiJson('/sessions/new', { method: 'POST' });
+    renderMessages(data.messages);
+    renderGraph(data);
+    await loadSessionList();
+    inputEl.focus();
+    closeMobilePanels(); // picking a chat should return to it, not leave the drawer open over it
+  } catch (err) {
+    addMessage('Could not start a new chat: ' + err.message, 'agent', 'error');
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function switchSession(sessionId) {
   setBusy(true, 'loading session…');
-  const res = await fetch(apiUrl('/sessions/switch'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ session_id: sessionId }),
-  });
-  const data = await res.json();
-  closeMobilePanels();
-  renderMessages(data.messages);
-  renderGraph(data);
-  await loadSessionList();
-  setBusy(false);
+  try {
+    const data = await apiJson('/sessions/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+    closeMobilePanels();
+    renderMessages(data.messages);
+    renderGraph(data);
+    await loadSessionList();
+  } catch (err) {
+    addMessage('Could not open that chat: ' + err.message, 'agent', 'error');
+  } finally {
+    setBusy(false);
+  }
 }
 
 // The full session graph (graph.nodes/edges) accumulates everything ever
@@ -2342,19 +2386,18 @@ async function send(message) {
   setBusy(true, 'investigating…');
   showTyping();
   try {
-    const res = await fetch(apiUrl('/chat'), {
+    const data = await apiJson('/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),
     });
-    const data = await res.json();
     hideTyping();
     addMessage(data.reply, 'agent', data.intent_action, data.graph.current_entity);
     renderGraph(data.graph);
     loadSessionList();
   } catch (err) {
     hideTyping();
-    addMessage('Request failed: ' + err, 'agent', 'error');
+    addMessage('Request failed: ' + (err.message || err), 'agent', 'error');
   } finally {
     sendBtn.disabled = false;
     setBusy(false);
@@ -2376,7 +2419,7 @@ let appBooted = false;
 function bootApp() {
   if (appBooted) return;
   appBooted = true;
-  fetch(apiUrl('/graph'), { headers: authHeaders() }).then(r => r.json()).then((data) => {
+  apiJson('/graph').then((data) => {
     renderMessages(data.messages);
     renderGraph(data);
   }).catch(() => {});
