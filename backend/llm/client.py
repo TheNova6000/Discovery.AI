@@ -227,19 +227,22 @@ async def structured_call(
             provider = model.split("/", 1)[0]
             env_var = PROVIDER_ENV_VAR.get(provider)
             user_key = get_current_user_key(provider)
+            user_keys: list[str] = []
             if user_key:
                 # Bring-your-own-key (docs/Architecture.md): the user's own key is
                 # tried FIRST, then the shared pool. Before 2026-10-29 the saved key
                 # was the only attempt, so one dead/unbilled personal key made every
                 # call fail for that user while the server's pool sat unused (seen
                 # live on the website: all three saved keys failed, last one 402).
+                # A saved value may hold several keys (comma-separated, like the
+                # .env pools): they are the user's own pool, tried in order.
+                user_keys = [k.strip() for k in user_key.split(",") if k.strip()]
                 key_pool = PROVIDER_KEY_POOLS.get(provider) or []
                 fallback = _pool_keys_to_try(provider, key_pool) if key_pool else []
-                attempts: list[str | None] = [user_key] + [k for k in fallback if k != user_key]
+                attempts: list[str | None] = user_keys + [k for k in fallback if k not in user_keys]
                 if chain_pass == 1:
-                    source_log.append(
-                        f"{provider}=your saved key (…{user_key[-4:]})" + (", then shared server pool" if fallback else "")
-                    )
+                    mine = f"your saved key (…{user_keys[-1][-4:]})" if len(user_keys) == 1 else f"your {len(user_keys)} saved keys"
+                    source_log.append(f"{provider}={mine}" + (", then shared server pool" if fallback else ""))
             else:
                 key_pool = PROVIDER_KEY_POOLS.get(provider) or []
                 if chain_pass == 1:
@@ -311,7 +314,7 @@ async def structured_call(
                     key_note = f" (key {key_index + 1}/{len(attempts)})" if key is not None else ""
                     pass_note = f" [chain pass {chain_pass}/{CHAIN_ATTEMPTS}]" if chain_pass > 1 else ""
                     print(f"[questions] provider {model!r}{key_note}{pass_note} failed, trying next: {safe_reason}")
-                    is_users_key = user_key is not None and key == user_key
+                    is_users_key = key in user_keys
                     who = "your saved key" if is_users_key else "shared pool"
                     failures.setdefault(f"{provider} ({who})", safe_reason[:200])
                     _record_provider_result(provider, ok=False, used_shared_pool=not is_users_key, error_text=reason)
@@ -327,7 +330,7 @@ async def structured_call(
                         break
                     continue
                 else:
-                    _record_provider_result(provider, ok=True, used_shared_pool=not (user_key is not None and key == user_key))
+                    _record_provider_result(provider, ok=True, used_shared_pool=key not in user_keys)
                     return result
 
         if not pass_had_non_quota_error:

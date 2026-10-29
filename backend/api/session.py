@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from backend.main_block.reasoning_engine.agents.policy import ResearchMode
 from backend.main_block.reasoning_engine.llm_steps import get_family
@@ -349,6 +349,18 @@ class SettingsUpdateRequest(BaseModel):
     gemini_api_key: Optional[str] = None
     cerebras_api_key: Optional[str] = None
     cohere_api_key: Optional[str] = None
+
+    @field_validator("groq_api_key", "gemini_api_key", "cerebras_api_key", "cohere_api_key", mode="before")
+    @classmethod
+    def _normalize_keys(cls, value):
+        # One key or several (comma / space / newline separated, as in .env pools);
+        # stray quotes and whitespace removed. The website stored a whole pasted
+        # comma-separated pool as ONE key, which every provider rejected as invalid
+        # (2026-10-29). Stored as a clean comma list; llm/client.py splits it.
+        if not isinstance(value, str) or value == "":
+            return value
+        parts = [p.strip().strip("'\"").strip() for p in value.replace("\n", ",").replace(" ", ",").split(",")]
+        return ",".join(p for p in parts if p)
 
 
 class CursorPathIn(BaseModel):
