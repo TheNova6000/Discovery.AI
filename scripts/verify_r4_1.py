@@ -1,6 +1,6 @@
 """R4.1 verification -- the pure ClaimNode -> reasoning.domain.Claim mapping
 (docs/Phases.md's Reasoning Engine Evolution track, docs/Architecture.md
-§0.66/§0.67, backend/research/claim_mapping.py).
+§0.66/§0.67, backend/main_block/reasoning_engine/research/claim_mapping.py).
 
 Pure throughout -- no network/LLM/database/LangGraph call, no global mutable
 state. This is representation conversion only; it does not validate,
@@ -67,9 +67,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from pydantic import ValidationError  # noqa: E402
 
-from backend.graph.models import ClaimNode  # noqa: E402
-from backend.reasoning import identity_floor, semantic_identity  # noqa: E402
-from backend.research.claim_mapping import ClaimMappingRejected, claim_node_to_domain_claim  # noqa: E402
+from backend.main_block.reasoning_engine.graph.models import ClaimNode  # noqa: E402
+from backend.main_block.reasoning_engine.domain import identity_floor, semantic_identity  # noqa: E402
+from backend.main_block.reasoning_engine.research.claim_mapping import ClaimMappingRejected, claim_node_to_domain_claim  # noqa: E402
 
 
 def _node(**overrides) -> ClaimNode:
@@ -96,7 +96,7 @@ def check_valid_forward_mapping() -> None:
     assert claim.confidence == node.confidence
     assert claim.superseded_by is None
     assert claim.claim_id == node.id
-    assert claim.__class__.__module__.endswith("reasoning.domain")
+    assert claim.__class__.__module__.endswith("reasoning_engine.domain.domain")
     print("[PASS] #1 valid forward mapping preserves entity/question identity, normalized_form, confidence; result is a real reasoning.domain.Claim")
 
 
@@ -220,7 +220,7 @@ def check_uniform_treatment_not_detection() -> None:
 
 
 def check_out_of_range_confidence_raises() -> None:
-    # ClaimNode.confidence has no bound of its own (backend/graph/models.py);
+    # ClaimNode.confidence has no bound of its own (backend/main_block/reasoning_engine/graph/models.py);
     # reasoning.domain.Claim.confidence requires 0.0-1.0. This function does
     # not pre-check that range itself -- it relies on Claim's own validator,
     # the same split transition_claim (R1.4) already uses between its own
@@ -236,7 +236,7 @@ def check_out_of_range_confidence_raises() -> None:
 
 
 def check_no_reverse_mapping_exists() -> None:
-    import backend.research.claim_mapping as claim_mapping_module
+    import backend.main_block.reasoning_engine.research.claim_mapping as claim_mapping_module
 
     assert not hasattr(claim_mapping_module, "domain_claim_to_claim_node"), (
         "reverse mapping must not exist in this slice -- source_title/source_url/source_type/reasoning/valid_from "
@@ -244,8 +244,8 @@ def check_no_reverse_mapping_exists() -> None:
     )
     source = inspect.getsource(claim_mapping_module)
     import_lines = [line.strip() for line in source.splitlines() if line.strip().startswith(("import ", "from "))]
-    assert any("backend.graph" in line for line in import_lines)
-    assert any("backend.reasoning" in line for line in import_lines)
+    assert any("backend.main_block.reasoning_engine.graph" in line for line in import_lines)
+    assert any("backend.main_block.reasoning_engine.domain" in line for line in import_lines)
     print("[PASS] #12 no reverse mapping exists (confirmed by inspection); forward-only is the honest choice given the fields already dropped going forward")
 
 

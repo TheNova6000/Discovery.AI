@@ -46,8 +46,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.questions.relation_extraction import normalize_relationship_type  # noqa: E402
-from backend.questions.relation_types import (  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.relation_extraction import normalize_relationship_type  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.relation_types import (  # noqa: E402
     RELATION_TYPES,
     RelationFamily,
     RelationTypeInfo,

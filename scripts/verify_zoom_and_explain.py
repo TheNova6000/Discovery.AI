@@ -43,7 +43,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 import time
 
-from backend.graph import (  # noqa: E402
+from backend.main_block.reasoning_engine.graph import (  # noqa: E402
     GraphInterfaceError,
     attach_question,
     close_driver,

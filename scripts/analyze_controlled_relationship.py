@@ -37,8 +37,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.questions import analyze_claim_relationships  # noqa: E402
-from backend.questions.llm_config import has_any_provider_key  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps import analyze_claim_relationships  # noqa: E402
+from backend.llm.config import has_any_provider_key  # noqa: E402
 
 QUESTION_1 = "Why do some companies become dominant while others fail?"
 QUESTION_2 = "How can dominant companies sustain market power?"

@@ -40,10 +40,10 @@ load_dotenv()
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from backend.agents.policy import EXPLORATORY_POLICY  # noqa: E402
-from backend.dewey.curriculum import compile_course  # noqa: E402
-from backend.graph import close_driver, find_or_create_entity, materialize_abstraction  # noqa: E402
-from backend.research_api import fetch_and_compile_research_response  # noqa: E402
+from backend.main_block.reasoning_engine.agents.policy import EXPLORATORY_POLICY  # noqa: E402
+from backend.tunin.course import compile_course  # noqa: E402
+from backend.main_block.reasoning_engine.graph import close_driver, find_or_create_entity, materialize_abstraction  # noqa: E402
+from backend.main_block.reasoning_engine.research_api import fetch_and_compile_research_response  # noqa: E402
 
 
 async def _real_online_payment_abstraction_id() -> str:

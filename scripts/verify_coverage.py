@@ -1,5 +1,5 @@
-"""Regression test for `backend.dewey.coverage.lexical_candidate_checker_v0`
-against the persisted benchmark (`backend/dewey/coverage/benchmark_cases.py`)
+"""Regression test for `backend.tunin.coverage.lexical_candidate_checker_v0`
+against the persisted benchmark (`backend/tunin/coverage/benchmark_cases.py`)
 -- a real `verify_*` (pass/fail) script, not an `evaluate_*` diagnostic,
 matching this project's own established convention, since this script
 asserts a specific outcome (precision/recall must not regress below a
@@ -41,9 +41,9 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.dewey.coverage.benchmark_cases import CASES  # noqa: E402
-from backend.dewey.coverage.lexical_candidate_checker_v0 import check_concept  # noqa: E402
-from backend.dewey.coverage.schema import CoverageStatus  # noqa: E402
+from backend.tunin.coverage.benchmark_cases import CASES  # noqa: E402
+from backend.tunin.coverage.lexical_candidate_checker_v0 import check_concept  # noqa: E402
+from backend.tunin.coverage.schema import CoverageStatus  # noqa: E402
 from scripts.evaluate_source_pack_quality import EXPECTED_CONCEPTS  # noqa: E402
 
 MIN_PRECISION = 0.59

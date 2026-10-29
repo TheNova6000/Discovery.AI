@@ -2,8 +2,8 @@
 issue #2, docs/Architecture.md §0.35). Not a numbered Phases.md deliverable.
 
 Root cause this guards against: `normalize_relationship_type()`
-(backend/questions/relation_extraction.py) and `RELATION_TYPES`
-(backend/questions/relation_types.py) are two independently hand-maintained
+(backend/main_block/reasoning_engine/llm_steps/relation_extraction.py) and `RELATION_TYPES`
+(backend/main_block/reasoning_engine/llm_steps/relation_types.py) are two independently hand-maintained
 tables. §0.35's adversarial test found they'd already drifted apart once,
 silently: `_RELATIONSHIP_TYPE_SYNONYMS` maps detects/spots/monitors to
 "DETECTS", but RELATION_TYPES has no `detects` entry -- normalization
@@ -37,11 +37,11 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.questions.relation_extraction import (  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.relation_extraction import (  # noqa: E402
     KNOWN_TAXONOMY_GAPS,
     check_registry_consistency,
 )
-from backend.questions.relation_types import get_relation_info  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.relation_types import get_relation_info  # noqa: E402
 
 
 def _check_real_tables() -> bool:

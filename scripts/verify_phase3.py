@@ -29,13 +29,13 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-import backend.agents.ground_agent as ground_agent_module  # noqa: E402
-from backend.agents import AgentStatus, GroundAgent  # noqa: E402
-from backend.agents.models import AgentState  # noqa: E402
-from backend.questions import QuestionLevel  # noqa: E402
-from backend.questions.llm_config import has_any_provider_key  # noqa: E402
-from backend.questions.models import Question  # noqa: E402
-from backend.runtime import init_db, load_state, save_state  # noqa: E402
+import backend.main_block.reasoning_engine.agents.ground_agent as ground_agent_module  # noqa: E402
+from backend.main_block.reasoning_engine.agents import AgentStatus, GroundAgent  # noqa: E402
+from backend.main_block.reasoning_engine.agents.models import AgentState  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps import QuestionLevel  # noqa: E402
+from backend.llm.config import has_any_provider_key  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.models import Question  # noqa: E402
+from backend.main_block.reasoning_engine.runtime import init_db, load_state, save_state  # noqa: E402
 
 VERIFY_DB_PATH = str(pathlib.Path(__file__).resolve().parent.parent / "verify_phase3_state.sqlite3")
 

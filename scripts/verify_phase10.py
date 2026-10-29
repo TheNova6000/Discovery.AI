@@ -1,6 +1,6 @@
 """Phase 10 verification -- compile_lesson, Lesson Authoring's real I/O shell
 (docs/Phases.md, docs/Architecture.md, docs/Rules.md rules 2/16/19,
-backend/dewey/lessons/).
+backend/tunin/lessons/).
 
 Two parts, same structure as scripts/verify_phase9_2.py:
 
@@ -38,11 +38,11 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv()
 
-from backend.agents.policy import EXPLORATORY_POLICY  # noqa: E402
-from backend.dewey.curriculum import Module, compile_course  # noqa: E402
-from backend.graph import close_driver, find_or_create_entity, materialize_abstraction  # noqa: E402
-from backend.dewey.lessons import Lesson, compile_lesson  # noqa: E402
-from backend.research_api import fetch_and_compile_research_response  # noqa: E402
+from backend.main_block.reasoning_engine.agents.policy import EXPLORATORY_POLICY  # noqa: E402
+from backend.tunin.course import Module, compile_course  # noqa: E402
+from backend.main_block.reasoning_engine.graph import close_driver, find_or_create_entity, materialize_abstraction  # noqa: E402
+from backend.tunin.lessons import Lesson, compile_lesson  # noqa: E402
+from backend.main_block.reasoning_engine.research_api import fetch_and_compile_research_response  # noqa: E402
 
 
 async def check_zero_claims_module_never_calls_llm() -> None:

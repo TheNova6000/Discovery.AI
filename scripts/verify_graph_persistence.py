@@ -26,10 +26,10 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.agents import GroundAgent  # noqa: E402
-from backend.graph import close_driver, ensure_constraints, find_or_create_entity, get_neighbors  # noqa: E402
-from backend.questions.llm_config import has_any_provider_key  # noqa: E402
-from backend.questions.models import Question, QuestionLevel  # noqa: E402
+from backend.main_block.reasoning_engine.agents import GroundAgent  # noqa: E402
+from backend.main_block.reasoning_engine.graph import close_driver, ensure_constraints, find_or_create_entity, get_neighbors  # noqa: E402
+from backend.llm.config import has_any_provider_key  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.models import Question, QuestionLevel  # noqa: E402
 
 
 async def check_entity_idempotency() -> None:

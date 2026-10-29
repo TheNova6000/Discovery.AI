@@ -1,6 +1,6 @@
 """R5.1 verification -- ResearchRequest/ResearchResponse pure domain types
 (docs/Phases.md's Reasoning Engine Evolution track, docs/Architecture.md
-§0.57/§0.73, backend/research_api/models.py).
+§0.57/§0.73, backend/main_block/reasoning_engine/research_api/models.py).
 
 Pure throughout -- no LLM/retriever/Neo4j call, no orchestration, no
 compile_research_response (that's R5.2's job). Every fixture here is
@@ -53,10 +53,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from pydantic import ValidationError  # noqa: E402
 
-from backend.agents.policy import EXPLORATORY_POLICY  # noqa: E402
-from backend.graph.models import ClaimNode  # noqa: E402
-from backend.reasoning import ClaimStatus, ResearchTask, transition_claim  # noqa: E402
-from backend.research import (  # noqa: E402
+from backend.main_block.reasoning_engine.agents.policy import EXPLORATORY_POLICY  # noqa: E402
+from backend.main_block.reasoning_engine.graph.models import ClaimNode  # noqa: E402
+from backend.main_block.reasoning_engine.domain import ClaimStatus, ResearchTask, transition_claim  # noqa: E402
+from backend.main_block.reasoning_engine.research import (  # noqa: E402
     ConceptCompleteness,
     ConceptResearchTarget,
     FieldCoverage,
@@ -65,7 +65,7 @@ from backend.research import (  # noqa: E402
     assemble_research_artifact,
     claim_node_to_domain_claim,
 )
-from backend.research_api import ResearchRequest, ResearchResponse  # noqa: E402
+from backend.main_block.reasoning_engine.research_api import ResearchRequest, ResearchResponse  # noqa: E402
 
 _NOW = "2026-01-01T00:00:00+00:00"
 
@@ -184,12 +184,12 @@ def check_invalid_input_rejected() -> None:
 
 
 def check_r1_r3_r4_lifecycle_unchanged() -> None:
-    # A direct, minimal confirmation that importing/using backend.research_api
+    # A direct, minimal confirmation that importing/using backend.main_block.reasoning_engine.research_api
     # has no effect on R1/R3/R4's own real behavior -- the comprehensive
     # confirmation is the full regression suite (acceptance #10), re-run
     # unmodified; this is a quick, in-process sanity check, not a
     # duplicate of scripts/verify_r1_4.py's own 12 checks.
-    from backend.reasoning import Claim
+    from backend.main_block.reasoning_engine.domain import Claim
 
     claim = Claim(entity_id="e1", normalized_form="x", source_question_id="q1", confidence=0.5)
     normalized = transition_claim(claim, "normalized", reason="checked", actor="verify_r5_1")

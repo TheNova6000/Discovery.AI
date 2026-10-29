@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.graph import (  # noqa: E402
+from backend.main_block.reasoning_engine.graph import (  # noqa: E402
     attach_entity,
     close_driver,
     create_abstraction,

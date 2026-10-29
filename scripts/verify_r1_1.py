@@ -1,5 +1,5 @@
 """R1.1 verification -- core domain types (docs/Phases.md's Reasoning Engine
-Evolution track, docs/Architecture.md §0.47/§0.49/§0.56, backend/reasoning/domain.py).
+Evolution track, docs/Architecture.md §0.47/§0.49/§0.56, backend/main_block/reasoning_engine/domain/domain.py).
 
 Two parts, same split every phase this session has used:
 
@@ -36,7 +36,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from pydantic import ValidationError  # noqa: E402
 
-from backend.reasoning import (  # noqa: E402
+from backend.main_block.reasoning_engine.domain import (  # noqa: E402
     Answer,
     Claim,
     Evidence,
@@ -177,7 +177,7 @@ def run_real_data_acceptance_test() -> None:
         from dotenv import load_dotenv
 
         load_dotenv()
-        from backend.graph.interface import get_claims_for_question, get_questions_for_entity
+        from backend.main_block.reasoning_engine.graph.interface import get_claims_for_question, get_questions_for_entity
     except Exception as exc:  # noqa: BLE001 - environment/import issue, not a test failure
         print(f"[SKIP] real-data acceptance test: could not import graph interface ({exc})")
         return
@@ -290,7 +290,7 @@ if __name__ == "__main__":
     print("per the user's own 7-point acceptance list -- run separately, and skips (not")
     print("fails) if Neo4j isn't reachable in this environment. Acceptance #6 (existing")
     print("Phase 8 checks remain green) is verified separately by re-running")
-    print("scripts/verify_phase6.py through verify_phase8_6.py unmodified -- backend/reasoning")
-    print("itself (domain.py) has zero dependency on backend.agents/backend.research/")
-    print("backend.graph, so nothing about this module can regress them; this script's")
-    print("own Part 2 imports backend.graph read-only, same as every prior phase's live check.")
+    print("scripts/verify_phase6.py through verify_phase8_6.py unmodified -- backend/main_block/reasoning_engine/domain")
+    print("itself (domain.py) has zero dependency on backend.main_block.reasoning_engine.agents/backend.main_block.reasoning_engine.research/")
+    print("backend.main_block.reasoning_engine.graph, so nothing about this module can regress them; this script's")
+    print("own Part 2 imports backend.main_block.reasoning_engine.graph read-only, same as every prior phase's live check.")

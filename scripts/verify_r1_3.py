@@ -1,6 +1,6 @@
 """R1.3 verification -- two-tier claim identity fields (docs/Phases.md's
 Reasoning Engine Evolution track, docs/Architecture.md §0.50/§0.60,
-backend/reasoning/domain.py: `identity_floor`, `semantic_identity`,
+backend/main_block/reasoning_engine/domain/domain.py: `identity_floor`, `semantic_identity`,
 `is_likely_duplicate`).
 
 Two parts, same split every phase this session has used:
@@ -51,7 +51,7 @@ from itertools import combinations
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.reasoning import Claim, identity_floor, is_likely_duplicate, semantic_identity  # noqa: E402
+from backend.main_block.reasoning_engine.domain import Claim, identity_floor, is_likely_duplicate, semantic_identity  # noqa: E402
 
 
 def _claim(entity_id: str, normalized_form: str, question_id: str = "q1", **kwargs) -> Claim:
@@ -96,7 +96,7 @@ def run_real_data_check() -> None:
         from dotenv import load_dotenv
 
         load_dotenv()
-        from backend.graph.interface import get_claims_for_question, get_questions_for_entity
+        from backend.main_block.reasoning_engine.graph.interface import get_claims_for_question, get_questions_for_entity
     except Exception as exc:  # noqa: BLE001
         print(f"[SKIP] real-data check: could not import graph interface ({exc})")
         return
@@ -106,7 +106,7 @@ def run_real_data_check() -> None:
         import asyncio
 
         async def _fetch():
-            # ClaimNode itself carries no question_id field (backend/graph/models.py)
+            # ClaimNode itself carries no question_id field (backend/main_block/reasoning_engine/graph/models.py)
             # -- the claim/question link is only known via which question.id
             # get_claims_for_question was called with, so it's tracked here in
             # the loop, not read off the claim object.
@@ -126,7 +126,7 @@ def run_real_data_check() -> None:
         print("[SKIP] real-data check: expected real Payment gateway claims not found (has the graph changed?)")
         return
 
-    from backend.reasoning import reclassify_legacy_claim
+    from backend.main_block.reasoning_engine.domain import reclassify_legacy_claim
 
     reconstructed = [
         reclassify_legacy_claim(

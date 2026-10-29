@@ -9,7 +9,7 @@ scripts/verify_phase6.py -- proving the new `policy` injection point produces
 IDENTICAL GroundAgent configuration to what every existing caller already got
 before this phase existed, or (b) a value-pinning check against the real
 production constants EXPLORATORY_POLICY's numbers were read off of (not
-invented -- see backend/agents/policy.py's own docstrings for exactly where
+invented -- see backend/main_block/reasoning_engine/agents/policy.py's own docstrings for exactly where
 each value came from).
 
 What this script deliberately does NOT do: assert anything about actual LLM
@@ -53,14 +53,14 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.agents.ground_agent import (  # noqa: E402
+from backend.main_block.reasoning_engine.agents.ground_agent import (  # noqa: E402
     DEFAULT_MAX_DEPTH,
     DEFAULT_MAX_SEQUENTIAL_STEPS,
     GroundAgent,
 )
-from backend.agents.policy import EXPLORATORY_POLICY, ResearchPolicy  # noqa: E402
-from backend.evidence.engine import DEFAULT_MAX_RESULTS_PER_RETRIEVER  # noqa: E402
-from backend.questions import Question, QuestionLevel  # noqa: E402
+from backend.main_block.reasoning_engine.agents.policy import EXPLORATORY_POLICY, ResearchPolicy  # noqa: E402
+from backend.main_block.reasoning_engine.evidence.engine import DEFAULT_MAX_RESULTS_PER_RETRIEVER  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps import Question, QuestionLevel  # noqa: E402
 
 _QUESTION = Question(
     text="How does an online payment work?",

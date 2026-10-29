@@ -1,7 +1,7 @@
 """R3 verification, first slice -- the ResearchTask domain type plus pure
 scheduling/duplicate-detection/lifecycle functions (docs/Phases.md's
 Reasoning Engine Evolution track, docs/Architecture.md
-§0.53/§0.54/§0.54.1/§0.64, backend/reasoning/tasks.py).
+§0.53/§0.54/§0.54.1/§0.64, backend/main_block/reasoning_engine/domain/tasks.py).
 
 Pure throughout -- no MasterAgent, no LangGraph, no GroundAgent, no bus, no
 Neo4j, no LLM call. This slice defines the task graph's type and its
@@ -33,7 +33,7 @@ Checks:
   8. ResearchTask round-trips through model_dump_json/model_validate_json
      unchanged, including a task with every optional field populated.
   9. This module has zero imports outside stdlib/pydantic -- confirmed by
-     direct inspection, keeping backend.reasoning's dependency-direction
+     direct inspection, keeping backend.main_block.reasoning_engine.domain's dependency-direction
      guarantee intact through this new file too.
   10. Existing Phase 6/8.1-8.6/R1.1/R1.3/R1.4/R1.5/R2.1 checks remain green.
 """
@@ -48,7 +48,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from pydantic import ValidationError  # noqa: E402
 
-from backend.reasoning import (  # noqa: E402
+from backend.main_block.reasoning_engine.domain import (  # noqa: E402
     ResearchTask,
     TaskTransitionRejected,
     compute_runnable_tasks,
@@ -192,7 +192,7 @@ def check_serialization_round_trip() -> None:
 
 
 def check_zero_cross_package_imports() -> None:
-    import backend.reasoning.tasks as tasks_module
+    import backend.main_block.reasoning_engine.domain.tasks as tasks_module
 
     source = inspect.getsource(tasks_module)
     import_lines = [line.strip() for line in source.splitlines() if line.strip().startswith(("import ", "from "))]

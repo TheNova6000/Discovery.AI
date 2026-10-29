@@ -1,6 +1,6 @@
 """R2 verification, first slice -- typed events/commands for what R1 already
 produces (docs/Phases.md's Reasoning Engine Evolution track,
-docs/Architecture.md §0.51/§0.52.1/§0.63, backend/reasoning/events.py).
+docs/Architecture.md §0.51/§0.52.1/§0.63, backend/main_block/reasoning_engine/domain/events.py).
 
 Pure throughout -- no bus, no LLM, no Neo4j, no retriever call. This slice
 defines types and pure builder functions only; wiring them into a real
@@ -26,7 +26,7 @@ Checks:
   6. Every event type and the command survive a model_dump_json ->
      model_validate_json round trip unchanged.
   7. This module has zero imports outside stdlib/pydantic/.domain --
-     confirmed by direct inspection, keeping backend.reasoning's
+     confirmed by direct inspection, keeping backend.main_block.reasoning_engine.domain's
      dependency-direction guarantee intact through this new file too.
   8. Existing Phase 6/8.1-8.6/R1.1/R1.3/R1.4/R1.5 checks remain green.
 """
@@ -41,7 +41,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from pydantic import ValidationError  # noqa: E402
 
-from backend.reasoning import (  # noqa: E402
+from backend.main_block.reasoning_engine.domain import (  # noqa: E402
     Claim,
     ClaimCreated,
     ClaimTransitioned,
@@ -146,12 +146,12 @@ def check_serialization_round_trip() -> None:
 
 
 def check_zero_cross_package_imports() -> None:
-    import backend.reasoning.events as events_module
+    import backend.main_block.reasoning_engine.domain.events as events_module
 
     source = inspect.getsource(events_module)
     import_lines = [line.strip() for line in source.splitlines() if line.strip().startswith(("import ", "from "))]
     for line in import_lines:
-        assert not line.startswith("from backend.") or line.startswith("from backend.reasoning") or line.startswith("from .domain"), (
+        assert not line.startswith("from backend.") or line.startswith("from backend.main_block.reasoning_engine.domain") or line.startswith("from .domain"), (
             f"events.py has a cross-package import: {line!r}"
         )
     print(f"[PASS] #7 events.py's {len(import_lines)} import lines are all stdlib/pydantic/.domain, confirmed by direct inspection")

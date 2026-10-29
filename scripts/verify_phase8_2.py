@@ -1,6 +1,6 @@
 """Phase 8.2 verification -- Learning Research Planner, planning logic only
 (docs/Phases.md Phase 8.2, docs/PRD.md §9.3a, docs/Architecture.md §0.42,
-backend/research/planner.py).
+backend/main_block/reasoning_engine/research/planner.py).
 
 Same split as Phase 6's scripts/verify_phase6.py and Phase 8.1's
 scripts/verify_phase8_1.py: `plan_targets` is a pure function over
@@ -33,9 +33,9 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.agents.policy import EXPLORATORY_POLICY, ResearchPolicy  # noqa: E402
-from backend.graph.models import GraphNode  # noqa: E402
-from backend.research import plan_targets  # noqa: E402
+from backend.main_block.reasoning_engine.agents.policy import EXPLORATORY_POLICY, ResearchPolicy  # noqa: E402
+from backend.main_block.reasoning_engine.graph.models import GraphNode  # noqa: E402
+from backend.main_block.reasoning_engine.research import plan_targets  # noqa: E402
 
 _NOW = "2026-01-01T00:00:00+00:00"
 

@@ -1,5 +1,9 @@
 # PRD — Recursive Knowledge Graph
 
+> **Paths:** this document predates the 2026-10-28 main-block restructure. Current layout and the
+> old → new path map: `docs/Architecture.md`, section "Current code layout".
+
+
 ## 1. Purpose
 
 A personal research and learning tool that represents knowledge as a **recursive, question-driven graph** rather than a static list of notes or bookmarks. The user picks a topic (a "boundary" over the domain network), the system helps decompose it into entities, dimensions, and level-appropriate questions, finds real resources (papers, books, documentaries, docs) that answer those questions, and lets the user navigate the resulting structure by zooming in (entity → network) and out (network → entity) indefinitely.

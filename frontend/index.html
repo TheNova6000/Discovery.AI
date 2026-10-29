@@ -545,12 +545,14 @@
   <div>DISCOVERY.AI · WEBSITE</div>
 </footer>
 
+<script src="/runtime-config.js"></script>
 <script>
   // Backend origin for the two API calls this page makes (telemetry only --
   // this page still renders with zero API calls if both fail). Same pattern
   // as chat.html's CONFIG.BACKEND_URL; blanked to '' on the VM deploy so it
   // resolves same-origin there instead of cross-origin to Render.
-  const CONFIG = { BACKEND_URL: 'https://discovery-ai-bosm.onrender.com' };
+  // Offline (localhost / VM, same origin) vs online (Vercel -> Render): frontend/runtime-config.js.
+  const CONFIG = { BACKEND_URL: window.DISCOVERY_RUNTIME.BACKEND_URL };
   // Recording + looped playback of real cursor paths is home-page-only, by
   // explicit design (docs/Memory.md's cursor-flow redesign) -- docs.html
   // loads the same fluid-bg.js but leaves this unset, so it only ever gets

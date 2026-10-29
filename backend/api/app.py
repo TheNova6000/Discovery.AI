@@ -10,8 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.agents import EXPLORATORY_POLICY, GroundAgent
-from backend.graph import (
+from backend.main_block.reasoning_engine.agents import EXPLORATORY_POLICY, GroundAgent
+from backend.main_block.reasoning_engine.graph import (
     GraphInterfaceError,
     explain_entity,
     find_or_create_entity,
@@ -21,11 +21,14 @@ from backend.graph import (
     get_questions_for_entity,
     materialize_abstraction,
 )
-from backend.roadmap import generate_roadmap
-from backend.dewey.curriculum import compile_course
-from backend.dewey.lessons import compile_lesson
-from backend.research_api import ResearchRequest, fetch_and_compile_research_response
-from backend.questions import (
+from backend.main_block.reasoning_engine.roadmap import generate_roadmap
+from backend.chat.api import router as chat_router
+from backend.main_block.interface import recover_interrupted
+from backend.main_block.api import router as mainblock_router
+from backend.tunin.course import compile_course
+from backend.tunin.lessons import compile_lesson
+from backend.main_block.reasoning_engine.research_api import ResearchRequest, fetch_and_compile_research_response
+from backend.main_block.reasoning_engine.llm_steps import (
     PROJECTION_FAMILIES,
     Intent,
     Question,
@@ -35,8 +38,8 @@ from backend.questions import (
     is_compositional,
     parse_intent,
 )
-from backend.questions.llm_client import get_provider_status
-from backend.questions.llm_config import set_current_user_keys
+from backend.llm.client import get_provider_status
+from backend.llm.config import set_current_user_keys
 from backend.telemetry import (
     MAX_PATH_DURATION_MS,
     MAX_SAMPLES_PER_PATH,
@@ -74,6 +77,14 @@ app = FastAPI(title="Recursive Knowledge Graph — Demo", docs_url="/api/docs", 
 async def _startup() -> None:
     await db.init_pool()
     await init_path_db()
+    # Research jobs still marked running belong to a process that died.
+    await recover_interrupted()
+
+
+# The Main Block door (option B): research jobs + grounded ask.
+app.include_router(mainblock_router)
+# The Tuni'n chat model (separate from the reasoning engine; uses the door only).
+app.include_router(chat_router)
 
 # CORS_ORIGINS is a comma-separated allowlist (e.g. the Vercel frontend's URL)
 # for the deployed split-origin setup; unset defaults to "*", matching the
@@ -219,7 +230,7 @@ async def telemetry_path_post(body: CursorPathIn) -> dict:
 
 # Depth/step numbers below (2/3) used to live here as DEMO_MAX_DEPTH/DEMO_MAX_STEPS.
 # Phase 8.1 (docs/Architecture.md §0.40) moved them into EXPLORATORY_POLICY
-# (backend/agents/policy.py) -- same numbers, now a named, reusable policy
+# (backend/main_block/reasoning_engine/agents/policy.py) -- same numbers, now a named, reusable policy
 # object instead of loose constants, so a future policy (e.g. "learning" mode,
 # Phase 8.2+) has somewhere real to differ from. The original rationale for
 # 2/3 specifically (raised back from a bad depth=1/steps=1 cut that silently
@@ -231,7 +242,7 @@ async def telemetry_path_post(body: CursorPathIn) -> dict:
 # Bounded BFS depth/node caps for _sync_decomposition below -- Neo4j persists
 # across every investigation ever run for an entity name, potentially far more
 # than any ONE session's own depth/step budget (EXPLORATORY_POLICY.max_depth/
-# .max_sequential_steps, backend/agents/policy.py); these bound how much of that accumulated history one
+# .max_sequential_steps, backend/main_block/reasoning_engine/agents/policy.py); these bound how much of that accumulated history one
 # sync pulls into the live UI per call, independent of how large the entity's
 # full graph has grown over time.
 _SYNC_MAX_DEPTH = 3
@@ -984,7 +995,7 @@ async def roadmap(abstraction_id: str, user_id: str = Depends(get_current_user_i
     Resource -> summary) reading sequence through an already-investigated
     abstraction, distinct from free graph exploration (/graph, /node_detail
     above). Entirely a read over what's already in Neo4j via
-    `backend.roadmap.generate_roadmap` -- no new graph writes, no LLM call,
+    `backend.main_block.reasoning_engine.roadmap.generate_roadmap` -- no new graph writes, no LLM call,
     same as /resources and /node_detail. 404s (not 500s) when the abstraction
     id doesn't exist, since that's a normal "wrong/stale id" client error, not
     a server fault.
@@ -1002,7 +1013,7 @@ async def build_roadmap_endpoint(
 ) -> dict:
     """Phase 6.1 (docs/Phases.md, docs/Architecture.md §0.39.2) -- the real
     entrypoint `GET /roadmap` was missing: the only function that can ever
-    produce a valid `abstraction_id`, `backend.graph.materialize_abstraction`
+    produce a valid `abstraction_id`, `backend.main_block.reasoning_engine.graph.materialize_abstraction`
     (renamed from `zoom_in` this same phase -- see its docstring), had zero
     callers anywhere in the live app until this endpoint. Unlike /roadmap,
     this DOES write to the graph -- it materializes an Abstraction node over

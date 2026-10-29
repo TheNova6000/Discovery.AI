@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, ".")
 
-from backend.graph.driver import close_driver, get_driver
+from backend.main_block.reasoning_engine.graph.driver import close_driver, get_driver
 
 
 async def main():

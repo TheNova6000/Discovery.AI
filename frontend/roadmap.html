@@ -108,12 +108,13 @@
   <div id="status"></div>
   <div id="steps"></div>
 
+  <script src="/runtime-config.js"></script>
   <script>
     // Same same-origin-by-default pattern as frontend/chat.html's CONFIG:
     // leave BACKEND_URL blank to call this same server (the local/VM dev
     // default per docs/Architecture.md §0.38.2 -- everything on one laptop,
     // one process, no separate frontend server).
-    const CONFIG = { BACKEND_URL: '' };
+    const CONFIG = { BACKEND_URL: window.DISCOVERY_RUNTIME.BACKEND_URL };  // frontend/runtime-config.js
     function apiUrl(path) { return CONFIG.BACKEND_URL + path; }
 
     const statusEl = document.getElementById('status');

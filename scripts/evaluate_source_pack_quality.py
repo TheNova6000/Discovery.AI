@@ -20,7 +20,7 @@ What this measures, matching the six real questions the design conversation
 asked for:
   1. Coverage       -- which of a real, stated expected-concept list were
                        actually discovered (by entity name or claim text)?
-                       Uses `backend.dewey.coverage.lexical_candidate_checker_v0`
+                       Uses `backend.tunin.coverage.lexical_candidate_checker_v0`
                        (renamed/reframed from this script's own former inline
                        `check_concept_coverage`, docs/Memory.md 2026-09-17
                        Experiment C follow-up). **Still only an UPPER BOUND,
@@ -28,7 +28,7 @@ asked for:
                        explained"** -- `scripts/verify_coverage.py` measures
                        this checker's own precision/recall against a
                        persisted 27-case hand-labeled benchmark
-                       (`backend/dewey/coverage/benchmark_cases.py`):
+                       (`backend/tunin/coverage/benchmark_cases.py`):
                        precision 0.59, recall 1.00, 5 true negatives (up
                        from the original unnamed checker's 0.48/1.00/0,
                        Experiment C, docs/Architecture.md §0.86). It never
@@ -72,14 +72,14 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv()
 
-from backend.agents import GroundAgent, GroundResult  # noqa: E402
-from backend.dewey.coverage.lexical_candidate_checker_v0 import (  # noqa: E402
+from backend.main_block.reasoning_engine.agents import GroundAgent, GroundResult  # noqa: E402
+from backend.tunin.coverage.lexical_candidate_checker_v0 import (  # noqa: E402
     check_concept_coverage,
 )
-from backend.evidence import Claim  # noqa: E402
-from backend.evidence.retrievers import DEFAULT_RETRIEVERS  # noqa: E402
-from backend.graph import close_driver, find_or_create_entity, get_decomposition  # noqa: E402
-from backend.questions.models import Question, QuestionLevel  # noqa: E402
+from backend.main_block.reasoning_engine.evidence import Claim  # noqa: E402
+from backend.main_block.research_engine.sources import DEFAULT_RETRIEVERS  # noqa: E402
+from backend.main_block.reasoning_engine.graph import close_driver, find_or_create_entity, get_decomposition  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.models import Question, QuestionLevel  # noqa: E402
 
 TOPIC_ENTITY_NAME = "C++ pointers and memory"
 SUPPORTED_CONFIDENCE_THRESHOLD = 0.5
@@ -196,9 +196,9 @@ async def run() -> dict:
         "expected_concepts_found": discovered_concepts,
         "expected_concepts_found_caveat": (
             "UPPER BOUND, not a trustworthy positive result. Checker: "
-            "backend.dewey.coverage.lexical_candidate_checker_v0 -- honestly "
+            "backend.tunin.coverage.lexical_candidate_checker_v0 -- honestly "
             "scoped to ABSENT/MENTIONED only, never DEFINED/EXPLAINED/etc "
-            "(see backend/dewey/coverage/schema.py). scripts/verify_coverage.py "
+            "(see backend/tunin/coverage/schema.py). scripts/verify_coverage.py "
             "measures this checker's own precision/recall against a persisted "
             "27-case benchmark: precision 0.59 / recall 1.00 / 5 true negatives "
             "(improved from the pre-rename checker's 0.48/1.00/0, Experiment C, "

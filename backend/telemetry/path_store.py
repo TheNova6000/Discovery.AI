@@ -9,7 +9,7 @@ import aiosqlite
 
 from .exceptions import TelemetryError
 
-# Same override pattern as backend/runtime/state_store.py.
+# Same override pattern as backend/main_block/reasoning_engine/runtime/state_store.py.
 DEFAULT_DB_PATH = os.environ.get(
     "CURSOR_FLOW_DB_PATH", str(Path(__file__).resolve().parent.parent.parent / "cursor_flow.sqlite3")
 )

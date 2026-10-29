@@ -1,7 +1,7 @@
 """R4.4 verification -- the first slice that writes to Neo4j
 (docs/Phases.md's Reasoning Engine Evolution track, docs/Architecture.md
-§0.70/§0.71, backend/graph/interface.py's `persist_claim_lifecycle`,
-backend/research/claim_persistence.py's `persist_domain_claim_lifecycle`).
+§0.70/§0.71, backend/main_block/reasoning_engine/graph/interface.py's `persist_claim_lifecycle`,
+backend/main_block/reasoning_engine/research/claim_persistence.py's `persist_domain_claim_lifecycle`).
 
 Everything from R1 through R4.3 was pure/in-memory/read-only by explicit
 scope. This is that scope's deliberate, narrowly-bounded first exception --
@@ -75,16 +75,16 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv()
 
-import backend.graph.interface as graph_interface_module  # noqa: E402
-from backend.graph import (  # noqa: E402
+import backend.main_block.reasoning_engine.graph.interface as graph_interface_module  # noqa: E402
+from backend.main_block.reasoning_engine.graph import (  # noqa: E402
     attach_claim,
     attach_question,
     find_or_create_entity,
     get_claims_for_question,
     get_driver,
 )
-from backend.reasoning import Claim, transition_claim  # noqa: E402
-from backend.research import assess_claim_validity, claim_node_to_domain_claim, persist_domain_claim_lifecycle  # noqa: E402
+from backend.main_block.reasoning_engine.domain import Claim, transition_claim  # noqa: E402
+from backend.main_block.reasoning_engine.research import assess_claim_validity, claim_node_to_domain_claim, persist_domain_claim_lifecycle  # noqa: E402
 
 TEST_ENTITY_NAME = "R4.4 Verify Test Entity"
 

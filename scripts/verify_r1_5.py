@@ -1,6 +1,6 @@
 """R1.5 verification -- the final pure validation/serialization boundary for
 R1's core domain model (docs/Phases.md's Reasoning Engine Evolution track,
-docs/Architecture.md §0.62, backend/reasoning/domain.py).
+docs/Architecture.md §0.62, backend/main_block/reasoning_engine/domain/domain.py).
 
 R1.1-R1.4 each tested their own new pieces as they were built, but coverage
 was uneven: only `Claim` had a dedicated serialization round-trip test
@@ -45,7 +45,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from pydantic import ValidationError  # noqa: E402
 
-from backend.reasoning import Answer, Claim, Evidence, RetrievalOutcome  # noqa: E402
+from backend.main_block.reasoning_engine.domain import Answer, Claim, Evidence, RetrievalOutcome  # noqa: E402
 
 
 def check_retrieval_outcome_round_trip() -> None:

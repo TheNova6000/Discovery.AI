@@ -1,6 +1,6 @@
 """R4.3 verification -- the parent/subclaim relation (docs/Phases.md's
 Reasoning Engine Evolution track, docs/Architecture.md §0.49/§0.69,
-backend/reasoning/domain.py: `parent_claim_id`/`relation_to_parent` on
+backend/main_block/reasoning_engine/domain/domain.py: `parent_claim_id`/`relation_to_parent` on
 `Claim`, `subclaim_relation`, `is_necessary_support`,
 `validate_subclaim_graph`, `find_claims_with_invalid_parent`).
 
@@ -52,7 +52,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from pydantic import ValidationError  # noqa: E402
 
-from backend.reasoning import (  # noqa: E402
+from backend.main_block.reasoning_engine.domain import (  # noqa: E402
     Claim,
     SubclaimGraphError,
     find_claims_with_invalid_parent,

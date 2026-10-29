@@ -1007,16 +1007,19 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.5/dist/purify.min.js"></script>
+<script src="/runtime-config.js"></script>
 <script>
 // ---------- deployment config ----------
 // Leave every field blank to run exactly as before: no login, frontend and
 // backend on the same origin (the local/VM demo). Fill these in only once you
 // have a Supabase project and a deployed backend — see README.md for the
 // full runbook.
+// Offline (localhost / VM: same origin, no login) vs online (Vercel -> Render +
+// Supabase login) is decided in frontend/runtime-config.js, shared by every page.
 const CONFIG = {
-  SUPABASE_URL: 'https://etamqvymleodnacznmnj.supabase.co',
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0YW1xdnltbGVvZG5hY3pubW5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4OTQyMzQsImV4cCI6MjEwMzQ3MDIzNH0.WA0IH9Ug5QP4ZzrJ0-Xe5jvqRS2bp16cTmrNvRrTG3M',
-  BACKEND_URL: 'https://discovery-ai-bosm.onrender.com',
+  SUPABASE_URL: window.DISCOVERY_RUNTIME.SUPABASE_URL,
+  SUPABASE_ANON_KEY: window.DISCOVERY_RUNTIME.SUPABASE_ANON_KEY,
+  BACKEND_URL: window.DISCOVERY_RUNTIME.BACKEND_URL,
 };
 const AUTH_ENABLED = !!(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY);
 const supabaseClient = AUTH_ENABLED ? window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY) : null;
@@ -2384,3 +2387,6 @@ if (!AUTH_ENABLED) bootApp();
 </script>
 </body>
 </html>
+
+
+

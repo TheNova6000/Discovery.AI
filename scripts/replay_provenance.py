@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.agents import ClaimProvenance, find_root_agent_id, trace_claim  # noqa: E402
+from backend.main_block.reasoning_engine.agents import ClaimProvenance, find_root_agent_id, trace_claim  # noqa: E402
 
 SESSIONS = [
     ("Session 1 — Global Payment System", "session_global_payment_system.sqlite3"),

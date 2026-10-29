@@ -1,6 +1,6 @@
 """R1.4 verification -- pure claim lifecycle transitions (docs/Phases.md's
 Reasoning Engine Evolution track, docs/Architecture.md §0.61,
-backend/reasoning/domain.py: `transition_claim`, `ClaimTransitionRejected`).
+backend/main_block/reasoning_engine/domain/domain.py: `transition_claim`, `ClaimTransitionRejected`).
 
 Pure, no I/O -- transition_claim calls no LLM, queries no Neo4j, retrieves
 no evidence, publishes no event, and reads `confidence` nowhere. Every
@@ -43,7 +43,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from backend.reasoning import (  # noqa: E402
+from backend.main_block.reasoning_engine.domain import (  # noqa: E402
     Claim,
     ClaimTransitionRejected,
     RetrievalOutcome,

@@ -1,6 +1,6 @@
 """R3.2 verification -- wiring ResearchTask into MasterAgent's real
 orchestration (docs/Phases.md's Reasoning Engine Evolution track,
-docs/Architecture.md §0.65, backend/agents/master_agent.py's
+docs/Architecture.md §0.65, backend/main_block/reasoning_engine/agents/master_agent.py's
 run_task_graph).
 
 `decide_next_step` is monkeypatched to always return a deterministic
@@ -55,12 +55,12 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-import backend.agents.ground_agent as ground_agent_module  # noqa: E402
-from backend.agents import AgentStatus, MasterAgent, TaskGraphResult  # noqa: E402
-from backend.questions import GroundDecision, QuestionLevel  # noqa: E402
-from backend.questions.llm_config import has_any_provider_key  # noqa: E402
-from backend.questions.models import Question  # noqa: E402
-from backend.reasoning import (  # noqa: E402
+import backend.main_block.reasoning_engine.agents.ground_agent as ground_agent_module  # noqa: E402
+from backend.main_block.reasoning_engine.agents import AgentStatus, MasterAgent, TaskGraphResult  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps import GroundDecision, QuestionLevel  # noqa: E402
+from backend.llm.config import has_any_provider_key  # noqa: E402
+from backend.main_block.reasoning_engine.llm_steps.models import Question  # noqa: E402
+from backend.main_block.reasoning_engine.domain import (  # noqa: E402
     ResearchTask,
     TaskGraphValidationError,
     compute_runnable_tasks,
