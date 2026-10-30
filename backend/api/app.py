@@ -1176,19 +1176,40 @@ async def lesson_endpoint(req: LessonRequest, user_id: str = Depends(get_current
 # alone). Registered as explicit GET routes, ahead of the mount, so /chat
 # (a page) and the existing POST /chat (the API endpoint) coexist without
 # conflict — FastAPI routes on method, not path alone.
+#
+# Every frontend file is sent with "Cache-Control: no-cache": the browser keeps
+# its copy but must revalidate it (a cheap 304 via ETag) before each use.
+# Without the header, browsers reuse a cached file for a while on their own,
+# so after a deploy they kept running a stale runtime-config.js -- the
+# onrender.com host stayed "offline", sent no token, and every call failed
+# with "Missing bearer token".
+NO_CACHE = {"Cache-Control": "no-cache"}
+
+
+def _page(name: str) -> FileResponse:
+    return FileResponse(FRONTEND_DIR / name, headers=NO_CACHE)
+
+
+class _NoCacheStaticFiles(StaticFiles):
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers.update(NO_CACHE)
+        return response
+
+
 @app.get("/chat")
 async def chat_page() -> FileResponse:
-    return FileResponse(FRONTEND_DIR / "chat.html")
+    return _page("chat.html")
 
 
 @app.get("/home")
 async def home_page() -> FileResponse:
-    return FileResponse(FRONTEND_DIR / "index.html")
+    return _page("index.html")
 
 
 @app.get("/docs")
 async def docs_page() -> FileResponse:
-    return FileResponse(FRONTEND_DIR / "docs.html")
+    return _page("docs.html")
 
 
 @app.get("/app.html")
@@ -1204,4 +1225,4 @@ async def legacy_app_html_redirect() -> RedirectResponse:
 # otherwise match every path as a prefix and swallow the API routes above it
 # if it were registered first, since Starlette checks routes in registration
 # order.
-app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+app.mount("/", _NoCacheStaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
