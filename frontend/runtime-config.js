@@ -5,7 +5,10 @@
  *   OFFLINE  (http://localhost:8000, 127.0.0.1, a LAN/VM IP, file://)
  *            frontend and backend on the same origin, no login.
  *   ONLINE   (https://discovery-ai.vercel.app or any host listed below)
- *            backend on Render, Google login through Supabase.
+ *            backend on Render, Google login through Supabase. The Render
+ *            backend serves these same pages, and it requires a login, so its
+ *            own host must count as online too; offline there sent no token
+ *            and every call failed with "Missing bearer token".
  *
  * To point the online site at a different backend or auth project, edit
  * ONLINE only. To force a mode while testing, add ?mode=offline or
@@ -22,7 +25,7 @@
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0YW1xdnltbGVvZG5hY3pubW5qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc4OTQyMzQsImV4cCI6MjEwMzQ3MDIzNH0.WA0IH9Ug5QP4ZzrJ0-Xe5jvqRS2bp16cTmrNvRrTG3M",
   };
   var OFFLINE = { MODE: "offline", BACKEND_URL: "", SUPABASE_URL: "", SUPABASE_ANON_KEY: "" };
-  var ONLINE_HOST_SUFFIXES = [".vercel.app"];
+  var ONLINE_HOST_SUFFIXES = [".vercel.app", ".onrender.com"];
 
   var forced = new URLSearchParams(window.location.search).get("mode");
   var host = window.location.hostname || "";
