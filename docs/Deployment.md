@@ -19,8 +19,8 @@ and which features the backend switches on is decided by environment variables.
 
 - served from `localhost`, `127.0.0.1`, a LAN/VM IP, or `file://` → **offline**:
   backend = same origin, login off;
-- served from `*.vercel.app` (production and branch previews) → **online**:
-  backend = Render, login on;
+- served from `*.vercel.app` (production and branch previews) or `*.onrender.com`
+  (the backend serves the same pages) → **online**: backend = Render, login on;
 - `?mode=offline` / `?mode=online` on any page URL forces a mode for testing.
 
 To point the website at another backend or Supabase project, edit the `ONLINE`
